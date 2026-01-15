@@ -1,6 +1,3 @@
-from src.processors.exceptions import OverpassDetectedException
-
-
 def _get_processor(name: str):
     if name == "validation":
         from src.processors.validation.processor import validate_scenario
@@ -14,13 +11,9 @@ def _get_processor(name: str):
         from src.processors.polyline_interpolation.processor import interpolate_polylines
 
         return interpolate_polylines
-    if name == "overpass_filtering":
-        from src.processors.overpass_filtering.processor import detect_overpass_in_scenario
-
-        return detect_overpass_in_scenario
 
     raise ValueError(
-        f"Unknown processor: {name} (supported: validation|traffic_lights|polyline_interpolation|overpass_filtering)",
+        f"Unknown processor: {name} (supported: validation|traffic_lights|polyline_interpolation)",
     )
 
 

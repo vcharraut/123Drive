@@ -1,2 +1,0 @@
-class OverpassDetectedException(Exception):
-    pass

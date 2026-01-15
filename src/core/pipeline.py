@@ -7,7 +7,7 @@ from src import logger_utils
 from src.converter.pufferdrive import puffer_dict_to_binary, unified_to_puffer_dict
 from src.core.json_utils import to_jsonable
 from src.datasets import get_dataset_config
-from src.processors import OverpassDetectedException, apply_processors
+from src.processors import apply_processors
 
 
 logger = logger_utils.get_logger(__name__)
@@ -71,8 +71,6 @@ def _process_one(
                 json.dump(to_jsonable(payload), f, indent=json_indent)
 
         return {"map_id": map_id, "status": "ok"}
-    except OverpassDetectedException as e:
-        return {"map_id": map_id, "status": "filtered", "error": str(e)}
     except Exception as e:
         return {"map_id": map_id, "status": "error", "error": f"{type(e).__name__}: {e}"}
 
