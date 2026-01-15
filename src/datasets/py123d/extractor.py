@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from py123d.datatypes.map_objects.map_layer_types import RoadEdgeType, RoadLineType  # type: ignore[import-not-found]
 
 
-
 @dataclass(frozen=True)
 class _MapObjectBundle:
     layer: object
@@ -43,9 +42,9 @@ def convert_py123d_scenario(raw: object) -> dict:
 
     if isinstance(raw, MapOnlyScenario):
         map_api = raw.map_api
-        scenario_id = f"map:{raw.scenario_id}"
-        timesteps = np.array([0.0], dtype=np.float32)
-        scenario_length = len(timesteps)
+        scenario_id = raw.scenario_id
+        timesteps = []
+        scenario_length = 0
         log_metadata = None
         scene = None
     else:
@@ -80,7 +79,6 @@ def convert_py123d_scenario(raw: object) -> dict:
             "scenario_length": scenario_length,
             "sdc_index": 0,
             "timesteps": timesteps,
-            "map_center": center.tolist(),
         },
     )
 
