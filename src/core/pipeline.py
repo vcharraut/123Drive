@@ -14,10 +14,10 @@ logger = logger_utils.get_logger(__name__)
 
 
 def _iter_waymo_scenarios(file_paths):
-    from src.datasets.waymo.load import _iter_tfrecord_scenarios
+    from src.datasets.waymo.load import iter_tfrecord_scenarios
 
     for file_path in file_paths:
-        yield from _iter_tfrecord_scenarios(file_path)
+        yield from iter_tfrecord_scenarios(file_path)
 
 
 def _chunk(iterable, chunk_size: int):
@@ -115,6 +115,14 @@ def run(cfg):
             num_files=num_files,
         )
         raw_iter = iter(scenarios)
+    elif cfg.dataset == "py123d":
+        num_files = getattr(cfg, "num_files", None)
+        py123d_cfg = cfg.get("py123d", None)
+        py123d_args = dict(py123d_cfg) if py123d_cfg else {}
+        if num_files is not None:
+            py123d_args.setdefault("num_files", num_files)
+        scenarios = dataset_cfg.load_func(cfg.dataset_path, **py123d_args)
+        raw_iter = iter(scenarios)
     else:
         raise ValueError(f"Unsupported dataset: {cfg.dataset}")
 
@@ -124,7 +132,7 @@ def run(cfg):
     errors = 0
     filtered = 0
 
-    for batch in tqdm(_chunk(raw_iter, int(cfg.batch_size)), desc="scenarios", unit="scen"):
+    for batch in tqdm(_chunk(raw_iter, int(cfg.batch_size)), desc="scenarios"):
         args = []
         for raw in batch:
             if max_scenarios is not None and map_id >= max_scenarios:

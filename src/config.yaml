@@ -6,7 +6,7 @@ defaults:
 # one dataset per run
 command: convert  # convert | json_to_bin
 
-dataset: waymo  # waymo | nuplan | openscenes
+dataset: waymo  # waymo | nuplan | openscenes | py123d
 
 dataset_path: null
 
@@ -15,6 +15,17 @@ openscenes:
   nuplan_logs_root: null
   nuplan_maps_root: null
   metadata_root: null
+
+# py123d only (optional)
+py123d:
+  datasets: null
+  split_types: [train, val, test]
+  split_names: null
+  log_names: null
+  duration_s: null
+  history_s: 0.0
+  map_api_required: true
+  map_only: false
 
 output_dir: "./output"
 

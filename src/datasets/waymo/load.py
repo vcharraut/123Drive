@@ -52,9 +52,8 @@ def preprocess_waymo_scenarios(files):
     return scenarios
 
 
-def _iter_tfrecord_scenarios(file_path: str):
+def iter_tfrecord_scenarios(file_path: str):
     tf = get_tensorflow()
     if ("tfrecord" not in file_path) or (not os.path.isfile(file_path)):
         return
-    for scenario in tf.data.TFRecordDataset(file_path, compression_type="").as_numpy_iterator():
-        yield scenario
+    yield from tf.data.TFRecordDataset(file_path, compression_type="").as_numpy_iterator()

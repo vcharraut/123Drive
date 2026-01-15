@@ -36,5 +36,13 @@ def get_dataset_config(name: str) -> DatasetConfig:
             load_func=openscenes.get_openscenes_scenarios,
             convert_func=openscenes.convert_openscenes_scenario,
         )
+    if name == "py123d":
+        from src.datasets import py123d
 
-    raise ValueError(f"Unsupported dataset: {name} (supported: waymo|nuplan|openscenes)")
+        return DatasetConfig(
+            name="py123d",
+            load_func=py123d.get_py123d_scenarios,
+            convert_func=py123d.convert_py123d_scenario,
+        )
+
+    raise ValueError(f"Unsupported dataset: {name} (supported: waymo|nuplan|openscenes|py123d)")
