@@ -2,5 +2,6 @@
 *.egg-info
 *.bin
 *.png
+*.mp4
 
 .vscode/
