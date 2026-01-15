@@ -27,6 +27,7 @@ all = [
   "tensorflow==2.11.1",
   "protobuf<3.20",
   "nuplan-devkit",
+  "ruff",
 ]
 
 [project.scripts]
