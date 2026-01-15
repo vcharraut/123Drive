@@ -1,0 +1,2 @@
+class OverpassDetectedException(Exception):
+    pass

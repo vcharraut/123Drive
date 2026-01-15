@@ -1,0 +1,43 @@
+import ast
+import inspect
+import os
+
+import numpy as np
+
+
+def mps_to_kmh(speed_in_mps: float):
+    speed_in_kmh = speed_in_mps * 3.6
+    return np.ceil(speed_in_kmh)
+
+
+def mps_to_mph(speed_in_mps: float):
+    speed_in_mph = speed_in_mps * 2.23694
+    return np.ceil(speed_in_mph)
+
+
+def mph_to_kmh(speed_in_mph: float):
+    speed_in_kmh = speed_in_mph * 1.609344
+    return np.ceil(speed_in_kmh)
+
+
+def dict_recursive_remove_array_and_set(d):
+    if isinstance(d, np.ndarray):
+        return d.tolist()
+    if isinstance(d, set):
+        return tuple(d)
+    if isinstance(d, dict):
+        for k in d:
+            d[k] = dict_recursive_remove_array_and_set(d[k])
+    return d
+
+
+def contains_explicit_return(f):
+    return any(isinstance(node, ast.Return) for node in ast.walk(ast.parse(inspect.getsource(f))))
+
+
+def process_memory():
+    import psutil
+
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info()
+    return mem_info.rss / 1024 / 1024  # mb
