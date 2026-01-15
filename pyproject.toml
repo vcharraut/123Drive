@@ -13,6 +13,7 @@ dependencies = [
   "tqdm",
   "hydra-core==1.1.1",
   "omegaconf>=2.1.0",
+  "matplotlib>=3.10.8",
 ]
 
 [project.optional-dependencies]
