@@ -44,7 +44,7 @@ max_scenarios: null
 waymo:
   num_files: null
 
-processors: []  # [validation, traffic_lights, polyline_interpolation, overpass_filtering]
+processors: []  # [validation, traffic_lights, polyline_interpolation]
 
 validation:
   strict: false
@@ -57,10 +57,6 @@ validation:
 
 polyline_interpolation:
   max_segment_length: 2.0
-
-overpass_filtering:
-  xy_distance_threshold: 0.8
-  z_difference_threshold: 4.0
 
 pufferdrive:
   min_route_valid_points: 0

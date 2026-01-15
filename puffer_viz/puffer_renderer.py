@@ -325,9 +325,9 @@ def _render_road_map(ax: plt.Axes, puffer_scenario: dict) -> None:
 
         # Map element types to colors and styles
         if 1 <= element_type <= 3:  # Lanes
-            ax.plot(x, y, linewidth=0.8, alpha=0.7, linestyle="-", zorder=1)
+            ax.plot(x, y, color=COLORS["lane"], linewidth=0.8, alpha=0.7, linestyle="-", zorder=1)
         elif 11 <= element_type <= 18:  # Road lines
-            ax.plot(x, y, linewidth=1.0, alpha=0.7, linestyle="--", zorder=2)
+            ax.plot(x, y, color=COLORS["road_line"], linewidth=1.0, alpha=0.7, linestyle="--", zorder=2)
         elif 21 <= element_type <= 23:  # Road edges
             ax.plot(x, y, color=COLORS["road_edge"], linewidth=1.5, alpha=1.0, zorder=2)
         elif element_type == 31:  # Crosswalk
@@ -452,26 +452,9 @@ def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_futu
 
     ego_id = metadata.get("ego_id", -1)
 
-    if len(agents) == 0:
-        agents = [
-            {
-                "id": -1,
-                "states": {
-                    "xyz": np.array([[-53.9502296, 145.821945]]),
-                    "heading": np.array([0.0807121545]),
-                    "valid": np.array([1]),
-                    "length": np.array([4.5]),
-                    "width": np.array([2.0]),
-                },
-            },
-        ]
-
     for agent in agents:
         agent_id = agent.get("id", -1)
         states = agent.get("states", {})
-
-        # if len(agent.get("routes", [])) > 0:
-        #     continue  # Skip agents without routes
 
         # Get states
         xyz = states.get("xyz", np.array([]))
