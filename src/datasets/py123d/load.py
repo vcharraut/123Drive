@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from src.datasets.py123d.utils import ensure_py123d_on_path, resolve_py123d_data_root
 
@@ -11,7 +11,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from py123d.api.map.arrow_map_api import ArrowMapAPI  # type: ignore[import-not-found]
-
 
 
 @dataclass(frozen=True)
@@ -43,11 +42,11 @@ def get_py123d_scenarios(
     history_s: float | None = 0.0,
     map_api_required: bool = True,
     map_only: bool = False,
-) -> list[object]:
+) -> list[Any]:
     """Load py123d scenarios from Arrow logs and/or maps.
 
     Args:
-        dataset_path: Root path to py123d_data (contains logs/ and maps/).
+        dataset_path: Root path to py123d_data (contains logs/ and maps/) or a directory of .arrow maps.
         num_files: Optional cap on number of scenes.
         datasets: Optional list of dataset names to include (e.g. ["nuplan", "wod-motion"]).
         split_types: Optional list of split types (train/val/test).
@@ -64,7 +63,7 @@ def get_py123d_scenarios(
     data_root = resolve_py123d_data_root(dataset_path)
 
     if map_only:
-        return _load_map_only_scenarios(data_root, datasets, split_types, split_names)
+        return _load_map_only_scenarios(data_root)
 
     logs_root = data_root / "logs"
     maps_root = data_root / "maps"
@@ -87,65 +86,31 @@ def get_py123d_scenarios(
     return builder.get_scenes(filter_cfg, worker)
 
 
-def _load_map_only_scenarios(
-    data_root: Path,
-    datasets: list[str] | None,
-    split_types: list[str] | None,
-    split_names: list[str] | None,
-) -> list[MapOnlyScenario]:
-    maps_root = data_root / "maps"
-    map_paths = _discover_map_arrow_paths(maps_root, datasets, split_types, split_names)
+def _load_map_only_scenarios(data_root: Path) -> list[MapOnlyScenario]:
+    map_paths = _discover_map_arrow_paths(data_root)
+    if not map_paths:
+        maps_root = data_root / "maps"
+        map_paths = _discover_map_arrow_paths(maps_root)
 
     ArrowMapAPI, _, _, _ = _import_py123d()
 
     scenarios: list[MapOnlyScenario] = []
     for map_path in map_paths:
         scenario_id = map_path.stem
-        split_name = map_path.parent.name
+        split_name = None if map_path.parent == data_root else map_path.parent.name
         map_api = ArrowMapAPI(map_path)
         scenarios.append(MapOnlyScenario(scenario_id=scenario_id, map_api=map_api, split_name=split_name))
 
     return scenarios
 
 
-def _discover_map_arrow_paths(
-    maps_root: Path,
-    datasets: list[str] | None,
-    split_types: list[str] | None,
-    split_names: list[str] | None,
-) -> list[Path]:
+def _discover_map_arrow_paths(maps_root: Path) -> list[Path]:
     if not maps_root.exists():
         return []
 
-    dataset_filter = set(datasets) if datasets else None
-    split_name_filter = set(split_names) if split_names else None
-    split_type_filter = set(split_types) if split_types else None
-
     map_paths: list[Path] = []
-    for subdir in maps_root.iterdir():
-        if not subdir.is_dir():
-            continue
-
-        subdir_name = subdir.name
-        split_type = None
-        if "_" in subdir_name:
-            split_type = subdir_name.split("_")[-1]
-
-        if split_name_filter is not None and subdir_name not in split_name_filter:
-            continue
-
-        if split_type_filter is not None and (split_type is None or split_type not in split_type_filter):
-            continue
-
-        if dataset_filter is not None and not _matches_dataset_filter(subdir_name, dataset_filter):
-            continue
-
-        for map_file in subdir.iterdir():
-            if map_file.is_file() and map_file.suffix == ".arrow":
-                map_paths.append(map_file)
+    for map_file in maps_root.iterdir():
+        if map_file.is_file() and map_file.suffix == ".arrow":
+            map_paths.append(map_file)
 
     return map_paths
-
-
-def _matches_dataset_filter(name: str, dataset_filter: Iterable[str]) -> bool:
-    return any(name == dataset or name.startswith(dataset) or dataset.startswith(name) for dataset in dataset_filter)

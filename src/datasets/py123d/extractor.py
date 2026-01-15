@@ -413,7 +413,7 @@ def _iter_map_objects(map_api: ArrowMapAPI, layers: Iterable) -> list[_MapObject
     return bundles
 
 
-def _convert_map_object(map_object: object, center: np.ndarray) -> dict | None:
+def _convert_map_object(map_object: object,center: np.ndarray,lane_id_map: dict[object, int]) -> dict | None:
     ensure_py123d_on_path()
 
     from py123d.datatypes.map_objects.map_objects import (  # type: ignore[import-not-found]
