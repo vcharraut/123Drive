@@ -264,170 +264,17 @@ def extract_dynamic_map_elements(
 
 
 def _get_ego_state(scene: SceneAPI, frame_idx: int):
-    """Get ego state, with fallback when timestamp column is missing."""
-    try:
-        return scene.get_ego_state_at_iteration(frame_idx)
-    except AssertionError:
-        return _get_ego_state_from_arrow(scene, frame_idx)
-
-
-def _get_ego_state_from_arrow(scene: SceneAPI, frame_idx: int):
-    ensure_py123d_on_path()
-
-    from py123d.common.utils.arrow_column_names import (
-        EGO_DYNAMIC_STATE_SE3_COLUMN,
-        EGO_REAR_AXLE_SE3_COLUMN,
-        EGO_STATE_SE3_COLUMNS,
-    )
-    from py123d.common.utils.arrow_helper import get_lru_cached_arrow_table
-    from py123d.datatypes.vehicle_state.dynamic_state import DynamicStateSE3
-    from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
-    from py123d.geometry import PoseSE3
-
-    arrow_path = getattr(scene, "_arrow_file_path", None)
-    if arrow_path is None:
-        return None
-
-    table = get_lru_cached_arrow_table(str(arrow_path))
-    if not all(column in table.schema.names for column in EGO_STATE_SE3_COLUMNS):
-        return None
-
-    vehicle_params = scene.log_metadata.vehicle_parameters
-    if vehicle_params is None:
-        return None
-
-    idx = scene.scene_metadata.initial_idx + frame_idx
-    if idx >= table.num_rows:
-        return None
-
-    rear_axle_data = table[EGO_REAR_AXLE_SE3_COLUMN][idx].as_py()
-    dynamic_state_data = table[EGO_DYNAMIC_STATE_SE3_COLUMN][idx].as_py()
-
-    rear_axle_se3 = PoseSE3.from_list(rear_axle_data)
-    dynamic_state_se3 = None
-    if dynamic_state_data is not None:
-        dynamic_state_se3 = DynamicStateSE3.from_list(dynamic_state_data)
-
-    return EgoStateSE3.from_rear_axle(
-        rear_axle_se3=rear_axle_se3,
-        vehicle_parameters=vehicle_params,
-        dynamic_state_se3=dynamic_state_se3,
-    )
+    return scene.get_ego_state_at_iteration(frame_idx)
 
 
 def _get_box_detections(scene: SceneAPI, frame_idx: int):
-    """Get box detections, with fallback when timestamp column is missing."""
-    try:
-        detections = scene.get_box_detections_at_iteration(frame_idx)
-        return detections.box_detections if detections is not None else []
-    except AssertionError:
-        return _get_box_detections_from_arrow(scene, frame_idx)
-
-
-def _get_box_detections_from_arrow(scene: SceneAPI, frame_idx: int):
-    ensure_py123d_on_path()
-
-    from py123d.common.utils.arrow_column_names import (  # type: ignore[import-not-found]
-        BOX_DETECTIONS_BOUNDING_BOX_SE3_COLUMN,
-        BOX_DETECTIONS_LABEL_COLUMN,
-        BOX_DETECTIONS_NUM_LIDAR_POINTS_COLUMN,
-        BOX_DETECTIONS_SE3_COLUMNS,
-        BOX_DETECTIONS_TOKEN_COLUMN,
-        BOX_DETECTIONS_VELOCITY_3D_COLUMN,
-    )
-    from py123d.common.utils.arrow_helper import get_lru_cached_arrow_table  # type: ignore[import-not-found]
-    from py123d.datatypes.detections.box_detections import (  # type: ignore[import-not-found]
-        BoxDetectionMetadata,
-        BoxDetectionSE3,
-    )
-    from py123d.geometry import BoundingBoxSE3, Vector3D  # type: ignore[import-not-found]
-
-    arrow_path = getattr(scene, "_arrow_file_path", None)
-    if arrow_path is None:
-        return []
-
-    table = get_lru_cached_arrow_table(str(arrow_path))
-    if not all(column in table.schema.names for column in BOX_DETECTIONS_SE3_COLUMNS):
-        return []
-
-    idx = scene.scene_metadata.initial_idx + frame_idx
-    if idx >= table.num_rows:
-        return []
-
-    label_class = scene.log_metadata.box_detection_label_class
-    if label_class is None:
-        return []
-
-    boxes = table[BOX_DETECTIONS_BOUNDING_BOX_SE3_COLUMN][idx].as_py()
-    tokens = table[BOX_DETECTIONS_TOKEN_COLUMN][idx].as_py()
-    labels = table[BOX_DETECTIONS_LABEL_COLUMN][idx].as_py()
-    velocities = table[BOX_DETECTIONS_VELOCITY_3D_COLUMN][idx].as_py()
-    num_points = table[BOX_DETECTIONS_NUM_LIDAR_POINTS_COLUMN][idx].as_py()
-
-    detections = []
-    for box, token, label, velocity, points in zip(boxes, tokens, labels, velocities, num_points):
-        metadata = BoxDetectionMetadata(
-            label=label_class(label),
-            track_token=token,
-            num_lidar_points=points,
-            timepoint=None,
-        )
-        bbox = BoundingBoxSE3.from_list(box)
-        velocity_3d = Vector3D.from_list(velocity) if velocity is not None else None
-        detections.append(BoxDetectionSE3(metadata=metadata, bounding_box_se3=bbox, velocity_3d=velocity_3d))
-
-    return detections
+    detections = scene.get_box_detections_at_iteration(frame_idx)
+    return detections.box_detections if detections is not None else []
 
 
 def _get_traffic_light_detections(scene: SceneAPI, frame_idx: int):
-    """Get traffic light detections, with fallback when timestamp column is missing."""
-    try:
-        detections = scene.get_traffic_light_detections_at_iteration(frame_idx)
-        return detections.traffic_light_detections if detections is not None else []
-    except AssertionError:
-        return _get_traffic_light_detections_from_arrow(scene, frame_idx)
-
-
-def _get_traffic_light_detections_from_arrow(scene: SceneAPI, frame_idx: int):
-    ensure_py123d_on_path()
-
-    from py123d.common.utils.arrow_column_names import (  # type: ignore[import-not-found]
-        TRAFFIC_LIGHTS_LANE_ID_COLUMN,
-        TRAFFIC_LIGHTS_STATUS_COLUMN,
-    )
-    from py123d.common.utils.arrow_helper import get_lru_cached_arrow_table  # type: ignore[import-not-found]
-    from py123d.datatypes.detections.traffic_light_detections import (  # type: ignore[import-not-found]
-        TrafficLightDetection,
-        TrafficLightStatus,
-    )
-
-    arrow_path = getattr(scene, "_arrow_file_path", None)
-    if arrow_path is None:
-        return []
-
-    table = get_lru_cached_arrow_table(str(arrow_path))
-    if TRAFFIC_LIGHTS_LANE_ID_COLUMN not in table.schema.names:
-        return []
-    if TRAFFIC_LIGHTS_STATUS_COLUMN not in table.schema.names:
-        return []
-
-    idx = scene.scene_metadata.initial_idx + frame_idx
-    if idx >= table.num_rows:
-        return []
-
-    lane_ids = table[TRAFFIC_LIGHTS_LANE_ID_COLUMN][idx].as_py()
-    statuses = table[TRAFFIC_LIGHTS_STATUS_COLUMN][idx].as_py()
-
-    detections = []
-    for lane_id, status in zip(lane_ids, statuses):
-        detections.append(
-            TrafficLightDetection(
-                lane_id=int(lane_id),
-                status=TrafficLightStatus(status),
-                timepoint=None,
-            ),
-        )
-    return detections
+    detections = scene.get_traffic_light_detections_at_iteration(frame_idx)
+    return detections.traffic_light_detections if detections is not None else []
 
 
 def _extract_timesteps(scene: SceneAPI) -> np.ndarray:

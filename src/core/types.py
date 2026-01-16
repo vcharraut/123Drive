@@ -106,14 +106,6 @@ ALL_TYPES = (
     PARTICIPANT_TYPES | LANE_TYPES | ROAD_LINE_TYPES | ROAD_EDGE_TYPES | MAP_FEATURE_TYPES | TRAFFIC_LIGHT_STATES
 )
 
-# ===== Output Formats =====
-FORMAT_WAYMAX = "waymax"  # TFRecord format (Waymax/V-Max simulators)
-FORMAT_GPUDRIVE = "gpudrive"  # JSON format (GPUDrive simulator)
-FORMAT_PUFFERDRIVE = "pufferdrive"  # Binary format (PufferDrive simulator)
-
-SUPPORTED_FORMATS = {FORMAT_WAYMAX, FORMAT_GPUDRIVE, FORMAT_PUFFERDRIVE}
-
-
 # ===== Type Checking Functions =====
 def is_participant(obj_type: str) -> bool:
     return obj_type in PARTICIPANT_TYPES
