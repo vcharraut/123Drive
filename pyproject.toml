@@ -5,32 +5,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "123Drive"
 version = "0.1.0"
-description = "Convert raw AV datasets directly to PufferDrive format"
-requires-python = "==3.10.*"
+description = "Format data from 123d format to PufferDrive"
+requires-python = ">=3.10"
 dependencies = [
-  "numpy==1.23.4",
+  "numpy",
   "joblib",
   "tqdm",
-  "hydra-core==1.1.1",
-  "omegaconf>=2.1.0",
-  "matplotlib>=3.10.8",
+  "matplotlib",
+  "hydra-core",
+  "omegaconf",
   "py123d",
 ]
 
 [project.optional-dependencies]
-waymo = [
-  "tensorflow==2.11.1",
-  "protobuf<3.20",
-]
-nuplan = [
-  "nuplan-devkit",
-]
-all = [
-  "tensorflow==2.11.1",
-  "protobuf<3.20",
-  "nuplan-devkit",
-  "ruff",
-]
+dev = ["ruff"]
 
 [project.scripts]
 convert = "src.main:cli_entry_point"
@@ -40,5 +28,4 @@ where = ["."]
 include = ["src", "src.*"]
 
 [tool.uv.sources]
-nuplan-devkit = { path = "extern/nuplan-devkit", editable = true }
 py123d = { git = "https://github.com/autonomousvision/py123d.git", branch = "dev_v0.0.9" }
