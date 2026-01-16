@@ -3,5 +3,7 @@
 *.bin
 *.png
 *.mp4
+*.arrow
+*.log
 
 .vscode/
