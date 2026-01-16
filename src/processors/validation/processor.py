@@ -1,115 +1,81 @@
 """
-Validation processor for UnifiedScenario.
+Validation processor for PufferDrive dict format.
 
-This module provides validation functionality for Stage 2 processing.
-Validation is a read-only operation - scenarios are returned unchanged.
+Validation is read-only - puffer_dict is returned unchanged.
 """
 
-from typing import Any
-
 from src import logger_utils
-from src.processors.validation import validate
+from src.processors.validation import validate_puffer
 
 
 logger = logger_utils.get_logger(__name__)
 
 
-def validate_scenario(
-    unified_scenario: dict[str, Any],
-    strict: bool = False,
+def validate_puffer_scenario(
+    puffer_dict: dict,
+    strict: bool = True,
     fail_on_error: bool = False,
     validation_level: int = 2,
-    speed_limit_tolerance: float = 0.12,
     position_jump_threshold: float = 50.0,
     velocity_tolerance: float = 2.0,
     heading_tolerance_deg: float = 30.0,
-) -> dict[str, Any]:
+    **kwargs,
+) -> dict:
     """
-    Validate UnifiedScenario structure and data.
+    Validate PufferDrive dict structure and physics.
 
-    This is a read-only processor - the scenario is returned unchanged.
-    Validation errors and warnings are logged.
+    Read-only processor - returns puffer_dict unchanged.
 
     Args:
-        unified_scenario: The scenario to validate
-        strict: If True, perform strict validation (physics checks)
-                If False, perform soft validation (structure checks only)
-        fail_on_error: If True, raise exception when validation fails
-        validation_level: Strictness level for strict validation (1-4)
-        speed_limit_tolerance: Relative tolerance for speed limit checks
+        puffer_dict: The puffer dict to validate
+        strict: If True, perform physics checks. If False, structure only.
+        fail_on_error: If True, raise exception on validation failure
+        validation_level: Strictness level for physics checks (1-4)
         position_jump_threshold: Max position jump between timesteps (meters)
         velocity_tolerance: Tolerance for velocity-position consistency (m/s)
         heading_tolerance_deg: Tolerance for heading-velocity alignment (degrees)
 
     Returns:
-        The original scenario unchanged
+        The original puffer_dict unchanged
 
     Raises:
         ValueError: If fail_on_error=True and validation fails
-
-    Examples:
-        # Soft validation
-        scenario = validate_scenario(scenario, strict=False)
-
-        # Strict validation with custom thresholds
-        scenario = validate_scenario(
-            scenario,
-            strict=True,
-            validation_level=3,
-            position_jump_threshold=30.0
-        )
-
-        # Fail on errors
-        scenario = validate_scenario(scenario, fail_on_error=True)
     """
-    # Get scenario ID
-    scenario_id = unified_scenario.get("id", "unknown")
+    scenario_id = puffer_dict.get("scenario_id", "unknown")
 
-    # Perform validation using standalone functions
-    if strict:
-        is_valid, errors, warnings = validate.strict_validate(
-            unified_scenario,
+    # Soft validation (structure)
+    is_valid, errors, warnings = validate_puffer.soft_validate(puffer_dict)
+
+    # Strict validation (physics) if requested and soft passed
+    if strict and is_valid:
+        strict_valid, strict_errors, strict_warnings = validate_puffer.strict_validate(
+            puffer_dict,
             validation_level=validation_level,
-            speed_limit_tolerance=speed_limit_tolerance,
             position_jump_threshold=position_jump_threshold,
             velocity_tolerance=velocity_tolerance,
             heading_tolerance_deg=heading_tolerance_deg,
         )
-        validation_type = "strict"
-    else:
-        is_valid, errors, warnings = validate.soft_validate(unified_scenario, strict_keys=False)
-        validation_type = "soft"
+        is_valid = strict_valid
+        errors.extend(strict_errors)
+        warnings.extend(strict_warnings)
 
-    # Log results
+    validation_type = "strict" if strict else "soft"
+
     if is_valid:
         logger.debug(f"Scenario {scenario_id}: {validation_type} validation passed")
     else:
         logger.warning(f"Scenario {scenario_id}: {validation_type} validation FAILED with {len(errors)} error(s)")
+        for i, error in enumerate(errors[:10]):
+            logger.warning(f"  Error: {error}")
+        if len(errors) > 10:
+            logger.warning(f"  ... and {len(errors) - 10} more errors")
 
-        # Log errors
-        for i, error in enumerate(errors):
-            if i < 10:  # Limit to first 10 errors
-                logger.warning(f"  Error: {error}")
-            elif i == 10:
-                logger.warning(f"  ... and {len(errors) - 10} more errors")
-                break
-
-    # Log warnings
     if warnings:
         logger.debug(f"Scenario {scenario_id}: {len(warnings)} warning(s)")
-        for i, warning in enumerate(warnings):
-            if i < 5:  # Limit to first 5 warnings
-                logger.debug(f"  Warning: {warning}")
-            elif i == 5:
-                logger.debug(f"  ... and {len(warnings) - 5} more warnings")
-                break
+        for warning in warnings[:5]:
+            logger.debug(f"  Warning: {warning}")
 
-    # Fail if requested
     if fail_on_error and not is_valid:
-        raise ValueError(
-            f"Scenario {scenario_id} validation failed with {len(errors)} error(s). "
-            f"First error: {errors[0] if errors else 'unknown'}",
-        )
+        raise ValueError(f"Scenario {scenario_id} validation failed: {errors[0] if errors else 'unknown'}")
 
-    # Return original scenario unchanged
-    return unified_scenario
+    return puffer_dict

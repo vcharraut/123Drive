@@ -10,6 +10,7 @@ from typing import Any
 from src import logger_utils
 from src.processors.polyline_interpolation.utils import (
     distance_based_interpolate,
+    remove_duplicate_points,
     validate_polyline,
 )
 
@@ -73,7 +74,8 @@ def interpolate_polylines(
 
         # Interpolate polyline
         try:
-            interpolated_polyline = distance_based_interpolate(polyline, max_segment_length)
+            interpolated_polyline = remove_duplicate_points(polyline)
+            interpolated_polyline = distance_based_interpolate(interpolated_polyline, max_segment_length)
         except Exception as e:
             logger.error(f"Scenario {scenario_id}, element {element_id}: interpolation failed: {e}. Skipping element.")
             # continue

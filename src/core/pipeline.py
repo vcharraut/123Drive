@@ -8,6 +8,7 @@ from src.core.json_utils import to_jsonable
 from src.encoder.pufferdrive import puffer_dict_to_binary, unified_to_puffer_dict
 from src.loader import convert_py123d_scenario, get_py123d_scenarios
 from src.processors import apply_processors
+from src.processors.validation.processor import validate_puffer_scenario
 
 
 logger = logger_utils.get_logger(__name__)
@@ -34,13 +35,18 @@ def _process_one(
     output_dir: str,
     output_format: str,
     json_indent,
+    run_validation: bool,
+    validation_cfg: dict,
 ):
     try:
         scenario = convert_func(raw)
 
-        if processor_names:
-            scenario = apply_processors(scenario, processor_names, processor_cfgs)
+        # Run non-validation processors on unified format
+        non_validation_processors = [p for p in processor_names if p != "validation"]
+        if non_validation_processors:
+            scenario = apply_processors(scenario, non_validation_processors, processor_cfgs)
 
+        # Convert to puffer format
         puffer_dict = unified_to_puffer_dict(
             scenario,
             polyline_reduction_threshold=float(puffer_cfg.polyline_reduction_threshold),
@@ -48,6 +54,10 @@ def _process_one(
             min_route_valid_points=int(puffer_cfg.min_route_valid_points),
             route_check_timestep=int(puffer_cfg.route_check_timestep),
         )
+
+        # Run validation on puffer_dict if requested
+        if run_validation:
+            validate_puffer_scenario(puffer_dict, **validation_cfg)
 
         if output_format in ("bin", "both"):
             out = os.path.join(output_dir, f"map_{map_id:03d}.bin")
@@ -72,7 +82,11 @@ def run(cfg):
     os.makedirs(cfg.output_dir, exist_ok=True)
 
     processor_names = list(cfg.processors) if cfg.processors else []
-    processor_cfgs = {name: (cfg.get(name) or {}) for name in processor_names}
+    processor_cfgs = {name: dict(cfg.get(name) or {}) for name in processor_names}
+
+    # Check if validation is requested
+    run_validation = "validation" in processor_names
+    validation_cfg = dict(cfg.get("validation") or {}) if run_validation else {}
 
     puffer_cfg = cfg.pufferdrive
 
@@ -118,6 +132,8 @@ def run(cfg):
                 output_dir=str(cfg.output_dir),
                 output_format=output_format,
                 json_indent=json_indent,
+                run_validation=run_validation,
+                validation_cfg=validation_cfg,
             )
             for raw, mid in args
         )

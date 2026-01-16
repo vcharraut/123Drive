@@ -77,3 +77,14 @@ def validate_polyline(polyline: np.ndarray, element_id: str = "") -> bool:
         return False
 
     return True
+
+
+def remove_duplicate_points(polyline: np.ndarray, tol: float = 1e-9) -> np.ndarray:
+    """Remove consecutive duplicate points from polyline."""
+    if len(polyline) < 2:
+        return polyline
+
+    diffs = np.diff(polyline, axis=0)
+    distances = np.linalg.norm(diffs, axis=1)
+    keep_mask = np.concatenate([[True], distances >= tol])
+    return polyline[keep_mask]

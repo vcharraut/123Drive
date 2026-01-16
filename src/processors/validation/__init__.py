@@ -1,35 +1,26 @@
 """
-Validation module for UnifiedScenario data structures.
+Validation module for PufferDrive dict format.
 
-This module provides comprehensive validation capabilities:
+Provides:
 - Soft validation: Structural checks (keys, types, shapes)
-- Strict validation: Physics-based checks (trajectory coherence, map topology)
-- Processor wrapper: Integration with Stage 2 pipeline
+- Strict validation: Physics-based checks (trajectory coherence, constraints)
+- Processor wrapper: Pipeline integration
 
 Usage:
-    # Functional API (direct validation)
     from src.processors.validation import soft_validate, strict_validate
-    is_valid, errors, warnings = soft_validate(scenario)
-    is_valid, errors, warnings = strict_validate(scenario, validation_level=2)
+    is_valid, errors, warnings = soft_validate(puffer_dict)
+    is_valid, errors, warnings = strict_validate(puffer_dict, validation_level=2)
 
-    # Processor API (pipeline integration)
-    from src.processors.validation import validate_scenario
-    scenario = validate_scenario(scenario, strict=True)
+    from src.processors.validation import validate_puffer_scenario
+    puffer_dict = validate_puffer_scenario(puffer_dict, strict=True)
 """
 
-from src.processors.validation.processor import validate_scenario
-from src.processors.validation.validate import (
-    ValidationError,
-    soft_validate,
-    strict_validate,
-)
+from src.processors.validation.processor import validate_puffer_scenario
+from src.processors.validation.validate_puffer import soft_validate, strict_validate
 
 
 __all__ = [
-    # Core validation functions
     "soft_validate",
     "strict_validate",
-    "ValidationError",
-    # Processor wrapper
-    "validate_scenario",
+    "validate_puffer_scenario",
 ]
