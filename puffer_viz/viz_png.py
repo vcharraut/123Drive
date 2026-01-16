@@ -31,9 +31,10 @@ def load_puffer_scenario(file_path: str) -> dict:
     """
     file_path = Path(file_path)
 
-    if file_path.suffix == '.bin':
+    if file_path.suffix == ".bin":
         # Load from binary
         from binary_loader import load_puffer_binary
+
         return load_puffer_binary(file_path)
     else:
         # Load from JSON (default)

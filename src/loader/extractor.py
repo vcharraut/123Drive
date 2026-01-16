@@ -1,23 +1,27 @@
 from __future__ import annotations
 
-# ruff: noqa: I001
-
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
+from py123d.api.map.arrow_map_api import ArrowMapAPI
+from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
+from py123d.datatypes.detections.traffic_light_detections import TrafficLightStatus
+from py123d.datatypes.map_objects.map_layer_types import LaneType, MapLayer, RoadEdgeType, RoadLineType
+from py123d.datatypes.map_objects.map_objects import Crosswalk, Lane, RoadEdge, RoadLine
+from py123d.datatypes.vehicle_state.ego_state import EGO_TRACK_TOKEN
+
 from src.core import types
 from src.core.unified import new_unified_scenario
-from src.loader.utils import ensure_py123d_on_path, safe_id_to_int
+from src.loader.load import MapOnlyScenario
+from src.loader.utils import safe_id_to_int
 
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from py123d.api.map.arrow_map_api import ArrowMapAPI  # type: ignore[import-not-found]
-    from py123d.api.map.map_api import MapAPI  # type: ignore[import-not-found]
-    from py123d.api.scene.scene_api import SceneAPI  # type: ignore[import-not-found]
-    from py123d.datatypes.map_objects.map_layer_types import RoadEdgeType, RoadLineType  # type: ignore[import-not-found]
+    from py123d.api.map.map_api import MapAPI
+    from py123d.api.scene.scene_api import SceneAPI
 
 
 @dataclass(frozen=True)
@@ -36,9 +40,6 @@ def convert_py123d_scenario(raw: object) -> dict:
     Returns:
         Unified scenario dict.
     """
-    ensure_py123d_on_path()
-
-    from src.loader.load import MapOnlyScenario
 
     if isinstance(raw, MapOnlyScenario):
         map_api = raw.map_api
@@ -114,9 +115,6 @@ def extract_dynamic_agents(scene: SceneAPI, center: np.ndarray) -> tuple[dict[in
     Returns:
         Tuple of (agents dict, ego_agent_id).
     """
-    ensure_py123d_on_path()
-
-    from py123d.datatypes.vehicle_state.ego_state import EGO_TRACK_TOKEN
 
     episode_length = scene.number_of_iterations
     agents: dict[int, dict] = {}
@@ -224,17 +222,8 @@ def extract_dynamic_agents(scene: SceneAPI, center: np.ndarray) -> tuple[dict[in
     return agents, ego_agent_id
 
 
-def extract_dynamic_map_elements(
-    scene: SceneAPI,
-    map_api: MapAPI | None,
-    center: np.ndarray,
-) -> dict[int, dict]:
+def extract_dynamic_map_elements(scene: SceneAPI, map_api: MapAPI | None, center: np.ndarray) -> dict[int, dict]:
     """Extract dynamic traffic light states from py123d logs."""
-    ensure_py123d_on_path()
-
-    from py123d.datatypes.detections.traffic_light_detections import (  # type: ignore[import-not-found]
-        TrafficLightStatus,
-    )
 
     episode_length = scene.number_of_iterations
     elements: dict[int, dict] = {}
@@ -295,11 +284,6 @@ def _extract_timesteps(scene: SceneAPI) -> np.ndarray:
 
 def _compute_map_centroid(map_api: MapAPI) -> np.ndarray:
     """Compute map centroid using available lane/road geometry."""
-    ensure_py123d_on_path()
-
-    from py123d.api.map.arrow_map_api import ArrowMapAPI  # type: ignore[import-not-found]
-    from py123d.datatypes.map_objects.map_layer_types import MapLayer  # type: ignore[import-not-found]
-
     if not isinstance(map_api, ArrowMapAPI):
         return np.array([0.0, 0.0], dtype=np.float32)
 
@@ -325,10 +309,6 @@ def _compute_map_centroid(map_api: MapAPI) -> np.ndarray:
 
 def extract_static_map_elements(map_api: MapAPI, center: np.ndarray) -> dict[int, dict]:
     """Extract static map elements from a py123d MapAPI."""
-    ensure_py123d_on_path()
-
-    from py123d.api.map.arrow_map_api import ArrowMapAPI  # type: ignore[import-not-found]
-    from py123d.datatypes.map_objects.map_layer_types import MapLayer  # type: ignore[import-not-found]
 
     if not isinstance(map_api, ArrowMapAPI):
         return {}
@@ -370,16 +350,7 @@ def _iter_map_objects(map_api: ArrowMapAPI, layers: Iterable) -> list[_MapObject
     return bundles
 
 
-def _convert_map_object(map_object: object,center: np.ndarray,lane_id_map: dict[object, int]) -> dict | None:
-    ensure_py123d_on_path()
-
-    from py123d.datatypes.map_objects.map_objects import (  # type: ignore[import-not-found]
-        Crosswalk,
-        Lane,
-        RoadEdge,
-        RoadLine,
-    )
-
+def _convert_map_object(map_object: object, center: np.ndarray, lane_id_map: dict[object, int]) -> dict | None:
     if isinstance(map_object, Lane):
         polyline = _centered_array(map_object.centerline.array, center)
         lane_type = _convert_lane_type(getattr(map_object, "lane_type", None))
@@ -463,10 +434,6 @@ def _kmh_to_mph(speed_kmh: float) -> float:
 
 
 def _convert_road_edge_type(edge_type: RoadEdgeType | None) -> str:
-    ensure_py123d_on_path()
-
-    from py123d.datatypes.map_objects.map_layer_types import RoadEdgeType  # type: ignore[import-not-found]
-
     if edge_type is None:
         return types.ROAD_EDGE_UNKNOWN
     if edge_type == RoadEdgeType.ROAD_EDGE_BOUNDARY:
@@ -477,10 +444,6 @@ def _convert_road_edge_type(edge_type: RoadEdgeType | None) -> str:
 
 
 def _convert_road_line_type(line_type: RoadLineType | None) -> str:
-    ensure_py123d_on_path()
-
-    from py123d.datatypes.map_objects.map_layer_types import RoadLineType  # type: ignore[import-not-found]
-
     if line_type is None:
         return types.ROAD_LINE_UNKNOWN
 
@@ -504,10 +467,6 @@ def _convert_road_line_type(line_type: RoadLineType | None) -> str:
 
 
 def _convert_lane_type(lane_type) -> str:
-    ensure_py123d_on_path()
-
-    from py123d.datatypes.map_objects.map_layer_types import LaneType  # type: ignore[import-not-found]
-
     if lane_type is None:
         return types.LANE_SURFACE_STREET
 
@@ -527,12 +486,6 @@ def _convert_lane_type(lane_type) -> str:
 
 
 def _convert_default_label_to_agent_type(label) -> str:
-    ensure_py123d_on_path()
-
-    from py123d.conversion.registry.box_detection_label_registry import (  # type: ignore[import-not-found]
-        DefaultBoxDetectionLabel,
-    )
-
     if label in (DefaultBoxDetectionLabel.VEHICLE, DefaultBoxDetectionLabel.TRAIN, DefaultBoxDetectionLabel.EGO):
         return types.VEHICLE
     if label == DefaultBoxDetectionLabel.BICYCLE:
@@ -545,10 +498,6 @@ def _convert_default_label_to_agent_type(label) -> str:
 def _get_lane_position(map_api: MapAPI | None, lane_id: int, center: np.ndarray) -> list[float]:
     if map_api is None:
         return [0.0, 0.0, 0.0]
-
-    ensure_py123d_on_path()
-
-    from py123d.datatypes.map_objects.map_layer_types import MapLayer  # type: ignore[import-not-found]
 
     lane = map_api.get_map_object(lane_id, MapLayer.LANE)
     if lane is None or not hasattr(lane, "centerline"):

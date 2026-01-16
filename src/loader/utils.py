@@ -1,25 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-import sys
 from pathlib import Path
-
-
-_PY123D_IMPORTED = False
-
-
-def ensure_py123d_on_path() -> None:
-    """Ensure local py123d source is on sys.path."""
-    global _PY123D_IMPORTED  # noqa: PLW0603
-
-    if _PY123D_IMPORTED:
-        return
-
-    repo_root = Path(__file__).resolve().parents[3]
-    py123_src = repo_root / "py123" / "src"
-    if py123_src.is_dir() and str(py123_src) not in sys.path:
-        sys.path.insert(0, str(py123_src))
-    _PY123D_IMPORTED = True
 
 
 def safe_id_to_int(value: object, bits: int = 32) -> int:

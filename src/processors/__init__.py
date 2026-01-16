@@ -1,6 +1,7 @@
-from src.processors.validation.processor import validate_scenario
 from src.processors.polyline_interpolation.processor import interpolate_polylines
 from src.processors.traffic_lights.processor import add_traffic_lights_to_scenario
+from src.processors.validation.processor import validate_scenario
+
 
 PROCESSORS = {
     "validation": validate_scenario,

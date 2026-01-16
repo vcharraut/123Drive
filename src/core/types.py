@@ -106,6 +106,7 @@ ALL_TYPES = (
     PARTICIPANT_TYPES | LANE_TYPES | ROAD_LINE_TYPES | ROAD_EDGE_TYPES | MAP_FEATURE_TYPES | TRAFFIC_LIGHT_STATES
 )
 
+
 # ===== Type Checking Functions =====
 def is_participant(obj_type: str) -> bool:
     return obj_type in PARTICIPANT_TYPES

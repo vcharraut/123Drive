@@ -3,14 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from src.loader.utils import ensure_py123d_on_path, resolve_py123d_data_root
+from py123d.api.map.arrow_map_api import ArrowMapAPI
+from py123d.api.scene.arrow.arrow_scene_builder import ArrowSceneBuilder
+from py123d.api.scene.scene_filter import SceneFilter
+from py123d.common.multithreading.worker_sequential import Sequential
+
+from src.loader.utils import resolve_py123d_data_root
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
     from pathlib import Path
-
-    from py123d.api.map.arrow_map_api import ArrowMapAPI  # type: ignore[import-not-found]
 
 
 @dataclass(frozen=True)
@@ -18,17 +20,6 @@ class MapOnlyScenario:
     scenario_id: str
     map_api: ArrowMapAPI
     split_name: str | None = None
-
-
-def _import_py123d():
-    ensure_py123d_on_path()
-
-    from py123d.api.map.arrow_map_api import ArrowMapAPI  # type: ignore[import-not-found]
-    from py123d.api.scene.arrow.arrow_scene_builder import ArrowSceneBuilder  # type: ignore[import-not-found]
-    from py123d.api.scene.scene_filter import SceneFilter  # type: ignore[import-not-found]
-    from py123d.common.multithreading.worker_sequential import Sequential  # type: ignore[import-not-found]
-
-    return ArrowMapAPI, ArrowSceneBuilder, SceneFilter, Sequential
 
 
 def get_py123d_scenarios(
@@ -68,8 +59,6 @@ def get_py123d_scenarios(
     logs_root = data_root / "logs"
     maps_root = data_root / "maps"
 
-    _, ArrowSceneBuilder, SceneFilter, Sequential = _import_py123d()
-
     filter_cfg = SceneFilter(
         datasets=datasets,
         split_types=split_types,
@@ -91,8 +80,6 @@ def _load_map_only_scenarios(data_root: Path) -> list[MapOnlyScenario]:
     if not map_paths:
         maps_root = data_root / "maps"
         map_paths = _discover_map_arrow_paths(maps_root)
-
-    ArrowMapAPI, _, _, _ = _import_py123d()
 
     scenarios: list[MapOnlyScenario] = []
     for map_path in map_paths:
