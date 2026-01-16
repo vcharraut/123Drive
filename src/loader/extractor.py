@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from src.core import types
 from src.core.unified import new_unified_scenario
-from src.datasets.py123d.utils import ensure_py123d_on_path, safe_id_to_int
+from src.loader.utils import ensure_py123d_on_path, safe_id_to_int
 
 
 if TYPE_CHECKING:
@@ -38,7 +38,7 @@ def convert_py123d_scenario(raw: object) -> dict:
     """
     ensure_py123d_on_path()
 
-    from src.datasets.py123d.load import MapOnlyScenario
+    from src.loader.load import MapOnlyScenario
 
     if isinstance(raw, MapOnlyScenario):
         map_api = raw.map_api

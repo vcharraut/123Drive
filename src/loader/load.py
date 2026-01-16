@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from src.datasets.py123d.utils import ensure_py123d_on_path, resolve_py123d_data_root
+from src.loader.utils import ensure_py123d_on_path, resolve_py123d_data_root
 
 
 if TYPE_CHECKING:

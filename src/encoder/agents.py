@@ -6,7 +6,7 @@ import numpy as np
 
 from src import logger_utils
 from src.core import types
-from src.converter import routes
+from src.encoder import routes
 
 
 logger = logger_utils.get_logger(__name__)

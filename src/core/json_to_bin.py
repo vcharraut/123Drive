@@ -6,7 +6,7 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from src import logger_utils
-from src.converter.pufferdrive import puffer_dict_to_binary
+from src.encoder.pufferdrive import puffer_dict_to_binary
 
 
 logger = logger_utils.get_logger(__name__)

@@ -3,10 +3,7 @@ defaults:
   - override hydra/hydra_logging: disabled
   - override hydra/job_logging: disabled
 
-# one dataset per run
 command: convert  # convert | json_to_bin
-
-dataset: py123d
 
 dataset_path: null
 
@@ -35,12 +32,12 @@ json_to_bin:
 # optional cap for quick smoke runs
 max_scenarios: null
 
-processors: [validation]  # [validation, traffic_lights, polyline_interpolation]
+processors: [polyline_interpolation, validation]  # [validation, traffic_lights, polyline_interpolation]
 
 validation:
-  strict: false
+  strict: true
   fail_on_error: true
-  validation_level: 2
+  validation_level: 4
   speed_limit_tolerance: 0.12
   position_jump_threshold: 50.0
   velocity_tolerance: 2.0

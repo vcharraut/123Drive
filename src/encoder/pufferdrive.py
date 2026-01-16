@@ -3,7 +3,7 @@ import struct
 import numpy as np
 
 from src import logger_utils
-from src.converter import agents, roadgraph, traffic_lights
+from src.encoder import agents, roadgraph, traffic_lights
 
 
 logger = logger_utils.get_logger(__name__)
@@ -55,14 +55,8 @@ def unified_to_puffer_dict(
         "sdc_index": sdc_sequential_idx,
     }
 
-    if puffer_metadata["dataset_name"] == "waymo":
-        objects_of_interest = metadata.get("objects_of_interest", [])
-        tracks_to_predict = metadata.get("tracks_to_predict", [])
-        puffer_metadata["objects_of_interests"] = [int(x) for x in objects_of_interest]
-        puffer_metadata["tracks_to_predict"] = [t.get("track_index") for t in tracks_to_predict]
-    else:
-        puffer_metadata["objects_of_interests"] = []
-        puffer_metadata["tracks_to_predict"] = []
+    puffer_metadata["objects_of_interests"] = []
+    puffer_metadata["tracks_to_predict"] = []
 
     return {
         "scenario_id": scenario_id,

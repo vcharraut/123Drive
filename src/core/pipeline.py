@@ -4,20 +4,13 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from src import logger_utils
-from src.converter.pufferdrive import puffer_dict_to_binary, unified_to_puffer_dict
+from src.encoder.pufferdrive import puffer_dict_to_binary, unified_to_puffer_dict
 from src.core.json_utils import to_jsonable
-from src.datasets import get_dataset_config
+from src.loader import get_py123d_scenarios, convert_py123d_scenario
 from src.processors import apply_processors
 
 
 logger = logger_utils.get_logger(__name__)
-
-
-def _iter_waymo_scenarios(file_paths):
-    from src.datasets.waymo.load import iter_tfrecord_scenarios
-
-    for file_path in file_paths:
-        yield from iter_tfrecord_scenarios(file_path)
 
 
 def _chunk(iterable, chunk_size: int):
@@ -78,8 +71,6 @@ def _process_one(
 def run(cfg):
     os.makedirs(cfg.output_dir, exist_ok=True)
 
-    dataset_cfg = get_dataset_config(cfg.dataset)
-
     processor_names = list(cfg.processors) if cfg.processors else []
     processor_cfgs = {name: (cfg.get(name) or {}) for name in processor_names}
 
@@ -93,38 +84,13 @@ def run(cfg):
     max_scenarios = cfg.get("max_scenarios", None)
     max_scenarios = int(max_scenarios) if max_scenarios is not None else None
 
-    if cfg.dataset == "waymo":
-        file_paths = dataset_cfg.load_func(cfg.dataset_path)
-        waymo_cfg = cfg.get("waymo", None)
-        if waymo_cfg and waymo_cfg.get("num_files", None) is not None:
-            file_paths = file_paths[: int(waymo_cfg.num_files)]
-        raw_iter = _iter_waymo_scenarios(file_paths)
-    elif cfg.dataset == "nuplan":
-        num_files = getattr(cfg, "num_files", None)
-        scenarios = dataset_cfg.load_func(cfg.dataset_path, num_files=num_files)
-        raw_iter = iter(scenarios)
-    elif cfg.dataset == "openscenes":
-        num_files = getattr(cfg, "num_files", None)
-        scenarios = dataset_cfg.load_func(
-            cfg.dataset_path,
-            cfg.openscenes.nuplan_logs_root,
-            cfg.openscenes.nuplan_maps_root,
-            cfg.openscenes.metadata_root,
-            num_files=num_files,
-        )
-        raw_iter = iter(scenarios)
-    elif cfg.dataset == "py123d":
-        num_files = getattr(cfg, "num_files", None)
-        py123d_cfg = cfg.get("py123d", None)
-        py123d_args = dict(py123d_cfg) if py123d_cfg else {}
-        if num_files is not None:
-            py123d_args.setdefault("num_files", num_files)
-        scenarios = dataset_cfg.load_func(cfg.dataset_path, **py123d_args)
-        raw_iter = iter(scenarios)
-    else:
-        raise ValueError(f"Unsupported dataset: {cfg.dataset}")
-
-    convert_func = dataset_cfg.convert_func
+    num_files = getattr(cfg, "num_files", None)
+    py123d_cfg = cfg.get("py123d", None)
+    py123d_args = dict(py123d_cfg) if py123d_cfg else {}
+    if num_files is not None:
+        py123d_args.setdefault("num_files", num_files)
+    raw_iter = iter(get_py123d_scenarios(cfg.dataset_path, **py123d_args))
+    convert_func = convert_py123d_scenario
 
     map_id = 0
     errors = 0
