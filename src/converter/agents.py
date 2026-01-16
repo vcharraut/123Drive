@@ -17,7 +17,8 @@ def convert_dynamic_agents(
     road_map_elements: dict,
     min_route_valid_points: int = 0,
     route_check_timestep: int = 0,
-) -> list[dict]:
+    sdc_agent_id: int | None = None,
+) -> tuple[list[dict], int]:
     """
     Convert dynamic agents from unified format to Puffer format.
 
@@ -26,16 +27,20 @@ def convert_dynamic_agents(
         road_map_elements: Dict of static map elements (for reference)
         min_route_valid_points: Minimum valid trajectory points required for route computation (0 = no filtering)
         route_check_timestep: Timestep at which agent must be valid for route computation (default: 0)
+        sdc_agent_id: Original agent ID of the SDC (for index mapping)
 
     Returns:
-        List of dynamic agent dictionaries in Puffer format
+        Tuple of (list of agent dicts, sdc sequential index)
     """
     puffer_agents = []
+    sdc_sequential_idx = 0
 
     # Extract lane centers once for all agents (optimization)
     lane_data = routes.extract_lane_centers(road_map_elements)
 
     for idx, (agent_id, agent_data) in enumerate(dynamic_agents.items()):
+        if agent_id == sdc_agent_id:
+            sdc_sequential_idx = idx
         states = agent_data["states"]
 
         # Get position data (x, y, z)
@@ -95,7 +100,7 @@ def convert_dynamic_agents(
 
         puffer_agents.append(puffer_agent)
 
-    return puffer_agents
+    return puffer_agents, sdc_sequential_idx
 
 
 def _convert_agent_type_to_int(agent_type: str) -> int:

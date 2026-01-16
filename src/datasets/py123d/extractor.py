@@ -66,8 +66,9 @@ def convert_py123d_scenario(raw: object) -> dict:
         scenario["static_map_elements"] = {}
         map_metadata = None
 
+    ego_agent_id = None
     if scene is not None:
-        scenario["dynamic_agents"] = extract_dynamic_agents(scene, center)
+        scenario["dynamic_agents"], ego_agent_id = extract_dynamic_agents(scene, center)
         scenario["dynamic_map_elements"] = extract_dynamic_map_elements(scene, map_api, center)
     else:
         scenario["dynamic_agents"] = {}
@@ -77,7 +78,7 @@ def convert_py123d_scenario(raw: object) -> dict:
         {
             "scenario_id": scenario_id,
             "scenario_length": scenario_length,
-            "sdc_index": 0,
+            "sdc_index": ego_agent_id if ego_agent_id is not None else 0,
             "timesteps": timesteps,
         },
     )
@@ -107,13 +108,59 @@ def convert_py123d_scenario(raw: object) -> dict:
     return scenario
 
 
-def extract_dynamic_agents(scene: SceneAPI, center: np.ndarray) -> dict[int, dict]:
-    """Extract dynamic agents from py123d box detections."""
+def extract_dynamic_agents(scene: SceneAPI, center: np.ndarray) -> tuple[dict[int, dict], int]:
+    """Extract dynamic agents from py123d box detections and ego state.
+
+    Returns:
+        Tuple of (agents dict, ego_agent_id).
+    """
     ensure_py123d_on_path()
+
+    from py123d.datatypes.vehicle_state.ego_state import EGO_TRACK_TOKEN
 
     episode_length = scene.number_of_iterations
     agents: dict[int, dict] = {}
+    ego_agent_id = safe_id_to_int(EGO_TRACK_TOKEN)
 
+    # Extract ego vehicle
+    for frame_idx in range(episode_length):
+        ego_state = _get_ego_state(scene, frame_idx)
+        if ego_state is None:
+            continue
+
+        if ego_agent_id not in agents:
+            agents[ego_agent_id] = {
+                "type": types.VEHICLE,
+                "states": {
+                    "position": np.zeros((episode_length, 3), dtype=np.float32),
+                    "heading": np.zeros((episode_length,), dtype=np.float32),
+                    "velocity": np.zeros((episode_length, 2), dtype=np.float32),
+                    "valid": np.zeros((episode_length,), dtype=np.bool_),
+                    "length": np.zeros((episode_length,), dtype=np.float32),
+                    "width": np.zeros((episode_length,), dtype=np.float32),
+                    "height": np.zeros((episode_length,), dtype=np.float32),
+                },
+            }
+
+        center_se3 = ego_state.center_se3
+        heading = center_se3.pose_se2.yaw
+        x = float(center_se3.x) - float(center[0])
+        y = float(center_se3.y) - float(center[1])
+        z = float(center_se3.z)
+
+        states = agents[ego_agent_id]["states"]
+        states["position"][frame_idx] = [x, y, z]
+        states["heading"][frame_idx] = heading
+        states["valid"][frame_idx] = True
+        states["length"][frame_idx] = float(ego_state.vehicle_parameters.length)
+        states["width"][frame_idx] = float(ego_state.vehicle_parameters.width)
+        states["height"][frame_idx] = float(ego_state.vehicle_parameters.height)
+
+        if ego_state.dynamic_state_se3 is not None:
+            vel = ego_state.dynamic_state_se3.velocity_3d
+            states["velocity"][frame_idx] = [float(vel.x), float(vel.y)]
+
+    # Extract other agents from box detections
     for frame_idx in range(episode_length):
         detections = _get_box_detections(scene, frame_idx)
         if not detections:
@@ -130,7 +177,7 @@ def extract_dynamic_agents(scene: SceneAPI, center: np.ndarray) -> dict[int, dic
                         "position": np.zeros((episode_length, 3), dtype=np.float32),
                         "heading": np.zeros((episode_length,), dtype=np.float32),
                         "velocity": np.zeros((episode_length, 2), dtype=np.float32),
-                        "valid": np.zeros((episode_length,), dtype=np.bool8),
+                        "valid": np.zeros((episode_length,), dtype=np.bool_),
                         "length": np.zeros((episode_length,), dtype=np.float32),
                         "width": np.zeros((episode_length,), dtype=np.float32),
                         "height": np.zeros((episode_length,), dtype=np.float32),
@@ -174,7 +221,7 @@ def extract_dynamic_agents(scene: SceneAPI, center: np.ndarray) -> dict[int, dic
                 if timestep > 0:
                     velocity[:] = diffs / float(timestep)
 
-    return agents
+    return agents, ego_agent_id
 
 
 def extract_dynamic_map_elements(
@@ -214,6 +261,58 @@ def extract_dynamic_map_elements(
             )
 
     return elements
+
+
+def _get_ego_state(scene: SceneAPI, frame_idx: int):
+    """Get ego state, with fallback when timestamp column is missing."""
+    try:
+        return scene.get_ego_state_at_iteration(frame_idx)
+    except AssertionError:
+        return _get_ego_state_from_arrow(scene, frame_idx)
+
+
+def _get_ego_state_from_arrow(scene: SceneAPI, frame_idx: int):
+    ensure_py123d_on_path()
+
+    from py123d.common.utils.arrow_column_names import (
+        EGO_DYNAMIC_STATE_SE3_COLUMN,
+        EGO_REAR_AXLE_SE3_COLUMN,
+        EGO_STATE_SE3_COLUMNS,
+    )
+    from py123d.common.utils.arrow_helper import get_lru_cached_arrow_table
+    from py123d.datatypes.vehicle_state.dynamic_state import DynamicStateSE3
+    from py123d.datatypes.vehicle_state.ego_state import EgoStateSE3
+    from py123d.geometry import PoseSE3
+
+    arrow_path = getattr(scene, "_arrow_file_path", None)
+    if arrow_path is None:
+        return None
+
+    table = get_lru_cached_arrow_table(str(arrow_path))
+    if not all(column in table.schema.names for column in EGO_STATE_SE3_COLUMNS):
+        return None
+
+    vehicle_params = scene.log_metadata.vehicle_parameters
+    if vehicle_params is None:
+        return None
+
+    idx = scene.scene_metadata.initial_idx + frame_idx
+    if idx >= table.num_rows:
+        return None
+
+    rear_axle_data = table[EGO_REAR_AXLE_SE3_COLUMN][idx].as_py()
+    dynamic_state_data = table[EGO_DYNAMIC_STATE_SE3_COLUMN][idx].as_py()
+
+    rear_axle_se3 = PoseSE3.from_list(rear_axle_data)
+    dynamic_state_se3 = None
+    if dynamic_state_data is not None:
+        dynamic_state_se3 = DynamicStateSE3.from_list(dynamic_state_data)
+
+    return EgoStateSE3.from_rear_axle(
+        rear_axle_se3=rear_axle_se3,
+        vehicle_parameters=vehicle_params,
+        dynamic_state_se3=dynamic_state_se3,
+    )
 
 
 def _get_box_detections(scene: SceneAPI, frame_idx: int):
@@ -387,15 +486,26 @@ def extract_static_map_elements(map_api: MapAPI, center: np.ndarray) -> dict[int
     if not isinstance(map_api, ArrowMapAPI):
         return {}
 
+    bundles = _iter_map_objects(map_api, [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE, MapLayer.CROSSWALK])
+
+    lane_id_map: dict[object, int] = {}
+    for bundle in bundles:
+        if bundle.layer == MapLayer.LANE:
+            lane_id_map[bundle.object_id] = safe_id_to_int(bundle.object_id)
+
+    next_id = max(lane_id_map.values(), default=0) + 1
+
     static_map_elements: dict[int, dict] = {}
-    for bundle in _iter_map_objects(
-        map_api,
-        [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE, MapLayer.CROSSWALK],
-    ):
-        element = _convert_map_object(bundle.obj, center)
+    for bundle in bundles:
+        element = _convert_map_object(bundle.obj, center, lane_id_map)
         if element is None:
             continue
-        static_map_elements[safe_id_to_int(bundle.object_id)] = element
+        if bundle.layer == MapLayer.LANE:
+            element_id = lane_id_map[bundle.object_id]
+        else:
+            element_id = next_id
+            next_id += 1
+        static_map_elements[element_id] = element
 
     return static_map_elements
 
@@ -425,14 +535,15 @@ def _convert_map_object(map_object: object,center: np.ndarray,lane_id_map: dict[
 
     if isinstance(map_object, Lane):
         polyline = _centered_array(map_object.centerline.array, center)
+        lane_type = _convert_lane_type(getattr(map_object, "lane_type", None))
         speed_limit_kmh = _mps_to_kmh(map_object.speed_limit_mps)
-        left_neighbor = [safe_id_to_int(map_object.left_lane_id)] if map_object.left_lane_id else []
-        right_neighbor = [safe_id_to_int(map_object.right_lane_id)] if map_object.right_lane_id else []
-        entry_lanes = [safe_id_to_int(lane_id) for lane_id in map_object.predecessor_ids]
-        exit_lanes = [safe_id_to_int(lane_id) for lane_id in map_object.successor_ids]
+        left_neighbor = _lane_relation_ids(map_object.left_lane_id, lane_id_map)
+        right_neighbor = _lane_relation_ids(map_object.right_lane_id, lane_id_map)
+        entry_lanes = _lane_relation_ids(map_object.predecessor_ids, lane_id_map)
+        exit_lanes = _lane_relation_ids(map_object.successor_ids, lane_id_map)
 
         return {
-            "type": types.LANE_SURFACE_STREET,
+            "type": lane_type,
             "polyline": polyline,
             "speed_limit_mph": _kmh_to_mph(speed_limit_kmh) if speed_limit_kmh >= 0 else -1,
             "speed_limit_kmh": speed_limit_kmh,
@@ -466,6 +577,14 @@ def _convert_map_object(map_object: object,center: np.ndarray,lane_id_map: dict[
         }
 
     return None
+
+
+def _lane_relation_ids(value: object, lane_id_map: dict[object, int]) -> list[int]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [lane_id_map.get(item, safe_id_to_int(item)) for item in value]
+    return [lane_id_map.get(value, safe_id_to_int(value))]
 
 
 def _get_object_xy_points(map_object: object) -> np.ndarray | None:
@@ -535,6 +654,29 @@ def _convert_road_line_type(line_type: RoadLineType | None) -> str:
     }
 
     return mapping.get(line_type, types.ROAD_LINE_UNKNOWN)
+
+
+def _convert_lane_type(lane_type) -> str:
+    ensure_py123d_on_path()
+
+    from py123d.datatypes.map_objects.map_layer_types import LaneType  # type: ignore[import-not-found]
+
+    if lane_type is None:
+        return types.LANE_SURFACE_STREET
+
+    try:
+        lane_type = LaneType(lane_type)
+    except Exception:
+        return types.LANE_SURFACE_STREET
+
+    mapping = {
+        LaneType.UNDEFINED: types.LANE_SURFACE_STREET,
+        LaneType.FREEWAY: types.LANE_FREEWAY,
+        LaneType.SURFACE_STREET: types.LANE_SURFACE_STREET,
+        LaneType.BIKE_LANE: types.LANE_BIKE_LANE,
+    }
+
+    return mapping.get(lane_type, types.LANE_SURFACE_STREET)
 
 
 def _convert_default_label_to_agent_type(label) -> str:

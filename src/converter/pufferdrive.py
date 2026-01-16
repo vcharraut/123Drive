@@ -32,11 +32,15 @@ def unified_to_puffer_dict(
         dist_threshold,
     )
 
-    dynamic_agents = agents.convert_dynamic_agents(
+    metadata = unified_scenario["metadata"]
+    sdc_agent_id = metadata.get("sdc_index", 0)
+
+    dynamic_agents, sdc_sequential_idx = agents.convert_dynamic_agents(
         unified_scenario["dynamic_agents"],
         unified_scenario["static_map_elements"],
         min_route_valid_points=min_route_valid_points,
         route_check_timestep=route_check_timestep,
+        sdc_agent_id=sdc_agent_id,
     )
 
     traffic_control_elements = traffic_lights.convert_traffic_control_elements(
@@ -44,12 +48,11 @@ def unified_to_puffer_dict(
         unified_scenario["static_map_elements"],
     )
 
-    metadata = unified_scenario["metadata"]
     puffer_metadata = {
         "dataset_name": metadata.get("dataset_name", ""),
         "scenario_length": metadata.get("scenario_length", 0),
         "timesteps": metadata.get("timesteps", []),
-        "sdc_index": metadata.get("sdc_index", 0),
+        "sdc_index": sdc_sequential_idx,
     }
 
     if puffer_metadata["dataset_name"] == "waymo":

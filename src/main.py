@@ -34,17 +34,6 @@ def _validate_cfg(cfg: DictConfig):
     if not cfg.dataset_path:
         raise ValueError("dataset_path is required")
 
-    if cfg.dataset == "openscenes":
-        missing = []
-        if not cfg.openscenes.nuplan_logs_root:
-            missing.append("openscenes.nuplan_logs_root")
-        if not cfg.openscenes.nuplan_maps_root:
-            missing.append("openscenes.nuplan_maps_root")
-        if not cfg.openscenes.metadata_root:
-            missing.append("openscenes.metadata_root")
-        if missing:
-            raise ValueError(f"openscenes missing: {missing}")
-
 
 @hydra.main(config_path=".", config_name="config")
 def main(cfg: DictConfig):

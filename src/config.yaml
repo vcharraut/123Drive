@@ -6,17 +6,11 @@ defaults:
 # one dataset per run
 command: convert  # convert | json_to_bin
 
-dataset: waymo  # waymo | nuplan | openscenes | py123d
+dataset: py123d
 
 dataset_path: null
 
-# openscenes only (optional)
-openscenes:
-  nuplan_logs_root: null
-  nuplan_maps_root: null
-  metadata_root: null
-
-# py123d only (optional)
+# py123d options
 py123d:
   datasets: null
   split_types: [train, val, test]
@@ -41,14 +35,11 @@ json_to_bin:
 # optional cap for quick smoke runs
 max_scenarios: null
 
-waymo:
-  num_files: null
-
-processors: []  # [validation, traffic_lights, polyline_interpolation]
+processors: [validation]  # [validation, traffic_lights, polyline_interpolation]
 
 validation:
   strict: false
-  fail_on_error: false
+  fail_on_error: true
   validation_level: 2
   speed_limit_tolerance: 0.12
   position_jump_threshold: 50.0
