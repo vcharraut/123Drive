@@ -26,7 +26,13 @@ TL_STATE_GREEN = 3
 VALID_TL_STATES = {TL_STATE_UNKNOWN, TL_STATE_RED, TL_STATE_YELLOW, TL_STATE_GREEN}
 
 # Expected keys
-_REQUIRED_TOP_LEVEL_KEYS = {"scenario_id", "dynamic_agents", "road_map_elements", "traffic_control_elements", "metadata"}
+_REQUIRED_TOP_LEVEL_KEYS = {
+    "scenario_id",
+    "dynamic_agents",
+    "road_map_elements",
+    "traffic_control_elements",
+    "metadata",
+}
 _REQUIRED_METADATA_KEYS = {"dataset_name", "scenario_length", "timesteps", "sdc_index"}
 _REQUIRED_AGENT_KEYS = {"id", "type", "states", "routes"}
 _REQUIRED_AGENT_STATE_KEYS = {"xyz", "heading", "velocity", "length", "width", "height", "valid"}
@@ -196,6 +202,7 @@ def _validate_traffic_control_elements(elements: list, errors: list, warnings: l
 
 # Strict validation (physics)
 
+
 def strict_validate(
     puffer_dict: dict,
     validation_level: int = 2,
@@ -257,7 +264,7 @@ def _compute_timestep(timesteps) -> float:
     if isinstance(timesteps, np.ndarray) and len(timesteps) >= 2:
         return float(np.mean(np.diff(timesteps)))
     if isinstance(timesteps, list) and len(timesteps) >= 2:
-        dts = [timesteps[i+1] - timesteps[i] for i in range(len(timesteps)-1)]
+        dts = [timesteps[i + 1] - timesteps[i] for i in range(len(timesteps) - 1)]
         return sum(dts) / len(dts)
     return 0.1
 
@@ -279,18 +286,28 @@ def _validate_strict_agents(
         states = agent.get("states", {})
 
         _validate_trajectory_coherence(
-            agent_id, agent_type, states, dt,
-            position_jump_threshold, velocity_tolerance, heading_tolerance_deg,
-            errors, warnings,
+            agent_id,
+            states,
+            dt,
+            position_jump_threshold,
+            velocity_tolerance,
+            heading_tolerance_deg,
+            errors,
+            warnings,
         )
         _validate_physical_constraints(agent_id, agent_type, states, dt, validation_level, errors, warnings)
         _validate_temporal_consistency(agent_id, states, expected_length, errors, warnings)
 
 
 def _validate_trajectory_coherence(
-    agent_id, agent_type, states: dict, dt: float,
-    position_jump_threshold: float, velocity_tolerance: float, heading_tolerance_deg: float,
-    errors: list, warnings: list,
+    agent_id,
+    states: dict,
+    dt: float,
+    position_jump_threshold: float,
+    velocity_tolerance: float,
+    heading_tolerance_deg: float,
+    errors: list,
+    warnings: list,
 ):
     if "xyz" not in states or "valid" not in states:
         return
@@ -331,8 +348,13 @@ def _validate_trajectory_coherence(
 
 
 def _validate_physical_constraints(
-    agent_id, agent_type, states: dict, dt: float, validation_level: int,
-    errors: list, warnings: list,
+    agent_id,
+    agent_type,
+    states: dict,
+    dt: float,
+    validation_level: int,
+    errors: list,
+    warnings: list,
 ):
     type_name = AGENT_TYPE_MAP.get(agent_type, "OTHER")
 
@@ -386,7 +408,9 @@ def _validate_physical_constraints(
             if valid[i]:
                 speed = np.linalg.norm(velocity[i, :2])
                 if speed > max_speed:
-                    warnings.append(f"Agent {agent_id} ({type_name}) timestep {i}: speed={speed:.1f} m/s exceeds {max_speed}")
+                    warnings.append(
+                        f"Agent {agent_id} ({type_name}) timestep {i}: speed={speed:.1f} m/s exceeds {max_speed}",
+                    )
 
         # Acceleration limits (level >= 2)
         if validation_level >= 2 and dt > 0:
@@ -396,7 +420,9 @@ def _validate_physical_constraints(
                     dv = velocity[i + 1, :2] - velocity[i, :2]
                     accel = np.linalg.norm(dv) / dt
                     if accel > max_accel:
-                        warnings.append(f"Agent {agent_id} timestep {i}: acceleration={accel:.2f} m/s² exceeds {max_accel}")
+                        warnings.append(
+                            f"Agent {agent_id} timestep {i}: acceleration={accel:.2f} m/s² exceeds {max_accel}",
+                        )
 
 
 def _validate_temporal_consistency(agent_id, states: dict, expected_length: int, errors: list, warnings: list):
@@ -455,7 +481,9 @@ def _validate_strict_roads(roads: list, validation_level: int, errors: list, war
                             dot = np.clip(np.dot(v1[:2] / v1_norm, v2[:2] / v2_norm), -1.0, 1.0)
                             angle_deg = np.degrees(np.arccos(dot))
                             if angle_deg > 170:
-                                warnings.append(f"Road {road_id} has sharp corner at point {i} (angle={angle_deg:.1f}°)")
+                                warnings.append(
+                                    f"Road {road_id} has sharp corner at point {i} (angle={angle_deg:.1f}°)",
+                                )
 
         # Lane connectivity
         if road_type in LANE_TYPES:
@@ -472,7 +500,9 @@ def _validate_strict_roads(roads: list, validation_level: int, errors: list, war
                     if exit_id in lanes_by_id:
                         exit_entries = lanes_by_id[exit_id].get("entry_lanes", [])
                         if road_id not in exit_entries:
-                            warnings.append(f"Lane {road_id} exits to {exit_id}, but {exit_id} doesn't list {road_id} as entry")
+                            warnings.append(
+                                f"Lane {road_id} exits to {exit_id}, but {exit_id} doesn't list {road_id} as entry",
+                            )
 
             # # Speed limit validation (m/s)
             # if "speed_limit" in road:
@@ -484,8 +514,12 @@ def _validate_strict_roads(roads: list, validation_level: int, errors: list, war
 
 
 def _validate_strict_traffic_control(
-    elements: list, roads: list, expected_length: int, validation_level: int,
-    errors: list, warnings: list,
+    elements: list,
+    roads: list,
+    expected_length: int,
+    validation_level: int,
+    errors: list,
+    warnings: list,
 ):
     lanes_by_id = {r["id"]: r for r in roads if r.get("type", 0) in LANE_TYPES}
     lane_ids = set(lanes_by_id.keys())
@@ -506,7 +540,9 @@ def _validate_strict_traffic_control(
                     lane_xyz = np.array(lanes_by_id[lane_id]["xyz"])[:, :2]
                     min_dist = np.min(np.linalg.norm(lane_xyz - tl_pos, axis=1))
                     if min_dist > 50.0:
-                        warnings.append(f"Traffic control {elem_id} is {min_dist:.1f}m away from lane {lane_id} (expected < 50m)")
+                        warnings.append(
+                            f"Traffic control {elem_id} is {min_dist:.1f}m away from lane {lane_id} (expected < 50m)",
+                        )
 
         # Height validation
         if "xyz" in elem:
@@ -529,7 +565,9 @@ def _validate_strict_traffic_control(
                 # Rapid flickering detection
                 state_changes = sum(1 for i in range(len(states) - 1) if states[i] != states[i + 1])
                 if state_changes > len(states) * 0.5:
-                    warnings.append(f"Traffic control {elem_id} has rapid flickering: {state_changes} state changes in {len(states)} timesteps")
+                    warnings.append(
+                        f"Traffic control {elem_id} has rapid flickering: {state_changes} state changes in {len(states)} timesteps",
+                    )
 
 
 def _validate_scenario_coherence(puffer_dict: dict, validation_level: int, errors: list, warnings: list):

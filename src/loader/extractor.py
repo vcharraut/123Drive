@@ -313,7 +313,10 @@ def extract_static_map_elements(map_api: MapAPI, center: np.ndarray) -> dict[int
     if not isinstance(map_api, ArrowMapAPI):
         return {}
 
-    bundles = _iter_map_objects(map_api, [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE, MapLayer.CROSSWALK])
+    bundles = _iter_map_objects(
+        map_api,
+        [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE],
+    )  # MapLayer.CROSSWALK])
 
     lane_id_map: dict[object, int] = {}
     for bundle in bundles:
