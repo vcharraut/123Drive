@@ -105,14 +105,18 @@ def register_callbacks(app):
         [Output("selected-element", "data"),
          Output("highlight-lanes", "data")],
         [Input("main-graph", "clickData"),
-         Input("btn-search", "n_clicks")],
+         Input("btn-search", "n_clicks"),
+         Input("btn-clear-selection", "n_clicks")],
         [State("search-input", "value"),
          State("search-type", "value"),
          State("scenario-data", "data")],
     )
-    def handle_selection(click_data, search_clicks, search_value, search_type, scenario):
-        """Handle click on element or search."""
+    def handle_selection(click_data, search_clicks, clear_clicks, search_value, search_type, scenario):
+        """Handle click on element, search, or clear."""
         triggered = ctx.triggered_id
+
+        if triggered == "btn-clear-selection":
+            return None, []
 
         if triggered == "btn-search" and search_value:
             # Search by ID

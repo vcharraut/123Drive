@@ -158,6 +158,7 @@ def _create_info_panel():
                     style={"maxWidth": "80px"},
                 ),
                 dbc.Button("Go", id="btn-search", size="sm", color="primary"),
+                dbc.Button("Clear", id="btn-clear-selection", size="sm", color="secondary"),
             ], className="mb-3"),
 
             # Selected element info
