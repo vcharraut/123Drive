@@ -19,13 +19,15 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff"]
+viz = ["dash>=2.14", "plotly>=5.18", "dash-bootstrap-components>=1.5"]
+all = ["ruff", "dash>=2.14", "plotly>=5.18", "dash-bootstrap-components>=1.5"]
 
 [project.scripts]
 convert = "src.main:cli_entry_point"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src", "src.*"]
+include = ["src", "src.*", "puffer_viz", "puffer_viz.*"]
 
 [tool.uv.sources]
 py123d = { git = "https://github.com/autonomousvision/py123d.git", branch = "dev_v0.0.9" }
