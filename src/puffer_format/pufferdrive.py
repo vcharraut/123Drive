@@ -3,7 +3,7 @@ import struct
 import numpy as np
 
 from src import logger_utils
-from src.encoder import agents, roadgraph, traffic_lights
+from src.puffer_format import agents, roadgraph, traffic_lights
 
 
 logger = logger_utils.get_logger(__name__)

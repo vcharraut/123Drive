@@ -12,8 +12,8 @@ from py123d.datatypes.map_objects.map_objects import Crosswalk, Lane, RoadEdge, 
 from py123d.datatypes.vehicle_state.ego_state import EGO_TRACK_TOKEN
 
 from src import types
-from src.loader.load import MapOnlyScenario
-from src.loader.utils import safe_id_to_int
+from src.py123d_loader.load import MapOnlyScenario
+from src.py123d_loader.utils import safe_id_to_int
 
 
 if TYPE_CHECKING:

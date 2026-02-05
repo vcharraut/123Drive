@@ -8,7 +8,7 @@ from py123d.api.scene.arrow.arrow_scene_builder import ArrowSceneBuilder
 from py123d.api.scene.scene_filter import SceneFilter
 from py123d.common.multithreading.worker_sequential import Sequential
 
-from src.loader.utils import resolve_py123d_data_root
+from src.py123d_loader.utils import resolve_py123d_data_root
 
 
 if TYPE_CHECKING:

@@ -5,7 +5,7 @@ Convert dynamic agents from intermediate format to Puffer format.
 import numpy as np
 
 from src import logger_utils, types
-from src.encoder import routes
+from src.puffer_format import routes
 
 
 logger = logger_utils.get_logger(__name__)
