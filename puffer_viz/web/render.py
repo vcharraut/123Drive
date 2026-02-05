@@ -76,7 +76,7 @@ def create_figure(
         hovermode="closest",
         dragmode="pan",
         uirevision="constant",
-        margin={"length": 0, "r": 0, "t": 0, "b": 0},
+        margin={"l": 0, "r": 0, "t": 0, "b": 0},
         xaxis={
             "scaleanchor": "y",
             "scaleratio": 1,
