@@ -77,19 +77,19 @@ def create_figure(
         hovermode="closest",
         dragmode="pan",
         uirevision="constant",
-        margin=dict(l=0, r=0, t=0, b=0),
-        xaxis=dict(
-            scaleanchor="y",
-            scaleratio=1,
-            showgrid=False,
-            zeroline=False,
-            showticklabels=False,
-        ),
-        yaxis=dict(
-            showgrid=False,
-            zeroline=False,
-            showticklabels=False,
-        ),
+        margin={"l": 0, "r": 0, "t": 0, "b": 0},
+        xaxis={
+            "scaleanchor": "y",
+            "scaleratio": 1,
+            "showgrid": False,
+            "zeroline": False,
+            "showticklabels": False,
+        },
+        yaxis={
+            "showgrid": False,
+            "zeroline": False,
+            "showticklabels": False,
+        },
         plot_bgcolor="white",
     )
 
@@ -134,7 +134,7 @@ def _add_lanes_batched(fig, scenario, highlight_lanes):
                 x=xs,
                 y=ys,
                 mode="lines",
-                line=dict(color=ROAD_COLORS["lane"], width=1.5),
+                line={"color": ROAD_COLORS["lane"], "width": 1.5},
                 hoverinfo="text",
                 hovertext=hovers,
                 customdata=ids,
@@ -159,7 +159,7 @@ def _add_lanes_batched(fig, scenario, highlight_lanes):
                     x=hxs,
                     y=hys,
                     mode="lines",
-                    line=dict(color="#FF6600", width=4),
+                    line={"color": "#FF6600", "width": 4},
                     hoverinfo="skip",
                     name="lanes_highlight",
                 ),
@@ -176,7 +176,6 @@ def _add_road_lines_batched(fig, scenario):
         "yellow_solid": ([], []),
         "yellow_broken": ([], []),
     }
-    all_ids, all_hovers = [], []
 
     for elem in road_elements:
         road_type = elem.get("type", 0)
@@ -216,7 +215,7 @@ def _add_road_lines_batched(fig, scenario):
                     x=xs,
                     y=ys,
                     mode="lines",
-                    line=dict(color=color, width=1.5, dash=dash),
+                    line={"color": color, "width": 1.5, "dash": dash},
                     hoverinfo="skip",
                     name=f"road_lines_{key}",
                 ),
@@ -233,7 +232,7 @@ def _add_road_edges_batched(fig, scenario):
                 x=xs,
                 y=ys,
                 mode="lines",
-                line=dict(color=ROAD_COLORS["road_edge"], width=2.5),
+                line={"color": ROAD_COLORS["road_edge"], "width": 2.5},
                 hoverinfo="text",
                 hovertext=hovers,
                 customdata=ids,
@@ -278,7 +277,7 @@ def _add_crosswalks_batched(fig, scenario):
                 x=cw_xs,
                 y=cw_ys,
                 mode="lines",
-                line=dict(color=ROAD_COLORS["crosswalk"], width=3),
+                line={"color": ROAD_COLORS["crosswalk"], "width": 3},
                 hoverinfo="skip",
                 name="crosswalks",
             ),
@@ -290,7 +289,7 @@ def _add_crosswalks_batched(fig, scenario):
                 x=sb_xs,
                 y=sb_ys,
                 mode="lines",
-                line=dict(color=ROAD_COLORS["speed_bump"], width=3),
+                line={"color": ROAD_COLORS["speed_bump"], "width": 3},
                 hoverinfo="skip",
                 name="speed_bumps",
             ),
@@ -302,7 +301,7 @@ def _add_crosswalks_batched(fig, scenario):
                 x=ss_xs,
                 y=ss_ys,
                 mode="markers",
-                marker=dict(color=ROAD_COLORS["stop_sign"], size=8, symbol="square"),
+                marker={"color": ROAD_COLORS["stop_sign"], "size": 8, "symbol": "square"},
                 hoverinfo="skip",
                 name="stop_signs",
             ),
@@ -312,7 +311,6 @@ def _add_crosswalks_batched(fig, scenario):
 def _add_routes_batched(fig, scenario, metadata):
     agents = scenario.get("dynamic_agents", [])
     road_elements = scenario.get("road_map_elements", [])
-    sdc_index = metadata.get("sdc_index", -1)
 
     if not agents:
         return
@@ -344,7 +342,7 @@ def _add_routes_batched(fig, scenario, metadata):
                 x=xs,
                 y=ys,
                 mode="lines",
-                line=dict(color="#666666", width=2, dash="dash"),
+                line={"color": "#666666", "width": 2, "dash": "dash"},
                 opacity=0.5,
                 hoverinfo="skip",
                 name="routes",
@@ -392,7 +390,7 @@ def _add_trajectories_batched(fig, scenario, timestep, metadata):
                 x=hist_xs,
                 y=hist_ys,
                 mode="lines",
-                line=dict(color="#888888", width=1.5),
+                line={"color": "#888888", "width": 1.5},
                 opacity=0.4,
                 hoverinfo="skip",
                 name="trajectories_history",
@@ -405,7 +403,7 @@ def _add_trajectories_batched(fig, scenario, timestep, metadata):
                 x=fut_xs,
                 y=fut_ys,
                 mode="lines",
-                line=dict(color="#888888", width=1, dash="dot"),
+                line={"color": "#888888", "width": 1, "dash": "dot"},
                 opacity=0.3,
                 hoverinfo="skip",
                 name="trajectories_future",
@@ -415,7 +413,6 @@ def _add_trajectories_batched(fig, scenario, timestep, metadata):
 
 def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
     agents = scenario.get("dynamic_agents", [])
-    sdc_index = metadata.get("sdc_index", -1)
     tracks_to_predict = metadata.get("tracks_to_predict", [])
     objects_of_interest = metadata.get("objects_of_interests", [])
 
@@ -423,7 +420,7 @@ def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
         return
 
     # Collect agent data
-    body_xs, body_ys, body_colors, body_ids, body_hovers = [], [], [], [], []
+    body_xs, body_ys, body_ids, body_hovers = [], [], [], []
     arrow_xs, arrow_ys = [], []
     label_xs, label_ys, label_texts = [], [], []
 
@@ -445,8 +442,6 @@ def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
 
         agent_id = agent["id"]
         agent_type = agent.get("type", 0)
-        is_ego = i == sdc_index
-        color = get_agent_color(agent_id, is_ego)
 
         x, y = xyz[timestep, 0], xyz[timestep, 1]
         h = heading[timestep] if timestep < len(heading) else 0
@@ -497,7 +492,7 @@ def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
                 mode="lines",
                 fill="toself",
                 fillcolor="#1F77B4",
-                line=dict(color="black", width=1),
+                line={"color": "black", "width": 1},
                 opacity=0.8,
                 hoverinfo="text",
                 hovertext=body_hovers,
@@ -512,7 +507,7 @@ def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
                 x=arrow_xs,
                 y=arrow_ys,
                 mode="lines",
-                line=dict(color="black", width=2),
+                line={"color": "black", "width": 2},
                 hoverinfo="skip",
                 name="agent_headings",
             ),
@@ -526,7 +521,7 @@ def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
                 mode="text",
                 text=label_texts,
                 textposition="top center",
-                textfont=dict(size=10, color="black"),
+                textfont={"size": 10, "color": "black"},
                 hoverinfo="skip",
                 name="agent_labels",
             ),
@@ -538,7 +533,7 @@ def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
                 x=ttp_xs,
                 y=ttp_ys,
                 mode="markers",
-                marker=dict(color="rgba(255,0,0,0.3)", size=20, symbol="circle"),
+                marker={"color": "rgba(255,0,0,0.3)", "size": 20, "symbol": "circle"},
                 hoverinfo="skip",
                 name="tracks_to_predict",
             ),
@@ -550,7 +545,7 @@ def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
                 x=ooi_xs,
                 y=ooi_ys,
                 mode="markers",
-                marker=dict(color="rgba(0,0,255,0.3)", size=20, symbol="circle"),
+                marker={"color": "rgba(0,0,255,0.3)", "size": 20, "symbol": "circle"},
                 hoverinfo="skip",
                 name="objects_of_interest",
             ),
@@ -588,7 +583,7 @@ def _add_traffic_lights_batched(fig, scenario, timestep):
                 x=xs,
                 y=ys,
                 mode="markers",
-                marker=dict(color=color, size=12, line=dict(color="black", width=1)),
+                marker={"color": color, "size": 12, "line": {"color": "black", "width": 1}},
                 hoverinfo="text",
                 hovertext=[f"Traffic Light {d['id']}" for d in ids],
                 customdata=ids,
@@ -626,7 +621,7 @@ def _add_click_targets(fig, scenario):
                 x=xs,
                 y=ys,
                 mode="markers",
-                marker=dict(size=12, color="rgba(0,0,0,0)", line=dict(width=0)),
+                marker={"size": 12, "color": "rgba(0,0,0,0)", "line": {"width": 0}},
                 hoverinfo="text",
                 hovertext=hovers,
                 customdata=ids,
@@ -653,7 +648,7 @@ def _highlight_selection(fig, scenario, selected_element, timestep):
                             x=[x],
                             y=[y],
                             mode="markers",
-                            marker=dict(color="rgba(255,0,0,0.4)", size=35),
+                            marker={"color": "rgba(255,0,0,0.4)", "size": 35},
                             hoverinfo="skip",
                             name="selection",
                         ),
@@ -671,7 +666,7 @@ def _highlight_selection(fig, scenario, selected_element, timestep):
                             x=xyz[:, 0],
                             y=xyz[:, 1],
                             mode="lines",
-                            line=dict(color="red", width=6),
+                            line={"color": "red", "width": 6},
                             opacity=0.6,
                             hoverinfo="skip",
                             name="selection",
@@ -690,7 +685,7 @@ def _highlight_selection(fig, scenario, selected_element, timestep):
                             x=[xyz[0]],
                             y=[xyz[1]],
                             mode="markers",
-                            marker=dict(color="rgba(255,0,0,0.4)", size=30),
+                            marker={"color": "rgba(255,0,0,0.4)", "size": 30},
                             hoverinfo="skip",
                             name="selection",
                         ),

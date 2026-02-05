@@ -6,11 +6,11 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from src import logger_utils
+from src.processors.polyline_interpolation.processor import interpolate_polylines
+from src.processors.traffic_lights.processor import add_traffic_lights_to_scenario
 from src.puffer_format.pufferdrive import convert_to_puffer_dict, puffer_dict_to_binary
 from src.py123d_loader.extractor import convert_py123d_scenario
 from src.py123d_loader.load import get_py123d_scenarios
-from src.processors.polyline_interpolation.processor import interpolate_polylines
-from src.processors.traffic_lights.processor import add_traffic_lights_to_scenario
 
 
 logger = logger_utils.get_logger(__name__)

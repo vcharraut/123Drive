@@ -241,10 +241,7 @@ def _read_traffic_control_element(f) -> dict:
     state_length = struct.unpack("i", f.read(4))[0]
 
     # Read states
-    if state_length > 0:
-        states = list(struct.unpack(f"{state_length}i", f.read(4 * state_length)))
-    else:
-        states = []
+    states = list(struct.unpack(f"{state_length}i", f.read(4 * state_length))) if state_length > 0 else []
 
     # Read controlled lanes
     num_controlled_lanes = struct.unpack("i", f.read(4))[0]

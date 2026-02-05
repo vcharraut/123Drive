@@ -163,8 +163,7 @@ Examples:
         try:
             # Load scenario
             scenario = load_puffer_scenario(puffer_file)
-            metadata = scenario.get("metadata", {})
-            length = scenario.get("length", 91)
+            length = scenario.get("length", 0)
 
             print(f"  → Scenario has {length} timesteps")
 

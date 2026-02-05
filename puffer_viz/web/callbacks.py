@@ -304,7 +304,7 @@ def register_callbacks(app):
         }
 
         fig = create_figure(scenario, timestep, layers, selected_element, highlight_lanes)
-        fig.update_layout(xaxis=dict(autorange=True), yaxis=dict(autorange=True))
+        fig.update_layout(xaxis={"autorange": True}, yaxis={"autorange": True})
         return fig
 
     @app.callback(
@@ -382,8 +382,8 @@ def register_callbacks(app):
 
         radius = float(zoom_radius)
         fig.update_layout(
-            xaxis=dict(range=[ego_x - radius, ego_x + radius]),
-            yaxis=dict(range=[ego_y - radius, ego_y + radius]),
+            xaxis={"range": [ego_x - radius, ego_x + radius]},
+            yaxis={"range": [ego_y - radius, ego_y + radius]},
         )
         return fig
 
@@ -395,19 +395,19 @@ def _empty_figure():
     fig = go.Figure()
     fig.update_layout(
         showlegend=False,
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
+        xaxis={"visible": False},
+        yaxis={"visible": False},
         plot_bgcolor="white",
         annotations=[
-            dict(
-                text="Load a scenario file to begin",
-                xref="paper",
-                yref="paper",
-                x=0.5,
-                y=0.5,
-                showarrow=False,
-                font=dict(size=16, color="gray"),
-            ),
+            {
+                "text": "Load a scenario file to begin",
+                "xref": "paper",
+                "yref": "paper",
+                "x": 0.5,
+                "y": 0.5,
+                "showarrow": False,
+                "font": {"size": 16, "color": "gray"},
+            },
         ],
     )
     return fig
