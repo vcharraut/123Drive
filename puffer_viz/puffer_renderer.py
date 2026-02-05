@@ -290,15 +290,15 @@ def render_scenario_video(
             else:
                 current_radius = zoom_radius
 
-            # if current_zoom_center is not None and current_radius is not None:
-            #     # Zoom to specified region
-            #     x_c, y_c = current_zoom_center
-            #     ax.set_xlim(x_c - current_radius, x_c + current_radius)
-            #     ax.set_ylim(y_c - current_radius, y_c + current_radius)
-            # else:
-            # Auto-scale to show full scene
-            ax.autoscale()
-            ax.margins(0.1)
+            if current_zoom_center is not None and current_radius is not None:
+                # Zoom to specified region
+                x_c, y_c = current_zoom_center
+                ax.set_xlim(x_c - current_radius, x_c + current_radius)
+                ax.set_ylim(y_c - current_radius, y_c + current_radius)
+            else:
+                # Auto-scale to show full scene
+                ax.autoscale()
+                ax.margins(0.1)
 
             # Add frame to video
             writer.grab_frame()
@@ -504,9 +504,9 @@ def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_futu
 
         # Get current position and heading
         x, y = xyz[timestep, 0], xyz[timestep, 1]
-        h = heading[timestep]
-        l = length[timestep] if timestep < len(length) else 4.5
-        w = width[timestep] if timestep < len(width) else 2.0
+        heading = heading[timestep]
+        length = length[timestep] if timestep < len(length) else 4.5
+        width = width[timestep] if timestep < len(width) else 2.0
 
         # Determine color based on agent ID (consistent with routes)
         is_ego = agent_id == ego_id
@@ -518,9 +518,9 @@ def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_futu
         # Draw agent as oriented rectangle
         # Rectangle in local coordinates (centered at origin)
         rect = mpatches.Rectangle(
-            (-l / 2, -w / 2),
-            l,
-            w,
+            (-length / 2, -width / 2),
+            length,
+            width,
             facecolor=color,
             edgecolor=edge_color,
             linewidth=1.0,
@@ -529,21 +529,21 @@ def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_futu
         )
 
         # Transform to world coordinates: rotate then translate
-        t = plt.matplotlib.transforms.Affine2D().rotate(h).translate(x, y) + ax.transData
+        t = plt.matplotlib.transforms.Affine2D().rotate(heading).translate(x, y) + ax.transData
         rect.set_transform(t)
         ax.add_patch(rect)
 
         # Draw heading indicator (arrow)
-        arrow_length = l * 0.6
-        dx = arrow_length * np.cos(h)
-        dy = arrow_length * np.sin(h)
+        arrow_length = length * 0.6
+        dx = arrow_length * np.cos(heading)
+        dy = arrow_length * np.sin(heading)
         ax.arrow(
             x,
             y,
             dx,
             dy,
-            head_width=w * 0.5,
-            head_length=w * 0.3,
+            head_width=width * 0.5,
+            head_length=width * 0.3,
             fc=color,
             ec="black",
             linewidth=0.5,
@@ -554,7 +554,7 @@ def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_futu
         # Show agent ID
         ax.text(
             x,
-            y + w,
+            y + width,
             f"{agent_id}",
             fontsize=6,
             color="black",
