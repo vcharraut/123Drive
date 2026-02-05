@@ -1,11 +1,10 @@
 """Dash callbacks for Puffer web visualization."""
 
 import base64
-import json
 from pathlib import Path
 
 import numpy as np
-from dash import Input, Output, State, callback, ctx, no_update
+from dash import Input, Output, State, ctx, no_update
 
 from .info_panels import create_element_info, create_scenario_info
 from .render import create_figure
@@ -15,12 +14,14 @@ def register_callbacks(app):
     """Register all callbacks with the app."""
 
     @app.callback(
-        [Output("scenario-data", "data"),
-         Output("timestep-slider", "max"),
-         Output("timestep-slider", "value"),
-         Output("scenario-id-display", "children"),
-         Output("dataset-display", "children"),
-         Output("max-timestep-display", "children")],
+        [
+            Output("scenario-data", "data"),
+            Output("timestep-slider", "max"),
+            Output("timestep-slider", "value"),
+            Output("scenario-id-display", "children"),
+            Output("dataset-display", "children"),
+            Output("max-timestep-display", "children"),
+        ],
         [Input("upload-file", "contents")],
         [State("upload-file", "filename")],
         prevent_initial_call=True,
@@ -35,8 +36,9 @@ def register_callbacks(app):
         decoded = base64.b64decode(content_string)
 
         # Save to temp and load
-        from puffer_viz.binary_loader import load_puffer_binary
         import tempfile
+
+        from puffer_viz.binary_loader import load_puffer_binary
 
         suffix = Path(filename).suffix
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
@@ -57,23 +59,37 @@ def register_callbacks(app):
 
     @app.callback(
         Output("main-graph", "figure"),
-        [Input("scenario-data", "data"),
-         Input("timestep-slider", "value"),
-         Input("layer-lanes", "value"),
-         Input("layer-road_lines", "value"),
-         Input("layer-road_edges", "value"),
-         Input("layer-crosswalks", "value"),
-         Input("layer-agents", "value"),
-         Input("layer-routes", "value"),
-         Input("layer-trajectories", "value"),
-         Input("layer-traffic_lights", "value"),
-         Input("layer-agent_ids", "value"),
-         Input("selected-element", "data"),
-         Input("highlight-lanes", "data")],
+        [
+            Input("scenario-data", "data"),
+            Input("timestep-slider", "value"),
+            Input("layer-lanes", "value"),
+            Input("layer-road_lines", "value"),
+            Input("layer-road_edges", "value"),
+            Input("layer-crosswalks", "value"),
+            Input("layer-agents", "value"),
+            Input("layer-routes", "value"),
+            Input("layer-trajectories", "value"),
+            Input("layer-traffic_lights", "value"),
+            Input("layer-agent_ids", "value"),
+            Input("selected-element", "data"),
+            Input("highlight-lanes", "data"),
+        ],
     )
-    def update_figure(scenario, timestep, lanes, road_lines, road_edges, crosswalks,
-                      agents, routes, trajectories, traffic_lights, agent_ids,
-                      selected_element, highlight_lanes):
+    def update_figure(
+        scenario,
+        timestep,
+        lanes,
+        road_lines,
+        road_edges,
+        crosswalks,
+        agents,
+        routes,
+        trajectories,
+        traffic_lights,
+        agent_ids,
+        selected_element,
+        highlight_lanes,
+    ):
         """Update the main visualization figure."""
         if scenario is None:
             return _empty_figure()
@@ -102,14 +118,9 @@ def register_callbacks(app):
         )
 
     @app.callback(
-        [Output("selected-element", "data"),
-         Output("highlight-lanes", "data")],
-        [Input("main-graph", "clickData"),
-         Input("btn-search", "n_clicks"),
-         Input("btn-clear-selection", "n_clicks")],
-        [State("search-input", "value"),
-         State("search-type", "value"),
-         State("scenario-data", "data")],
+        [Output("selected-element", "data"), Output("highlight-lanes", "data")],
+        [Input("main-graph", "clickData"), Input("btn-search", "n_clicks"), Input("btn-clear-selection", "n_clicks")],
+        [State("search-input", "value"), State("search-type", "value"), State("scenario-data", "data")],
     )
     def handle_selection(click_data, search_clicks, clear_clicks, search_value, search_type, scenario):
         """Handle click on element, search, or clear."""
@@ -153,8 +164,7 @@ def register_callbacks(app):
 
     @app.callback(
         Output("element-info-panel", "children"),
-        [Input("selected-element", "data"),
-         Input("timestep-slider", "value")],
+        [Input("selected-element", "data"), Input("timestep-slider", "value")],
         [State("scenario-data", "data")],
     )
     def update_element_info(selected_element, timestep, scenario):
@@ -173,23 +183,39 @@ def register_callbacks(app):
 
     # Playback controls
     @app.callback(
-        [Output("timestep-slider", "value", allow_duplicate=True),
-         Output("playback-interval", "disabled"),
-         Output("btn-play", "children")],
-        [Input("btn-play", "n_clicks"),
-         Input("btn-start", "n_clicks"),
-         Input("btn-end", "n_clicks"),
-         Input("btn-prev", "n_clicks"),
-         Input("btn-next", "n_clicks"),
-         Input("playback-interval", "n_intervals")],
-        [State("timestep-slider", "value"),
-         State("timestep-slider", "max"),
-         State("playback-interval", "disabled"),
-         State("playback-speed", "value")],
+        [
+            Output("timestep-slider", "value", allow_duplicate=True),
+            Output("playback-interval", "disabled"),
+            Output("btn-play", "children"),
+        ],
+        [
+            Input("btn-play", "n_clicks"),
+            Input("btn-start", "n_clicks"),
+            Input("btn-end", "n_clicks"),
+            Input("btn-prev", "n_clicks"),
+            Input("btn-next", "n_clicks"),
+            Input("playback-interval", "n_intervals"),
+        ],
+        [
+            State("timestep-slider", "value"),
+            State("timestep-slider", "max"),
+            State("playback-interval", "disabled"),
+            State("playback-speed", "value"),
+        ],
         prevent_initial_call=True,
     )
-    def playback_controls(play_clicks, start_clicks, end_clicks, prev_clicks, next_clicks,
-                          intervals, current_ts, max_ts, is_paused, speed):
+    def playback_controls(
+        play_clicks,
+        start_clicks,
+        end_clicks,
+        prev_clicks,
+        next_clicks,
+        intervals,
+        current_ts,
+        max_ts,
+        is_paused,
+        speed,
+    ):
         triggered = ctx.triggered_id
 
         if triggered == "btn-play":
@@ -227,33 +253,53 @@ def register_callbacks(app):
     @app.callback(
         Output("main-graph", "figure", allow_duplicate=True),
         [Input("btn-fit-all", "n_clicks")],
-        [State("scenario-data", "data"),
-         State("timestep-slider", "value"),
-         State("layer-lanes", "value"),
-         State("layer-road_lines", "value"),
-         State("layer-road_edges", "value"),
-         State("layer-crosswalks", "value"),
-         State("layer-agents", "value"),
-         State("layer-routes", "value"),
-         State("layer-trajectories", "value"),
-         State("layer-traffic_lights", "value"),
-         State("layer-agent_ids", "value"),
-         State("selected-element", "data"),
-         State("highlight-lanes", "data")],
+        [
+            State("scenario-data", "data"),
+            State("timestep-slider", "value"),
+            State("layer-lanes", "value"),
+            State("layer-road_lines", "value"),
+            State("layer-road_edges", "value"),
+            State("layer-crosswalks", "value"),
+            State("layer-agents", "value"),
+            State("layer-routes", "value"),
+            State("layer-trajectories", "value"),
+            State("layer-traffic_lights", "value"),
+            State("layer-agent_ids", "value"),
+            State("selected-element", "data"),
+            State("highlight-lanes", "data"),
+        ],
         prevent_initial_call=True,
     )
-    def fit_all(n_clicks, scenario, timestep, lanes, road_lines, road_edges, crosswalks,
-                agents, routes, trajectories, traffic_lights, agent_ids,
-                selected_element, highlight_lanes):
+    def fit_all(
+        n_clicks,
+        scenario,
+        timestep,
+        lanes,
+        road_lines,
+        road_edges,
+        crosswalks,
+        agents,
+        routes,
+        trajectories,
+        traffic_lights,
+        agent_ids,
+        selected_element,
+        highlight_lanes,
+    ):
         if scenario is None:
             return no_update
 
         scenario = _deserialize_scenario(scenario)
 
         layers = {
-            "lanes": lanes, "road_lines": road_lines, "road_edges": road_edges,
-            "crosswalks": crosswalks, "agents": agents, "routes": routes,
-            "trajectories": trajectories, "traffic_lights": traffic_lights,
+            "lanes": lanes,
+            "road_lines": road_lines,
+            "road_edges": road_edges,
+            "crosswalks": crosswalks,
+            "agents": agents,
+            "routes": routes,
+            "trajectories": trajectories,
+            "traffic_lights": traffic_lights,
             "agent_ids": agent_ids,
         }
 
@@ -264,25 +310,41 @@ def register_callbacks(app):
     @app.callback(
         Output("main-graph", "figure", allow_duplicate=True),
         [Input("btn-follow-ego", "n_clicks")],
-        [State("scenario-data", "data"),
-         State("timestep-slider", "value"),
-         State("zoom-radius-select", "value"),
-         State("layer-lanes", "value"),
-         State("layer-road_lines", "value"),
-         State("layer-road_edges", "value"),
-         State("layer-crosswalks", "value"),
-         State("layer-agents", "value"),
-         State("layer-routes", "value"),
-         State("layer-trajectories", "value"),
-         State("layer-traffic_lights", "value"),
-         State("layer-agent_ids", "value"),
-         State("selected-element", "data"),
-         State("highlight-lanes", "data")],
+        [
+            State("scenario-data", "data"),
+            State("timestep-slider", "value"),
+            State("zoom-radius-select", "value"),
+            State("layer-lanes", "value"),
+            State("layer-road_lines", "value"),
+            State("layer-road_edges", "value"),
+            State("layer-crosswalks", "value"),
+            State("layer-agents", "value"),
+            State("layer-routes", "value"),
+            State("layer-trajectories", "value"),
+            State("layer-traffic_lights", "value"),
+            State("layer-agent_ids", "value"),
+            State("selected-element", "data"),
+            State("highlight-lanes", "data"),
+        ],
         prevent_initial_call=True,
     )
-    def follow_ego(n_clicks, scenario, timestep, zoom_radius, lanes, road_lines, road_edges,
-                   crosswalks, agents, routes, trajectories, traffic_lights, agent_ids,
-                   selected_element, highlight_lanes):
+    def follow_ego(
+        n_clicks,
+        scenario,
+        timestep,
+        zoom_radius,
+        lanes,
+        road_lines,
+        road_edges,
+        crosswalks,
+        agents,
+        routes,
+        trajectories,
+        traffic_lights,
+        agent_ids,
+        selected_element,
+        highlight_lanes,
+    ):
         if scenario is None:
             return no_update
 
@@ -305,9 +367,14 @@ def register_callbacks(app):
             return no_update
 
         layers = {
-            "lanes": lanes, "road_lines": road_lines, "road_edges": road_edges,
-            "crosswalks": crosswalks, "agents": agents, "routes": routes,
-            "trajectories": trajectories, "traffic_lights": traffic_lights,
+            "lanes": lanes,
+            "road_lines": road_lines,
+            "road_edges": road_edges,
+            "crosswalks": crosswalks,
+            "agents": agents,
+            "routes": routes,
+            "trajectories": trajectories,
+            "traffic_lights": traffic_lights,
             "agent_ids": agent_ids,
         }
 
@@ -324,25 +391,31 @@ def register_callbacks(app):
 def _empty_figure():
     """Create empty figure placeholder."""
     import plotly.graph_objects as go
+
     fig = go.Figure()
     fig.update_layout(
         showlegend=False,
         xaxis=dict(visible=False),
         yaxis=dict(visible=False),
         plot_bgcolor="white",
-        annotations=[dict(
-            text="Load a scenario file to begin",
-            xref="paper", yref="paper",
-            x=0.5, y=0.5,
-            showarrow=False,
-            font=dict(size=16, color="gray"),
-        )],
+        annotations=[
+            dict(
+                text="Load a scenario file to begin",
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.5,
+                showarrow=False,
+                font=dict(size=16, color="gray"),
+            ),
+        ],
     )
     return fig
 
 
 def _serialize_scenario(scenario):
     """Convert numpy arrays to lists for JSON storage."""
+
     def convert(obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
@@ -351,6 +424,7 @@ def _serialize_scenario(scenario):
         if isinstance(obj, list):
             return [convert(v) for v in obj]
         return obj
+
     return convert(scenario)
 
 

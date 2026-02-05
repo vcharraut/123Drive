@@ -4,20 +4,18 @@ import numpy as np
 import plotly.graph_objects as go
 
 from .utils import (
+    ROAD_COLORS,
     build_lane_map,
     compute_route_polyline,
     get_agent_color,
     get_agent_type_name,
     get_heading_arrow,
-    get_road_styling,
     get_road_type_name,
     get_traffic_state_color,
-    get_traffic_state_name,
     get_vehicle_corners,
     is_lane,
     is_road_edge,
     is_road_line,
-    ROAD_COLORS,
 )
 
 
@@ -131,15 +129,18 @@ def _add_lanes_batched(fig, scenario, highlight_lanes):
     # Regular lanes
     xs, ys, ids, hovers = _batch_polylines(road_elements, is_lane)
     if xs:
-        fig.add_trace(go.Scattergl(
-            x=xs, y=ys,
-            mode="lines",
-            line=dict(color=ROAD_COLORS["lane"], width=1.5),
-            hoverinfo="text",
-            hovertext=hovers,
-            customdata=ids,
-            name="lanes",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=xs,
+                y=ys,
+                mode="lines",
+                line=dict(color=ROAD_COLORS["lane"], width=1.5),
+                hoverinfo="text",
+                hovertext=hovers,
+                customdata=ids,
+                name="lanes",
+            ),
+        )
 
     # Highlighted lanes (separate trace)
     if highlight_lanes:
@@ -153,13 +154,16 @@ def _add_lanes_batched(fig, scenario, highlight_lanes):
                     hys.extend(xyz[:, 1].tolist())
                     hys.append(None)
         if hxs:
-            fig.add_trace(go.Scattergl(
-                x=hxs, y=hys,
-                mode="lines",
-                line=dict(color="#FF6600", width=4),
-                hoverinfo="skip",
-                name="lanes_highlight",
-            ))
+            fig.add_trace(
+                go.Scattergl(
+                    x=hxs,
+                    y=hys,
+                    mode="lines",
+                    line=dict(color="#FF6600", width=4),
+                    hoverinfo="skip",
+                    name="lanes_highlight",
+                ),
+            )
 
 
 def _add_road_lines_batched(fig, scenario):
@@ -207,13 +211,16 @@ def _add_road_lines_batched(fig, scenario):
     for key, (xs, ys) in groups.items():
         if xs:
             color, dash = styles[key]
-            fig.add_trace(go.Scattergl(
-                x=xs, y=ys,
-                mode="lines",
-                line=dict(color=color, width=1.5, dash=dash),
-                hoverinfo="skip",
-                name=f"road_lines_{key}",
-            ))
+            fig.add_trace(
+                go.Scattergl(
+                    x=xs,
+                    y=ys,
+                    mode="lines",
+                    line=dict(color=color, width=1.5, dash=dash),
+                    hoverinfo="skip",
+                    name=f"road_lines_{key}",
+                ),
+            )
 
 
 def _add_road_edges_batched(fig, scenario):
@@ -221,15 +228,18 @@ def _add_road_edges_batched(fig, scenario):
     xs, ys, ids, hovers = _batch_polylines(road_elements, is_road_edge)
 
     if xs:
-        fig.add_trace(go.Scattergl(
-            x=xs, y=ys,
-            mode="lines",
-            line=dict(color=ROAD_COLORS["road_edge"], width=2.5),
-            hoverinfo="text",
-            hovertext=hovers,
-            customdata=ids,
-            name="road_edges",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=xs,
+                y=ys,
+                mode="lines",
+                line=dict(color=ROAD_COLORS["road_edge"], width=2.5),
+                hoverinfo="text",
+                hovertext=hovers,
+                customdata=ids,
+                name="road_edges",
+            ),
+        )
 
 
 def _add_crosswalks_batched(fig, scenario):
@@ -263,31 +273,40 @@ def _add_crosswalks_batched(fig, scenario):
             ss_ys.append(xyz[0, 1])
 
     if cw_xs:
-        fig.add_trace(go.Scattergl(
-            x=cw_xs, y=cw_ys,
-            mode="lines",
-            line=dict(color=ROAD_COLORS["crosswalk"], width=3),
-            hoverinfo="skip",
-            name="crosswalks",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=cw_xs,
+                y=cw_ys,
+                mode="lines",
+                line=dict(color=ROAD_COLORS["crosswalk"], width=3),
+                hoverinfo="skip",
+                name="crosswalks",
+            ),
+        )
 
     if sb_xs:
-        fig.add_trace(go.Scattergl(
-            x=sb_xs, y=sb_ys,
-            mode="lines",
-            line=dict(color=ROAD_COLORS["speed_bump"], width=3),
-            hoverinfo="skip",
-            name="speed_bumps",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=sb_xs,
+                y=sb_ys,
+                mode="lines",
+                line=dict(color=ROAD_COLORS["speed_bump"], width=3),
+                hoverinfo="skip",
+                name="speed_bumps",
+            ),
+        )
 
     if ss_xs:
-        fig.add_trace(go.Scattergl(
-            x=ss_xs, y=ss_ys,
-            mode="markers",
-            marker=dict(color=ROAD_COLORS["stop_sign"], size=8, symbol="square"),
-            hoverinfo="skip",
-            name="stop_signs",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=ss_xs,
+                y=ss_ys,
+                mode="markers",
+                marker=dict(color=ROAD_COLORS["stop_sign"], size=8, symbol="square"),
+                hoverinfo="skip",
+                name="stop_signs",
+            ),
+        )
 
 
 def _add_routes_batched(fig, scenario, metadata):
@@ -320,14 +339,17 @@ def _add_routes_batched(fig, scenario, metadata):
         ys.append(None)
 
     if xs:
-        fig.add_trace(go.Scattergl(
-            x=xs, y=ys,
-            mode="lines",
-            line=dict(color="#666666", width=2, dash="dash"),
-            opacity=0.5,
-            hoverinfo="skip",
-            name="routes",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=xs,
+                y=ys,
+                mode="lines",
+                line=dict(color="#666666", width=2, dash="dash"),
+                opacity=0.5,
+                hoverinfo="skip",
+                name="routes",
+            ),
+        )
 
 
 def _add_trajectories_batched(fig, scenario, timestep, metadata):
@@ -365,24 +387,30 @@ def _add_trajectories_batched(fig, scenario, timestep, metadata):
         fut_ys.append(None)
 
     if hist_xs:
-        fig.add_trace(go.Scattergl(
-            x=hist_xs, y=hist_ys,
-            mode="lines",
-            line=dict(color="#888888", width=1.5),
-            opacity=0.4,
-            hoverinfo="skip",
-            name="trajectories_history",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=hist_xs,
+                y=hist_ys,
+                mode="lines",
+                line=dict(color="#888888", width=1.5),
+                opacity=0.4,
+                hoverinfo="skip",
+                name="trajectories_history",
+            ),
+        )
 
     if fut_xs:
-        fig.add_trace(go.Scattergl(
-            x=fut_xs, y=fut_ys,
-            mode="lines",
-            line=dict(color="#888888", width=1, dash="dot"),
-            opacity=0.3,
-            hoverinfo="skip",
-            name="trajectories_future",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=fut_xs,
+                y=fut_ys,
+                mode="lines",
+                line=dict(color="#888888", width=1, dash="dot"),
+                opacity=0.3,
+                hoverinfo="skip",
+                name="trajectories_future",
+            ),
+        )
 
 
 def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
@@ -462,56 +490,71 @@ def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
 
     # Add traces
     if body_xs:
-        fig.add_trace(go.Scattergl(
-            x=body_xs, y=body_ys,
-            mode="lines",
-            fill="toself",
-            fillcolor="#1F77B4",
-            line=dict(color="black", width=1),
-            opacity=0.8,
-            hoverinfo="text",
-            hovertext=body_hovers,
-            customdata=body_ids,
-            name="agents",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=body_xs,
+                y=body_ys,
+                mode="lines",
+                fill="toself",
+                fillcolor="#1F77B4",
+                line=dict(color="black", width=1),
+                opacity=0.8,
+                hoverinfo="text",
+                hovertext=body_hovers,
+                customdata=body_ids,
+                name="agents",
+            ),
+        )
 
     if arrow_xs:
-        fig.add_trace(go.Scattergl(
-            x=arrow_xs, y=arrow_ys,
-            mode="lines",
-            line=dict(color="black", width=2),
-            hoverinfo="skip",
-            name="agent_headings",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=arrow_xs,
+                y=arrow_ys,
+                mode="lines",
+                line=dict(color="black", width=2),
+                hoverinfo="skip",
+                name="agent_headings",
+            ),
+        )
 
     if label_xs:
-        fig.add_trace(go.Scattergl(
-            x=label_xs, y=label_ys,
-            mode="text",
-            text=label_texts,
-            textposition="top center",
-            textfont=dict(size=10, color="black"),
-            hoverinfo="skip",
-            name="agent_labels",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=label_xs,
+                y=label_ys,
+                mode="text",
+                text=label_texts,
+                textposition="top center",
+                textfont=dict(size=10, color="black"),
+                hoverinfo="skip",
+                name="agent_labels",
+            ),
+        )
 
     if ttp_xs:
-        fig.add_trace(go.Scattergl(
-            x=ttp_xs, y=ttp_ys,
-            mode="markers",
-            marker=dict(color="rgba(255,0,0,0.3)", size=20, symbol="circle"),
-            hoverinfo="skip",
-            name="tracks_to_predict",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=ttp_xs,
+                y=ttp_ys,
+                mode="markers",
+                marker=dict(color="rgba(255,0,0,0.3)", size=20, symbol="circle"),
+                hoverinfo="skip",
+                name="tracks_to_predict",
+            ),
+        )
 
     if ooi_xs:
-        fig.add_trace(go.Scattergl(
-            x=ooi_xs, y=ooi_ys,
-            mode="markers",
-            marker=dict(color="rgba(0,0,255,0.3)", size=20, symbol="circle"),
-            hoverinfo="skip",
-            name="objects_of_interest",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=ooi_xs,
+                y=ooi_ys,
+                mode="markers",
+                marker=dict(color="rgba(0,0,255,0.3)", size=20, symbol="circle"),
+                hoverinfo="skip",
+                name="objects_of_interest",
+            ),
+        )
 
 
 def _add_traffic_lights_batched(fig, scenario, timestep):
@@ -540,15 +583,18 @@ def _add_traffic_lights_batched(fig, scenario, timestep):
         by_color[color][2].append({"type": "traffic_light", "id": elem["id"]})
 
     for color, (xs, ys, ids) in by_color.items():
-        fig.add_trace(go.Scattergl(
-            x=xs, y=ys,
-            mode="markers",
-            marker=dict(color=color, size=12, line=dict(color="black", width=1)),
-            hoverinfo="text",
-            hovertext=[f"Traffic Light {d['id']}" for d in ids],
-            customdata=ids,
-            name=f"traffic_lights_{color}",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=xs,
+                y=ys,
+                mode="markers",
+                marker=dict(color=color, size=12, line=dict(color="black", width=1)),
+                hoverinfo="text",
+                hovertext=[f"Traffic Light {d['id']}" for d in ids],
+                customdata=ids,
+                name=f"traffic_lights_{color}",
+            ),
+        )
 
 
 def _add_click_targets(fig, scenario):
@@ -575,15 +621,18 @@ def _add_click_targets(fig, scenario):
             hovers.append(f"ID: {elem_id}<br>Type: {get_road_type_name(elem_type)}")
 
     if xs:
-        fig.add_trace(go.Scattergl(
-            x=xs, y=ys,
-            mode="markers",
-            marker=dict(size=12, color="rgba(0,0,0,0)", line=dict(width=0)),
-            hoverinfo="text",
-            hovertext=hovers,
-            customdata=ids,
-            name="click_targets",
-        ))
+        fig.add_trace(
+            go.Scattergl(
+                x=xs,
+                y=ys,
+                mode="markers",
+                marker=dict(size=12, color="rgba(0,0,0,0)", line=dict(width=0)),
+                hoverinfo="text",
+                hovertext=hovers,
+                customdata=ids,
+                name="click_targets",
+            ),
+        )
 
 
 def _highlight_selection(fig, scenario, selected_element, timestep):
@@ -599,13 +648,16 @@ def _highlight_selection(fig, scenario, selected_element, timestep):
                 xyz = states.get("xyz", np.array([]))
                 if timestep < len(xyz):
                     x, y = xyz[timestep, 0], xyz[timestep, 1]
-                    fig.add_trace(go.Scattergl(
-                        x=[x], y=[y],
-                        mode="markers",
-                        marker=dict(color="rgba(255,0,0,0.4)", size=35),
-                        hoverinfo="skip",
-                        name="selection",
-                    ))
+                    fig.add_trace(
+                        go.Scattergl(
+                            x=[x],
+                            y=[y],
+                            mode="markers",
+                            marker=dict(color="rgba(255,0,0,0.4)", size=35),
+                            hoverinfo="skip",
+                            name="selection",
+                        ),
+                    )
                 break
 
     elif elem_type == "road":
@@ -614,14 +666,17 @@ def _highlight_selection(fig, scenario, selected_element, timestep):
             if elem["id"] == elem_id:
                 xyz = elem.get("xyz", np.array([]))
                 if len(xyz) > 0:
-                    fig.add_trace(go.Scattergl(
-                        x=xyz[:, 0], y=xyz[:, 1],
-                        mode="lines",
-                        line=dict(color="red", width=6),
-                        opacity=0.6,
-                        hoverinfo="skip",
-                        name="selection",
-                    ))
+                    fig.add_trace(
+                        go.Scattergl(
+                            x=xyz[:, 0],
+                            y=xyz[:, 1],
+                            mode="lines",
+                            line=dict(color="red", width=6),
+                            opacity=0.6,
+                            hoverinfo="skip",
+                            name="selection",
+                        ),
+                    )
                 break
 
     elif elem_type == "traffic_light":
@@ -630,11 +685,14 @@ def _highlight_selection(fig, scenario, selected_element, timestep):
             if elem["id"] == elem_id:
                 xyz = elem.get("xyz", np.array([]))
                 if len(xyz) >= 2:
-                    fig.add_trace(go.Scattergl(
-                        x=[xyz[0]], y=[xyz[1]],
-                        mode="markers",
-                        marker=dict(color="rgba(255,0,0,0.4)", size=30),
-                        hoverinfo="skip",
-                        name="selection",
-                    ))
+                    fig.add_trace(
+                        go.Scattergl(
+                            x=[xyz[0]],
+                            y=[xyz[1]],
+                            mode="markers",
+                            marker=dict(color="rgba(255,0,0,0.4)", size=30),
+                            hoverinfo="skip",
+                            name="selection",
+                        ),
+                    )
                 break

@@ -126,6 +126,8 @@ def render_scenario_png(
     zoom_center: tuple = None,
     zoom_radius: float = None,
     follow_ego: bool = False,
+    road_render_mode: str = "plot",
+    show_road_headings: bool = False,
 ) -> None:
     """
     Render a Puffer scenario as a PNG image at a specific timestep.
@@ -158,7 +160,7 @@ def render_scenario_png(
     )
 
     # 1. Render road map elements
-    _render_road_map(ax, puffer_scenario)
+    _render_road_map(ax, puffer_scenario, render_mode=road_render_mode, show_headings=show_road_headings)
 
     # 2. Render routes if requested
     if show_routes:
@@ -214,6 +216,8 @@ def render_scenario_video(
     zoom_center: tuple = None,
     zoom_radius: float = 200,
     follow_ego: bool = True,
+    road_render_mode: str = "plot",
+    show_road_headings: bool = False,
 ) -> None:
     """
     Render a Puffer scenario as an MP4 video animation.
@@ -265,7 +269,7 @@ def render_scenario_video(
             )
 
             # Render all elements for this frame
-            _render_road_map(ax, puffer_scenario)
+            _render_road_map(ax, puffer_scenario, render_mode=road_render_mode, show_headings=show_road_headings)
 
             if show_routes:
                 _render_routes(ax, puffer_scenario)
@@ -307,7 +311,7 @@ def render_scenario_video(
     print(f"✓ Saved video to {output_path}")
 
 
-def _render_road_map(ax: plt.Axes, puffer_scenario: dict) -> None:
+def _render_road_map(ax: plt.Axes, puffer_scenario: dict, render_mode="plot", show_headings=False) -> None:
     """Render road map elements (lanes, road lines, road edges, crosswalks)."""
     road_elements = puffer_scenario.get("road_map_elements", [])
 
@@ -323,19 +327,48 @@ def _render_road_map(ax: plt.Axes, puffer_scenario: dict) -> None:
 
         x, y = xyz[:, 0], xyz[:, 1]
 
-        # Map element types to colors and styles
+        # Determine color/style based on element type
         if 1 <= element_type <= 3:  # Lanes
-            ax.plot(x, y, color=COLORS["lane"], linewidth=0.8, alpha=0.7, linestyle="-", zorder=1)
+            color, alpha, lw, zorder = COLORS["lane"], 0.7, 0.8, 1
         elif 11 <= element_type <= 18:  # Road lines
-            ax.plot(x, y, color=COLORS["road_line"], linewidth=1.0, alpha=0.7, linestyle="--", zorder=2)
+            color, alpha, lw, zorder = COLORS["road_line"], 0.7, 1.0, 2
         elif 21 <= element_type <= 23:  # Road edges
-            ax.plot(x, y, color=COLORS["road_edge"], linewidth=1.5, alpha=1.0, zorder=2)
+            color, alpha, lw, zorder = COLORS["road_edge"], 1.0, 1.5, 2
         elif element_type == 31:  # Crosswalk
-            ax.plot(x, y, color=COLORS["crosswalk"], linewidth=2.0, alpha=0.6, zorder=3)
+            color, alpha, lw, zorder = COLORS["crosswalk"], 0.6, 2.0, 3
         elif element_type == 32:  # Speed bump
-            ax.plot(x, y, color=COLORS["speed_bump"], linewidth=2.5, alpha=0.7, zorder=3)
+            color, alpha, lw, zorder = COLORS["speed_bump"], 0.7, 2.5, 3
         elif element_type == 33:  # Stop sign
             ax.scatter(x, y, color=COLORS["stop_sign"], s=30, marker="s", zorder=10)
+            continue
+        else:
+            continue
+
+        # Render polyline
+        if render_mode == "scatter":
+            ax.scatter(x, y, color=color, alpha=alpha, s=lw * 2, zorder=zorder)
+        else:  # plot
+            ax.plot(x, y, color=color, alpha=alpha, linewidth=lw, zorder=zorder)
+
+        # Draw heading arrows
+        if show_headings and len(xyz) > 1:
+            dx = xyz[1:, 0] - xyz[:-1, 0]
+            dy = xyz[1:, 1] - xyz[:-1, 1]
+            headings = np.arctan2(dy, dx)
+            scale = 1.0
+            for xi, yi, hi in zip(x[:-1], y[:-1], headings):
+                ax.arrow(
+                    xi,
+                    yi,
+                    scale * np.cos(hi),
+                    scale * np.sin(hi),
+                    head_width=0.3,
+                    head_length=0.2,
+                    fc=color,
+                    ec=color,
+                    alpha=alpha * 0.8,
+                    zorder=zorder + 1,
+                )
 
 
 def _render_routes(ax: plt.Axes, puffer_scenario: dict) -> None:

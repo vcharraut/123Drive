@@ -7,13 +7,13 @@ from pathlib import Path
 
 import dash
 import dash_bootstrap_components as dbc
-import numpy as np
+
 
 # Add parent to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from puffer_viz.binary_loader import load_puffer_binary
-from puffer_viz.web.callbacks import register_callbacks, _serialize_scenario
+from puffer_viz.web.callbacks import _serialize_scenario, register_callbacks
 from puffer_viz.web.layout import create_layout
 
 
@@ -37,7 +37,6 @@ def create_app(scenario=None):
 
 def _inject_initial_scenario(app, scenario):
     """Inject initial scenario data into the app."""
-    from dash import callback_context
 
     # Serialize for storage
     serialized = _serialize_scenario(scenario)

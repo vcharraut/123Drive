@@ -1,8 +1,8 @@
 """Info panel generation for selected elements."""
 
+import dash_bootstrap_components as dbc
 import numpy as np
 from dash import html
-import dash_bootstrap_components as dbc
 
 from .utils import (
     format_heading,
@@ -29,29 +29,38 @@ def create_scenario_info(scenario):
     ooi = metadata.get("objects_of_interests", [])
     ttp = metadata.get("tracks_to_predict", [])
 
-    return dbc.Card([
-        dbc.CardHeader("Scenario Info"),
-        dbc.CardBody([
-            _info_row("ID", scenario.get("scenario_id", "unknown")),
-            _info_row("Dataset", metadata.get("dataset_name", "unknown")),
-            _info_row("Map ID", metadata.get("map_id", "unknown")),
-            _info_row("Length", f"{metadata.get('scenario_length', 0)} steps"),
-            html.Hr(className="my-2"),
-            _info_row("Agents", len(agents)),
-            _info_row("Road Elements", len(roads)),
-            _info_row("Traffic Lights", len(traffic)),
-            _info_row("SDC Index", sdc_index if sdc_index >= 0 else "None"),
-            html.Hr(className="my-2"),
-            html.Div([
-                html.Strong("Objects of Interest: ", className="small"),
-                html.Span(", ".join(map(str, ooi)) if ooi else "None", className="small"),
-            ]),
-            html.Div([
-                html.Strong("Tracks to Predict: ", className="small"),
-                html.Span(", ".join(map(str, ttp)) if ttp else "None", className="small"),
-            ]),
-        ])
-    ], className="mb-3")
+    return dbc.Card(
+        [
+            dbc.CardHeader("Scenario Info"),
+            dbc.CardBody(
+                [
+                    _info_row("ID", scenario.get("scenario_id", "unknown")),
+                    _info_row("Dataset", metadata.get("dataset_name", "unknown")),
+                    _info_row("Map ID", metadata.get("map_id", "unknown")),
+                    _info_row("Length", f"{metadata.get('scenario_length', 0)} steps"),
+                    html.Hr(className="my-2"),
+                    _info_row("Agents", len(agents)),
+                    _info_row("Road Elements", len(roads)),
+                    _info_row("Traffic Lights", len(traffic)),
+                    _info_row("SDC Index", sdc_index if sdc_index >= 0 else "None"),
+                    html.Hr(className="my-2"),
+                    html.Div(
+                        [
+                            html.Strong("Objects of Interest: ", className="small"),
+                            html.Span(", ".join(map(str, ooi)) if ooi else "None", className="small"),
+                        ],
+                    ),
+                    html.Div(
+                        [
+                            html.Strong("Tracks to Predict: ", className="small"),
+                            html.Span(", ".join(map(str, ttp)) if ttp else "None", className="small"),
+                        ],
+                    ),
+                ],
+            ),
+        ],
+        className="mb-3",
+    )
 
 
 def create_element_info(scenario, selected_element, timestep):
@@ -141,7 +150,7 @@ def _agent_info(scenario, agent_id, timestep):
             html.Div(
                 ", ".join(map(str, route_ids[:20])) + ("..." if len(route_ids) > 20 else ""),
                 className="small text-monospace",
-                style={"maxHeight": "60px", "overflow": "auto"}
+                style={"maxHeight": "60px", "overflow": "auto"},
             ),
         ]
 
@@ -153,54 +162,87 @@ def _agent_info(scenario, agent_id, timestep):
             tx, ty, tz = xyz[t]
             th = heading[t] if t < len(heading) else 0
             tvx, tvy = velocity[t] if t < len(velocity) else (0, 0)
-            traj_rows.append(html.Tr([
-                html.Td(t, className="small"),
-                html.Td(f"{tx:.1f}", className="small"),
-                html.Td(f"{ty:.1f}", className="small"),
-                html.Td(f"{np.degrees(th):.0f}°", className="small"),
-                html.Td(f"{np.sqrt(tvx**2+tvy**2):.1f}", className="small"),
-            ]))
+            traj_rows.append(
+                html.Tr(
+                    [
+                        html.Td(t, className="small"),
+                        html.Td(f"{tx:.1f}", className="small"),
+                        html.Td(f"{ty:.1f}", className="small"),
+                        html.Td(f"{np.degrees(th):.0f}°", className="small"),
+                        html.Td(f"{np.sqrt(tvx**2 + tvy**2):.1f}", className="small"),
+                    ],
+                ),
+            )
 
-    return dbc.Card([
-        dbc.CardHeader([
-            html.Span(f"Agent {agent_id}", className="fw-bold"),
-            html.Span(badges, className="ms-2"),
-        ]),
-        dbc.CardBody([
-            _info_row("Type", get_agent_type_name(agent.get("type", 0))),
-            _info_row("Valid at t=" + str(timestep), "Yes" if current_valid else "No"),
-            html.Hr(className="my-2"),
-            html.Strong("Current State:", className="small d-block mb-1"),
-            _info_row("Position", f"({x:.2f}, {y:.2f}, {z:.2f})" if x is not None else "N/A"),
-            _info_row("Heading", format_heading(h) if h is not None else "N/A"),
-            _info_row("Velocity", format_velocity(vx, vy) if vx is not None else "N/A"),
-            _info_row("Dimensions", f"{l:.1f} x {w:.1f} x {ht:.1f} m" if l is not None else "N/A"),
-            html.Hr(className="my-2"),
-            html.Strong("Statistics:", className="small d-block mb-1"),
-            _info_row("Valid Frames", f"{valid_frames} / {len(valid)}"),
-            _info_row("First Valid", first_valid),
-            _info_row("Last Valid", last_valid),
-            *route_section,
-            html.Hr(className="my-2"),
-            dbc.Accordion([
-                dbc.AccordionItem([
-                    html.Div([
-                        dbc.Table([
-                            html.Thead(html.Tr([
-                                html.Th("t", className="small"),
-                                html.Th("x", className="small"),
-                                html.Th("y", className="small"),
-                                html.Th("hdg", className="small"),
-                                html.Th("vel", className="small"),
-                            ])),
-                            html.Tbody(traj_rows[:50]),  # Limit rows
-                        ], size="sm", striped=True, bordered=True),
-                        html.Small(f"Showing {min(50, len(traj_rows))}/{len(traj_rows)} valid frames") if len(traj_rows) > 50 else None,
-                    ], style={"maxHeight": "200px", "overflow": "auto"})
-                ], title="Trajectory Data", className="small"),
-            ], start_collapsed=True),
-        ])
-    ])
+    return dbc.Card(
+        [
+            dbc.CardHeader(
+                [
+                    html.Span(f"Agent {agent_id}", className="fw-bold"),
+                    html.Span(badges, className="ms-2"),
+                ],
+            ),
+            dbc.CardBody(
+                [
+                    _info_row("Type", get_agent_type_name(agent.get("type", 0))),
+                    _info_row("Valid at t=" + str(timestep), "Yes" if current_valid else "No"),
+                    html.Hr(className="my-2"),
+                    html.Strong("Current State:", className="small d-block mb-1"),
+                    _info_row("Position", f"({x:.2f}, {y:.2f}, {z:.2f})" if x is not None else "N/A"),
+                    _info_row("Heading", format_heading(h) if h is not None else "N/A"),
+                    _info_row("Velocity", format_velocity(vx, vy) if vx is not None else "N/A"),
+                    _info_row("Dimensions", f"{l:.1f} x {w:.1f} x {ht:.1f} m" if l is not None else "N/A"),
+                    html.Hr(className="my-2"),
+                    html.Strong("Statistics:", className="small d-block mb-1"),
+                    _info_row("Valid Frames", f"{valid_frames} / {len(valid)}"),
+                    _info_row("First Valid", first_valid),
+                    _info_row("Last Valid", last_valid),
+                    *route_section,
+                    html.Hr(className="my-2"),
+                    dbc.Accordion(
+                        [
+                            dbc.AccordionItem(
+                                [
+                                    html.Div(
+                                        [
+                                            dbc.Table(
+                                                [
+                                                    html.Thead(
+                                                        html.Tr(
+                                                            [
+                                                                html.Th("t", className="small"),
+                                                                html.Th("x", className="small"),
+                                                                html.Th("y", className="small"),
+                                                                html.Th("hdg", className="small"),
+                                                                html.Th("vel", className="small"),
+                                                            ],
+                                                        ),
+                                                    ),
+                                                    html.Tbody(traj_rows[:50]),  # Limit rows
+                                                ],
+                                                size="sm",
+                                                striped=True,
+                                                bordered=True,
+                                            ),
+                                            html.Small(
+                                                f"Showing {min(50, len(traj_rows))}/{len(traj_rows)} valid frames",
+                                            )
+                                            if len(traj_rows) > 50
+                                            else None,
+                                        ],
+                                        style={"maxHeight": "200px", "overflow": "auto"},
+                                    ),
+                                ],
+                                title="Trajectory Data",
+                                className="small",
+                            ),
+                        ],
+                        start_collapsed=True,
+                    ),
+                ],
+            ),
+        ],
+    )
 
 
 def _road_info(scenario, road_id):
@@ -236,53 +278,86 @@ def _road_info(scenario, road_id):
         connectivity_section = [
             html.Hr(className="my-2"),
             html.Strong("Connectivity:", className="small d-block mb-1"),
-            html.Div([
-                html.Strong("Entry Lanes: ", className="small"),
-                html.Span(", ".join(map(str, entry_lanes)) if entry_lanes else "None", className="small"),
-            ]),
-            html.Div([
-                html.Strong("Exit Lanes: ", className="small"),
-                html.Span(", ".join(map(str, exit_lanes)) if exit_lanes else "None", className="small"),
-            ]),
+            html.Div(
+                [
+                    html.Strong("Entry Lanes: ", className="small"),
+                    html.Span(", ".join(map(str, entry_lanes)) if entry_lanes else "None", className="small"),
+                ],
+            ),
+            html.Div(
+                [
+                    html.Strong("Exit Lanes: ", className="small"),
+                    html.Span(", ".join(map(str, exit_lanes)) if exit_lanes else "None", className="small"),
+                ],
+            ),
             _info_row("Speed Limit", f"{speed_limit:.1f} m/s" if speed_limit > 0 else "N/A"),
         ]
 
     # Polyline table
     poly_rows = []
     for i, pt in enumerate(xyz[:30]):  # Limit to 30 points
-        poly_rows.append(html.Tr([
-            html.Td(i, className="small"),
-            html.Td(f"{pt[0]:.2f}", className="small"),
-            html.Td(f"{pt[1]:.2f}", className="small"),
-            html.Td(f"{pt[2]:.2f}", className="small"),
-        ]))
+        poly_rows.append(
+            html.Tr(
+                [
+                    html.Td(i, className="small"),
+                    html.Td(f"{pt[0]:.2f}", className="small"),
+                    html.Td(f"{pt[1]:.2f}", className="small"),
+                    html.Td(f"{pt[2]:.2f}", className="small"),
+                ],
+            ),
+        )
 
-    return dbc.Card([
-        dbc.CardHeader(f"Road Element {road_id}"),
-        dbc.CardBody([
-            _info_row("Type", get_road_type_name(road_type)),
-            _info_row("Point Count", len(xyz)),
-            _info_row("Bounding Box", bbox),
-            *connectivity_section,
-            html.Hr(className="my-2"),
-            dbc.Accordion([
-                dbc.AccordionItem([
-                    html.Div([
-                        dbc.Table([
-                            html.Thead(html.Tr([
-                                html.Th("#", className="small"),
-                                html.Th("x", className="small"),
-                                html.Th("y", className="small"),
-                                html.Th("z", className="small"),
-                            ])),
-                            html.Tbody(poly_rows),
-                        ], size="sm", striped=True, bordered=True),
-                        html.Small(f"Showing {min(30, len(xyz))}/{len(xyz)} points") if len(xyz) > 30 else None,
-                    ], style={"maxHeight": "200px", "overflow": "auto"})
-                ], title="Polyline Coordinates", className="small"),
-            ], start_collapsed=True),
-        ])
-    ])
+    return dbc.Card(
+        [
+            dbc.CardHeader(f"Road Element {road_id}"),
+            dbc.CardBody(
+                [
+                    _info_row("Type", get_road_type_name(road_type)),
+                    _info_row("Point Count", len(xyz)),
+                    _info_row("Bounding Box", bbox),
+                    *connectivity_section,
+                    html.Hr(className="my-2"),
+                    dbc.Accordion(
+                        [
+                            dbc.AccordionItem(
+                                [
+                                    html.Div(
+                                        [
+                                            dbc.Table(
+                                                [
+                                                    html.Thead(
+                                                        html.Tr(
+                                                            [
+                                                                html.Th("#", className="small"),
+                                                                html.Th("x", className="small"),
+                                                                html.Th("y", className="small"),
+                                                                html.Th("z", className="small"),
+                                                            ],
+                                                        ),
+                                                    ),
+                                                    html.Tbody(poly_rows),
+                                                ],
+                                                size="sm",
+                                                striped=True,
+                                                bordered=True,
+                                            ),
+                                            html.Small(f"Showing {min(30, len(xyz))}/{len(xyz)} points")
+                                            if len(xyz) > 30
+                                            else None,
+                                        ],
+                                        style={"maxHeight": "200px", "overflow": "auto"},
+                                    ),
+                                ],
+                                title="Polyline Coordinates",
+                                className="small",
+                            ),
+                        ],
+                        start_collapsed=True,
+                    ),
+                ],
+            ),
+        ],
+    )
 
 
 def _traffic_light_info(scenario, tl_id, timestep):
@@ -317,66 +392,117 @@ def _traffic_light_info(scenario, tl_id, timestep):
     # State timeline table
     state_rows = []
     for t, s in enumerate(states[:91]):  # Limit
-        state_rows.append(html.Tr([
-            html.Td(t, className="small"),
-            html.Td(get_traffic_state_name(s), className="small"),
-            html.Td(html.Div(style={
-                "width": "20px", "height": "20px",
-                "backgroundColor": get_traffic_state_color(s),
-                "borderRadius": "50%", "border": "1px solid #333"
-            })),
-        ], style={"backgroundColor": "#ffe0e0" if t == timestep else "inherit"}))
+        state_rows.append(
+            html.Tr(
+                [
+                    html.Td(t, className="small"),
+                    html.Td(get_traffic_state_name(s), className="small"),
+                    html.Td(
+                        html.Div(
+                            style={
+                                "width": "20px",
+                                "height": "20px",
+                                "backgroundColor": get_traffic_state_color(s),
+                                "borderRadius": "50%",
+                                "border": "1px solid #333",
+                            },
+                        ),
+                    ),
+                ],
+                style={"backgroundColor": "#ffe0e0" if t == timestep else "inherit"},
+            ),
+        )
 
-    return dbc.Card([
-        dbc.CardHeader(f"Traffic Light {tl_id}"),
-        dbc.CardBody([
-            _info_row("Position", f"({x:.2f}, {y:.2f}, {z:.2f})"),
-            html.Hr(className="my-2"),
-            html.Div([
-                html.Strong("Current State: ", className="small"),
-                html.Span(get_traffic_state_name(current_state), className="small me-2"),
-                html.Div(style={
-                    "width": "20px", "height": "20px",
-                    "backgroundColor": current_color,
-                    "borderRadius": "50%", "border": "1px solid #333",
-                    "display": "inline-block", "verticalAlign": "middle"
-                }),
-            ]),
-            html.Hr(className="my-2"),
-            html.Div([
-                html.Strong("Controlled Lanes: ", className="small d-block"),
-                html.Span(", ".join(map(str, controlled_lanes)) if controlled_lanes else "None", className="small"),
-            ]),
-            html.Hr(className="my-2"),
-            html.Div([
-                html.Strong("State Changes:", className="small d-block"),
-                html.Span(
-                    " → ".join([f"t{t}:{get_traffic_state_name(s)}" for t, s in changes[:10]]),
-                    className="small"
-                ),
-            ]),
-            html.Hr(className="my-2"),
-            dbc.Accordion([
-                dbc.AccordionItem([
-                    html.Div([
-                        dbc.Table([
-                            html.Thead(html.Tr([
-                                html.Th("t", className="small"),
-                                html.Th("State", className="small"),
-                                html.Th("", className="small"),
-                            ])),
-                            html.Tbody(state_rows),
-                        ], size="sm", striped=True, bordered=True),
-                    ], style={"maxHeight": "200px", "overflow": "auto"})
-                ], title="State Timeline", className="small"),
-            ], start_collapsed=True),
-        ])
-    ])
+    return dbc.Card(
+        [
+            dbc.CardHeader(f"Traffic Light {tl_id}"),
+            dbc.CardBody(
+                [
+                    _info_row("Position", f"({x:.2f}, {y:.2f}, {z:.2f})"),
+                    html.Hr(className="my-2"),
+                    html.Div(
+                        [
+                            html.Strong("Current State: ", className="small"),
+                            html.Span(get_traffic_state_name(current_state), className="small me-2"),
+                            html.Div(
+                                style={
+                                    "width": "20px",
+                                    "height": "20px",
+                                    "backgroundColor": current_color,
+                                    "borderRadius": "50%",
+                                    "border": "1px solid #333",
+                                    "display": "inline-block",
+                                    "verticalAlign": "middle",
+                                },
+                            ),
+                        ],
+                    ),
+                    html.Hr(className="my-2"),
+                    html.Div(
+                        [
+                            html.Strong("Controlled Lanes: ", className="small d-block"),
+                            html.Span(
+                                ", ".join(map(str, controlled_lanes)) if controlled_lanes else "None",
+                                className="small",
+                            ),
+                        ],
+                    ),
+                    html.Hr(className="my-2"),
+                    html.Div(
+                        [
+                            html.Strong("State Changes:", className="small d-block"),
+                            html.Span(
+                                " → ".join([f"t{t}:{get_traffic_state_name(s)}" for t, s in changes[:10]]),
+                                className="small",
+                            ),
+                        ],
+                    ),
+                    html.Hr(className="my-2"),
+                    dbc.Accordion(
+                        [
+                            dbc.AccordionItem(
+                                [
+                                    html.Div(
+                                        [
+                                            dbc.Table(
+                                                [
+                                                    html.Thead(
+                                                        html.Tr(
+                                                            [
+                                                                html.Th("t", className="small"),
+                                                                html.Th("State", className="small"),
+                                                                html.Th("", className="small"),
+                                                            ],
+                                                        ),
+                                                    ),
+                                                    html.Tbody(state_rows),
+                                                ],
+                                                size="sm",
+                                                striped=True,
+                                                bordered=True,
+                                            ),
+                                        ],
+                                        style={"maxHeight": "200px", "overflow": "auto"},
+                                    ),
+                                ],
+                                title="State Timeline",
+                                className="small",
+                            ),
+                        ],
+                        start_collapsed=True,
+                    ),
+                ],
+            ),
+        ],
+    )
 
 
 def _info_row(label, value):
     """Create a label-value row."""
-    return html.Div([
-        html.Strong(f"{label}: ", className="small"),
-        html.Span(str(value), className="small"),
-    ], className="mb-1")
+    return html.Div(
+        [
+            html.Strong(f"{label}: ", className="small"),
+            html.Span(str(value), className="small"),
+        ],
+        className="mb-1",
+    )

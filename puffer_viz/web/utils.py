@@ -2,6 +2,7 @@
 
 import numpy as np
 
+
 # Agent type mapping
 AGENT_TYPE_NAMES = {
     0: "unset",
@@ -164,7 +165,11 @@ def get_vehicle_corners(x, y, heading, length, width):
     cos_h, sin_h = np.cos(heading), np.sin(heading)
     hl, hw = length / 2, width / 2
     corners = [
-        (-hl, -hw), (hl, -hw), (hl, hw), (-hl, hw), (-hl, -hw)  # close polygon
+        (-hl, -hw),
+        (hl, -hw),
+        (hl, hw),
+        (-hl, hw),
+        (-hl, -hw),  # close polygon
     ]
     xs, ys = [], []
     for dx, dy in corners:
