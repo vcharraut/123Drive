@@ -118,13 +118,13 @@ def _agent_info(scenario, agent_id, timestep):
     current_valid = valid[timestep] if timestep < len(valid) else False
     if current_valid and timestep < len(xyz):
         x, y, z = xyz[timestep]
-        h = heading[timestep] if timestep < len(heading) else 0
+        heading = heading[timestep] if timestep < len(heading) else 0
         vx, vy = velocity[timestep] if timestep < len(velocity) else (0, 0)
-        l = length[timestep] if timestep < len(length) else 0
-        w = width[timestep] if timestep < len(width) else 0
-        ht = height[timestep] if timestep < len(height) else 0
+        length = length[timestep] if timestep < len(length) else 0
+        width = width[timestep] if timestep < len(width) else 0
+        height = height[timestep] if timestep < len(height) else 0
     else:
-        x = y = z = h = vx = vy = l = w = ht = None
+        x = y = z = heading = vx = vy = length = width = height = None
 
     # Stats
     valid_frames = np.sum(valid > 0)
@@ -189,9 +189,12 @@ def _agent_info(scenario, agent_id, timestep):
                     html.Hr(className="my-2"),
                     html.Strong("Current State:", className="small d-block mb-1"),
                     _info_row("Position", f"({x:.2f}, {y:.2f}, {z:.2f})" if x is not None else "N/A"),
-                    _info_row("Heading", format_heading(h) if h is not None else "N/A"),
+                    _info_row("Heading", format_heading(heading) if heading is not None else "N/A"),
                     _info_row("Velocity", format_velocity(vx, vy) if vx is not None else "N/A"),
-                    _info_row("Dimensions", f"{l:.1f} x {w:.1f} x {ht:.1f} m" if l is not None else "N/A"),
+                    _info_row(
+                        "Dimensions",
+                        f"{length:.1f} x {width:.1f} x {height:.1f} m" if length is not None else "N/A",
+                    ),
                     html.Hr(className="my-2"),
                     html.Strong("Statistics:", className="small d-block mb-1"),
                     _info_row("Valid Frames", f"{valid_frames} / {len(valid)}"),

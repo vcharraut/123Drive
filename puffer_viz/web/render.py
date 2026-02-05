@@ -76,7 +76,7 @@ def create_figure(
         hovermode="closest",
         dragmode="pan",
         uirevision="constant",
-        margin={"l": 0, "r": 0, "t": 0, "b": 0},
+        margin={"length": 0, "r": 0, "t": 0, "b": 0},
         xaxis={
             "scaleanchor": "y",
             "scaleratio": 1,
@@ -443,15 +443,15 @@ def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
         agent_type = agent.get("type", 0)
 
         x, y = xyz[timestep, 0], xyz[timestep, 1]
-        h = heading[timestep] if timestep < len(heading) else 0
-        l = length[timestep] if timestep < len(length) else 4.5
-        w = width[timestep] if timestep < len(width) else 2.0
+        heading = heading[timestep] if timestep < len(heading) else 0
+        length = length[timestep] if timestep < len(length) else 4.5
+        width = width[timestep] if timestep < len(width) else 2.0
         vx = velocity[timestep, 0] if timestep < len(velocity) else 0
         vy = velocity[timestep, 1] if timestep < len(velocity) else 0
         vel_mag = np.sqrt(vx**2 + vy**2)
 
         # Vehicle body
-        bxs, bys = get_vehicle_corners(x, y, h, l, w)
+        bxs, bys = get_vehicle_corners(x, y, heading, length, width)
         body_xs.extend(bxs)
         body_xs.append(None)
         body_ys.extend(bys)
@@ -464,14 +464,14 @@ def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
         body_ids.append(None)
 
         # Heading arrow
-        ax, ay = get_heading_arrow(x, y, h, l)
+        ax, ay = get_heading_arrow(x, y, heading, length)
         arrow_xs.extend([x, ax, None])
         arrow_ys.extend([y, ay, None])
 
         # Label
         if show_ids:
             label_xs.append(x)
-            label_ys.append(y + w * 0.8)
+            label_ys.append(y + width * 0.8)
             label_texts.append(str(agent_id))
 
         # TTP/OOI markers
