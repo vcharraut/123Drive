@@ -7,7 +7,6 @@ from .utils import (
     ROAD_COLORS,
     build_lane_map,
     compute_route_polyline,
-    get_agent_color,
     get_agent_type_name,
     get_heading_arrow,
     get_road_type_name,
