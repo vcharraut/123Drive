@@ -83,6 +83,10 @@ def main():
     parser.add_argument("--batch_size", type=int, default=10, help="Batch size for processing")
     parser.add_argument("--max_scenarios", type=int, default=None, help="Maximum number of scenarios to process")
 
+    # Dataset filtering
+    parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios (no logs)")
+    parser.add_argument("--history_s", type=float, default=0.0, help="History duration in seconds")
+
     # Processor flags
     parser.add_argument("--interpolate", action="store_true", help="Enable polyline interpolation")
     parser.add_argument("--traffic_lights", action="store_true", help="Generate synthetic traffic lights")
@@ -101,7 +105,7 @@ def main():
 
     # Get scenarios iterator
     try:
-        scenarios_iter = iter(get_py123d_scenarios(args.dataset_path))
+        scenarios_iter = iter(get_py123d_scenarios(args.dataset_path, map_only=args.map_only, history_s=args.history_s))
     except Exception as e:
         logger.error(f"Failed to load dataset: {e}")
         sys.exit(1)

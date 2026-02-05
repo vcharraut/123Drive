@@ -12,8 +12,6 @@ dependencies = [
   "joblib",
   "tqdm",
   "matplotlib",
-  "hydra-core",
-  "omegaconf",
   "py123d",
 ]
 
@@ -23,7 +21,7 @@ viz = ["dash>=2.14", "plotly>=5.18", "dash-bootstrap-components>=1.5"]
 all = ["ruff", "dash>=2.14", "plotly>=5.18", "dash-bootstrap-components>=1.5"]
 
 [project.scripts]
-convert = "src.main:cli_entry_point"
+convert = "src.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

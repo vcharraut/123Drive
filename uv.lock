@@ -21,12 +21,10 @@ name = "123drive"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "hydra-core" },
     { name = "joblib" },
     { name = "matplotlib" },
     { name = "numpy", version = "1.23.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "omegaconf" },
     { name = "py123d" },
     { name = "tqdm" },
 ]
@@ -53,11 +51,9 @@ requires-dist = [
     { name = "dash", marker = "extra == 'viz'", specifier = ">=2.14" },
     { name = "dash-bootstrap-components", marker = "extra == 'all'", specifier = ">=1.5" },
     { name = "dash-bootstrap-components", marker = "extra == 'viz'", specifier = ">=1.5" },
-    { name = "hydra-core" },
     { name = "joblib" },
     { name = "matplotlib" },
     { name = "numpy" },
-    { name = "omegaconf" },
     { name = "plotly", marker = "extra == 'all'", specifier = ">=5.18" },
     { name = "plotly", marker = "extra == 'viz'", specifier = ">=5.18" },
     { name = "py123d", git = "https://github.com/autonomousvision/py123d.git?branch=dev_v0.0.9" },
