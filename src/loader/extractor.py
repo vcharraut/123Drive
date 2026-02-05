@@ -11,8 +11,7 @@ from py123d.datatypes.map_objects.map_layer_types import LaneType, MapLayer, Roa
 from py123d.datatypes.map_objects.map_objects import Crosswalk, Lane, RoadEdge, RoadLine
 from py123d.datatypes.vehicle_state.ego_state import EGO_TRACK_TOKEN
 
-from src.core import types
-from src.core.unified import new_unified_scenario
+from src import types
 from src.loader.load import MapOnlyScenario
 from src.loader.utils import safe_id_to_int
 
@@ -24,6 +23,21 @@ if TYPE_CHECKING:
     from py123d.api.scene.scene_api import SceneAPI
 
 
+def create_intermediate_scenario(scenario_id: str, dataset_name: str) -> dict:
+    return {
+        "id": scenario_id,
+        "dynamic_agents": {},
+        "static_map_elements": {},
+        "dynamic_map_elements": {},
+        "metadata": {
+            "dataset_name": dataset_name,
+            "scenario_length": 0,
+            "sdc_index": 0,
+            "timesteps": [],
+        },
+    }
+
+
 @dataclass(frozen=True)
 class _MapObjectBundle:
     layer: object
@@ -32,13 +46,13 @@ class _MapObjectBundle:
 
 
 def convert_py123d_scenario(raw: object) -> dict:
-    """Convert py123d SceneAPI or MapOnlyScenario to unified format.
+    """Convert py123d SceneAPI or MapOnlyScenario to intermediate format.
 
     Args:
         raw: Arrow SceneAPI or MapOnlyScenario.
 
     Returns:
-        Unified scenario dict.
+        Intermediate scenario dict.
     """
 
     if isinstance(raw, MapOnlyScenario):
@@ -56,7 +70,7 @@ def convert_py123d_scenario(raw: object) -> dict:
         scenario_length = len(timesteps)
         log_metadata = scene.log_metadata
 
-    scenario = new_unified_scenario(scenario_id=scenario_id, dataset_name="py123d")
+    scenario = create_intermediate_scenario(scenario_id=scenario_id, dataset_name="py123d")
 
     if map_api is not None:
         center = _compute_map_centroid(map_api)

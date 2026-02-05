@@ -1,11 +1,10 @@
 """
-Convert traffic control elements from unified format to Puffer format.
+Convert traffic control elements from intermediate format to Puffer format.
 """
 
 import numpy as np
 
-from src import logger_utils
-from src.core import types
+from src import logger_utils, types
 
 
 logger = logger_utils.get_logger(__name__)
@@ -16,7 +15,7 @@ def convert_traffic_control_elements(dynamic_map_elements: dict, static_map_elem
     Convert dynamic map elements to Puffer traffic_control_elements.
 
     Args:
-        dynamic_map_elements: Dict of dynamic map elements from unified scenario
+        dynamic_map_elements: Dict of dynamic map elements from intermediate scenario
         length: Number of timesteps
 
     Returns:

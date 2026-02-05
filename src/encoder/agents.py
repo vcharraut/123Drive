@@ -1,11 +1,10 @@
 """
-Convert dynamic agents from unified format to Puffer format.
+Convert dynamic agents from intermediate format to Puffer format.
 """
 
 import numpy as np
 
-from src import logger_utils
-from src.core import types
+from src import logger_utils, types
 from src.encoder import routes
 
 
@@ -20,10 +19,10 @@ def convert_dynamic_agents(
     sdc_agent_id: int | None = None,
 ) -> tuple[list[dict], int]:
     """
-    Convert dynamic agents from unified format to Puffer format.
+    Convert dynamic agents from intermediate format to Puffer format.
 
     Args:
-        dynamic_agents: Dict of dynamic agents from unified scenario
+        dynamic_agents: Dict of dynamic agents from intermediate scenario
         road_map_elements: Dict of static map elements (for reference)
         min_route_valid_points: Minimum valid trajectory points required for route computation (0 = no filtering)
         route_check_timestep: Timestep at which agent must be valid for route computation (default: 0)

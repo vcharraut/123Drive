@@ -1,4 +1,4 @@
-from src.core import types
+from src import types
 from src.processors.traffic_lights.utils import (
     UnionFind,
     distance_between_points,

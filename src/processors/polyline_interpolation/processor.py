@@ -19,7 +19,7 @@ logger = logger_utils.get_logger(__name__)
 
 
 def interpolate_polylines(
-    unified_scenario: dict[str, Any],
+    scenario: dict[str, Any],
     max_segment_length: float = 2.0,
     **kwargs,
 ) -> dict[str, Any]:
@@ -30,27 +30,27 @@ def interpolate_polylines(
     the maximum allowed length. Original vertices are preserved.
 
     Args:
-        unified_scenario: UnifiedScenario dict with static_map_elements
+        scenario: dict with static_map_elements
         max_segment_length: Maximum allowed distance between consecutive points (meters)
         **kwargs: Additional arguments (ignored)
 
     Returns:
         Modified scenario with interpolated polylines
     """
-    scenario_id = unified_scenario.get("id", "<unknown>")
+    scenario_id = scenario.get("id", "<unknown>")
 
     # Validate input
     if max_segment_length <= 0:
         logger.warning(
             f"Scenario {scenario_id}: max_segment_length must be positive, got {max_segment_length}. Skipping interpolation.",  # noqa: E501
         )
-        return unified_scenario
+        return scenario
 
-    static_map_elements = unified_scenario.get("static_map_elements", {})
+    static_map_elements = scenario.get("static_map_elements", {})
 
     if not static_map_elements:
         logger.debug(f"Scenario {scenario_id}: no static_map_elements to interpolate")
-        return unified_scenario
+        return scenario
 
     # Process each map element
     for element_id, element in static_map_elements.items():
@@ -96,4 +96,4 @@ def interpolate_polylines(
                 f"interpolated {len(polyline)} → {len(interpolated_polyline)} points",
             )
 
-    return unified_scenario
+    return scenario

@@ -1,5 +1,3 @@
-# Simplified and organized types for ScenarioMax unified format
-
 # ===== Participant Types =====
 VEHICLE = "VEHICLE"
 PEDESTRIAN = "PEDESTRIAN"

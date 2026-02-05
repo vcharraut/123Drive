@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from src.core import types
+from src import types
 from src.processors.traffic_lights.tlsgenerator import TLSGenerator
 from src.processors.traffic_lights.utils import (
     TLS,
@@ -25,7 +25,7 @@ from src.processors.traffic_lights.utils.waymo import (
 
 # Local traffic light state conversion to avoid import issues
 def get_traffic_light_state(waymonic_state_value):
-    """Convert waymonic traffic light state to unified format"""
+    """Convert waymonic traffic light state to intermediate format"""
     # Simple mapping - can be enhanced later if needed
     state_mapping = {
         0: types.TRAFFIC_LIGHT_UNKNOWN,

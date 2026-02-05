@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from src.core import types
+from src import types
 
 
 # simplified representation

@@ -29,8 +29,7 @@ Routes with heading misalignment (agent traveling wrong direction) are rejected.
 
 import numpy as np
 
-from src import logger_utils
-from src.core import types
+from src import logger_utils, types
 
 
 logger = logger_utils.get_logger(__name__)

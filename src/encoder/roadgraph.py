@@ -1,11 +1,10 @@
 """
-Convert road map elements from unified format to Puffer format.
+Convert road map elements from intermediate format to Puffer format.
 """
 
 import numpy as np
 
-from src import logger_utils
-from src.core import types
+from src import logger_utils, types
 
 
 logger = logger_utils.get_logger(__name__)
@@ -85,10 +84,10 @@ def convert_road_map_elements(
     dist_threshold: float = 10.0,
 ) -> list[dict]:
     """
-    Convert static map elements from unified format to Puffer road_map_elements.
+    Convert static map elements from intermediate format to Puffer road_map_elements.
 
     Args:
-        static_map_elements: Dict of static map elements from unified scenario
+        static_map_elements: Dict of static map elements from intermediate scenario
         polyline_reduction_threshold: Minimum triangle area threshold for polyline simplification.
                                        If 0.0 (default), no simplification is applied.
         dist_threshold: Maximum distance between endpoints to consider for simplification

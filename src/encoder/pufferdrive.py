@@ -9,43 +9,42 @@ from src.encoder import agents, roadgraph, traffic_lights
 logger = logger_utils.get_logger(__name__)
 
 
-def unified_to_puffer_dict(
-    unified_scenario: dict,
+def convert_to_puffer_dict(
+    scenario: dict,
     polyline_reduction_threshold: float = 0.1,
     dist_threshold: float = 10.0,
     min_route_valid_points: int = 0,
     route_check_timestep: int = 0,
 ) -> dict:
-    if not isinstance(unified_scenario, dict):
-        raise TypeError(f"Expected dict, got {type(unified_scenario).__name__}")
+    if not isinstance(scenario, dict):
+        raise TypeError(f"Expected dict, got {type(scenario).__name__}")
 
     required_fields = ["id", "dynamic_agents", "static_map_elements", "dynamic_map_elements", "metadata"]
-    missing = [f for f in required_fields if f not in unified_scenario]
+    missing = [f for f in required_fields if f not in scenario]
     if missing:
-        raise ValueError(f"unified_scenario missing required fields: {missing}")
+        raise ValueError(f"scenario missing required fields: {missing}")
 
-    scenario_id = unified_scenario["id"]
-
+    scenario_id = scenario["id"]
     road_map_elements = roadgraph.convert_road_map_elements(
-        unified_scenario["static_map_elements"],
+        scenario["static_map_elements"],
         polyline_reduction_threshold,
         dist_threshold,
     )
 
-    metadata = unified_scenario["metadata"]
+    metadata = scenario["metadata"]
     sdc_agent_id = metadata.get("sdc_index", 0)
 
     dynamic_agents, sdc_sequential_idx = agents.convert_dynamic_agents(
-        unified_scenario["dynamic_agents"],
-        unified_scenario["static_map_elements"],
+        scenario["dynamic_agents"],
+        scenario["static_map_elements"],
         min_route_valid_points=min_route_valid_points,
         route_check_timestep=route_check_timestep,
         sdc_agent_id=sdc_agent_id,
     )
 
     traffic_control_elements = traffic_lights.convert_traffic_control_elements(
-        unified_scenario["dynamic_map_elements"],
-        unified_scenario["static_map_elements"],
+        scenario["dynamic_map_elements"],
+        scenario["static_map_elements"],
     )
 
     puffer_metadata = {
@@ -221,14 +220,3 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:  # noqa:
         buffer.extend(struct.pack("i", int(ttp)))
 
     return bytes(buffer)
-
-
-def unified_to_binary(unified_scenario: dict, cfg, map_id: int = 0) -> bytes:
-    puffer_dict = unified_to_puffer_dict(
-        unified_scenario,
-        polyline_reduction_threshold=float(cfg.polyline_reduction_threshold),
-        dist_threshold=float(cfg.dist_threshold),
-        min_route_valid_points=int(cfg.min_route_valid_points),
-        route_check_timestep=int(cfg.route_check_timestep),
-    )
-    return puffer_dict_to_binary(puffer_dict, map_id=map_id)
