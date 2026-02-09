@@ -122,7 +122,7 @@ def render_scenario_png(
     show_routes: bool = True,
     show_future: bool = True,
     figsize: tuple = (24, 24),
-    dpi: int = 100,
+    dpi: int = 150,
     zoom_center: tuple = None,
     zoom_radius: float = None,
     follow_ego: bool = False,
@@ -182,7 +182,7 @@ def render_scenario_png(
         if ego_pos is not None:
             zoom_center = ego_pos
             if zoom_radius is None:
-                zoom_radius = 50.0  # Default 50m radius around ego
+                zoom_radius = 100.0  # Default zoom radius if following ego
 
     if zoom_center is not None and zoom_radius is not None:
         # Zoom to specified region
@@ -235,13 +235,10 @@ def render_scenario_video(
         follow_ego: If True, center view on ego vehicle at each timestep
     """
     metadata = puffer_scenario.get("metadata", {})
-    length = 91  #  metadata.get("length", 300)
+    length = metadata.get("scenario_length", 0)
 
     print(f"Scenario has {length} timesteps")
 
-    # if length == 0:
-    #     print("⚠ Warning: Scenario has no timesteps")
-    #     return
 
     # Setup figure
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
@@ -591,11 +588,7 @@ def _get_ego_position(puffer_scenario: dict, timestep: int) -> tuple:
         (x, y) position tuple, or None if ego not found
     """
     metadata = puffer_scenario.get("metadata", {})
-    ego_id = metadata.get("ego_id")
-
-    if ego_id is None:
-        return None
-
+    ego_id = metadata.get("sdc_index")
     dynamic_agents = puffer_scenario.get("dynamic_agents", [])
 
     for agent in dynamic_agents:

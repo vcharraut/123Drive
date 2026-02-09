@@ -3,11 +3,14 @@ Convert road map elements from intermediate format to Puffer format.
 """
 
 import numpy as np
+from py123d.datatypes.map_objects.map_layer_types import LaneType, RoadEdgeType, RoadLineType, SerialIntEnum
 
 from src import logger_utils, types
 
 
 logger = logger_utils.get_logger(__name__)
+
+FILTERED_TYPES = []
 
 
 def calculate_area(p1: dict, p2: dict, p3: dict) -> float:
@@ -100,7 +103,7 @@ def convert_road_map_elements(
     for element_id, element_data in static_map_elements.items():
         element_type = element_data["type"]
 
-        if element_type in [types.DRIVEWAY, types.STOP_SIGN, types.YIELD_SIGN, types.TRAFFIC_CONE]:
+        if element_type in FILTERED_TYPES: # TODO: Add right type mapping when we have more types in the data
             continue
 
         if not element_type:
@@ -136,14 +139,14 @@ def convert_road_map_elements(
         }
 
         # Add lane-specific attributes if this is a lane
-        if types.is_lane(element_type):
+        if isinstance(element_type, LaneType):
             # Convert speed limit from km/h to m/s
             speed_limit_kmh = element_data["speed_limit_kmh"]
             puffer_element["speed_limit"] = speed_limit_kmh / 3.6  # m/s
 
             # Convert lane connectivity (entry/exit/neighbors)
-            left_neighbor = element_data["left_neighbor"]
-            right_neighbor = element_data["right_neighbor"]
+            # left_neighbor = element_data["left_neighbor"] # TODO: Add left/right neighbor handling when we have more types in the data
+            # right_neighbor = element_data["right_neighbor"]
 
             # Use int IDs directly
             puffer_element["entry_lanes"] = element_data["entry_lanes"]
@@ -151,10 +154,10 @@ def convert_road_map_elements(
 
             # Combine left and right neighbors
             neighbors = []
-            if left_neighbor:
-                neighbors.extend(left_neighbor)
-            if right_neighbor:
-                neighbors.extend(right_neighbor)
+            # if left_neighbor:
+            #     neighbors.extend(left_neighbor)
+            # if right_neighbor:
+            #     neighbors.extend(right_neighbor)
             puffer_element["neighbors"] = neighbors
 
         puffer_elements.append(puffer_element)
@@ -162,56 +165,55 @@ def convert_road_map_elements(
     return puffer_elements
 
 
-def _convert_map_element_type_to_int(element_type: str) -> int:
-    """
-    Convert map element type string to integer.
-
-    Args:
-        element_type: Map element type string from types.py
-
-    Returns:
-        Integer representation
-    """
-    # Lane types (1-10)
+def _convert_map_element_type_to_int(element_type: SerialIntEnum) -> int:
+    # Lane types (1-3)
     lane_type_map = {
-        types.LANE_UNKNOWN: 0,
-        types.LANE_FREEWAY: 1,
-        types.LANE_SURFACE_STREET: 2,
-        types.LANE_BIKE_LANE: 3,
+        LaneType.UNDEFINED: 0,
+        LaneType.FREEWAY: 1,
+        LaneType.SURFACE_STREET: 2,
+        LaneType.BIKE_LANE: 3,
     }
+    if isinstance(element_type, LaneType):
+        return lane_type_map.get(element_type, 0)
 
-    # Road line types (11-20)
+    # Road line types (11-18)
     road_line_type_map = {
-        types.ROAD_LINE_UNKNOWN: 0,
-        types.ROAD_LINE_BROKEN_SINGLE_WHITE: 11,
-        types.ROAD_LINE_SOLID_SINGLE_WHITE: 12,
-        types.ROAD_LINE_SOLID_DOUBLE_WHITE: 13,
-        types.ROAD_LINE_BROKEN_SINGLE_YELLOW: 14,
-        types.ROAD_LINE_BROKEN_DOUBLE_YELLOW: 15,
-        types.ROAD_LINE_SOLID_SINGLE_YELLOW: 16,
-        types.ROAD_LINE_SOLID_DOUBLE_YELLOW: 17,
-        types.ROAD_LINE_PASSING_DOUBLE_YELLOW: 18,
+        RoadLineType.UNKNOWN: 0,
+        RoadLineType.DASHED_WHITE: 11,
+        RoadLineType.SOLID_WHITE: 12,
+        RoadLineType.DOUBLE_SOLID_WHITE: 13,
+        RoadLineType.DASHED_YELLOW: 14,
+        RoadLineType.DOUBLE_DASH_YELLOW: 15,
+        RoadLineType.SOLID_YELLOW: 16,
+        RoadLineType.DOUBLE_SOLID_YELLOW: 17,
+        RoadLineType.DASH_SOLID_YELLOW: 18,
+        RoadLineType.SOLID_DASH_YELLOW: 18,
+        # Collapsed types
+        RoadLineType.DOUBLE_DASH_WHITE: 11,
+        RoadLineType.DASH_SOLID_WHITE: 12,
+        RoadLineType.SOLID_DASH_WHITE: 12,
+        RoadLineType.SOLID_BLUE: 12,
     }
+    if isinstance(element_type, RoadLineType):
+        return road_line_type_map.get(element_type, 0)
 
-    # Road edge types (21-30)
+    # Road edge types (21-22)
     road_edge_type_map = {
-        types.ROAD_EDGE_UNKNOWN: 0,
-        types.ROAD_EDGE_BOUNDARY: 21,
-        types.ROAD_EDGE_MEDIAN: 22,
-        types.ROAD_EDGE_SIDEWALK: 23,
+        RoadEdgeType.UNKNOWN: 0,
+        RoadEdgeType.ROAD_EDGE_BOUNDARY: 21,
+        RoadEdgeType.ROAD_EDGE_MEDIAN: 22,
     }
+    if isinstance(element_type, RoadEdgeType):
+        return road_edge_type_map.get(element_type, 0)
 
-    # Other map element types (31+)
+    # String map feature types (31+)
     other_type_map = {
         types.CROSSWALK: 31,
         types.SPEED_BUMP: 32,
         types.STOP_SIGN: 33,
         types.DRIVEWAY: 34,
     }
+    if element_type in other_type_map:
+        return other_type_map[element_type]
 
-    # Check all mappings
-    for type_map in [lane_type_map, road_line_type_map, road_edge_type_map, other_type_map]:
-        if element_type in type_map:
-            return type_map[element_type]
-
-    return 0  # Default to undefined
+    return 0

@@ -28,8 +28,9 @@ Routes with heading misalignment (agent traveling wrong direction) are rejected.
 """
 
 import numpy as np
+from py123d.datatypes.map_objects.map_layer_types import LaneType, RoadEdgeType
 
-from src import logger_utils, types
+from src import logger_utils
 
 
 logger = logger_utils.get_logger(__name__)
@@ -60,9 +61,8 @@ DISTANCE_WEIGHT = 0.3  # Weight for spatial proximity
 # Controllable vehicle filtering constants
 OFFROAD_DISTANCE_THRESHOLD = 5.0  # Meters - max distance from closest lane to be considered on-road
 ROAD_EDGE_TYPES = {
-    types.ROAD_EDGE_BOUNDARY,
-    types.ROAD_EDGE_MEDIAN,
-    types.ROAD_EDGE_SIDEWALK,
+    RoadEdgeType.ROAD_EDGE_BOUNDARY,
+    RoadEdgeType.ROAD_EDGE_MEDIAN,
 }
 
 
@@ -190,7 +190,7 @@ def extract_lane_centers(static_map_elements: dict) -> tuple[list, np.ndarray, d
         element_type = element_data["type"]
 
         # Only process lane centers
-        if element_type == types.LANE_SURFACE_STREET or element_type == types.LANE_FREEWAY:
+        if element_type in (LaneType.SURFACE_STREET, LaneType.FREEWAY):
             polyline = element_data["polyline"]
 
             if len(polyline) > 0:

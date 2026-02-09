@@ -1,7 +1,7 @@
 """
 Polyline interpolation processor for Stage 2.
 
-This processor interpolates polylines in static_map_elements to ensure
+This processor interpolates polylines in map elements to ensure
 no segment exceeds a specified maximum length.
 """
 
@@ -18,19 +18,15 @@ from src.processors.polyline_interpolation.utils import (
 logger = logger_utils.get_logger(__name__)
 
 
-def interpolate_polylines(
-    scenario: dict[str, Any],
-    max_segment_length: float = 2.0,
-    **kwargs,
-) -> dict[str, Any]:
+def interpolate_polylines(scenario: dict[str, Any],max_segment_length: float = 2.0) -> dict[str, Any]:
     """
-    Interpolate polylines in static_map_elements to ensure dense representation.
+    Interpolate polylines in map elements to ensure dense representation.
 
     This processor adds intermediate points to polylines where segments exceed
     the maximum allowed length. Original vertices are preserved.
 
     Args:
-        scenario: dict with static_map_elements
+        scenario: dict with map elements
         max_segment_length: Maximum allowed distance between consecutive points (meters)
         **kwargs: Additional arguments (ignored)
 
@@ -46,14 +42,14 @@ def interpolate_polylines(
         )
         return scenario
 
-    static_map_elements = scenario.get("static_map_elements", {})
+    map_elements = scenario.get("map", {})
 
-    if not static_map_elements:
-        logger.debug(f"Scenario {scenario_id}: no static_map_elements to interpolate")
+    if not map_elements:
+        logger.debug(f"Scenario {scenario_id}: no map elements to interpolate")
         return scenario
 
     # Process each map element
-    for element_id, element in static_map_elements.items():
+    for element_id, element in map_elements.items():
         # Skip elements without polylines
         if "polyline" not in element:
             continue

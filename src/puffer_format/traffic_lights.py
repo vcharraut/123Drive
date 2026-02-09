@@ -3,6 +3,7 @@ Convert traffic control elements from intermediate format to Puffer format.
 """
 
 import numpy as np
+from py123d.datatypes.detections.traffic_light_detections import TrafficLightStatus
 
 from src import logger_utils, types
 
@@ -24,7 +25,7 @@ def convert_traffic_control_elements(dynamic_map_elements: dict, static_map_elem
     puffer_elements = []
 
     for element_id, element_data in dynamic_map_elements.items():
-        element_type = element_data["type"]
+        element_type = 1 # TODO: Add right type mapping when we have more types in the data
         position = element_data["position"]
         states = element_data["states"]
         controlled_lane = element_data["controlled_lane"]
@@ -36,7 +37,7 @@ def convert_traffic_control_elements(dynamic_map_elements: dict, static_map_elem
         # States might be a list or numpy array
         states_list = states.tolist() if isinstance(states, np.ndarray) else states
 
-        states_int = [_convert_traffic_light_state_to_int(s) if isinstance(s, str) else int(s) for s in states_list]
+        states_int = [_convert_traffic_light_state_to_int(s) for s in states_list]
         states_int = np.array(states_int, dtype=np.int32)
 
         # Normalize controlled_lane to list (PufferDrive expects list)
@@ -112,25 +113,22 @@ def _convert_traffic_control_type_to_int(element_type: str) -> int:
     return type_map.get(element_type, 0)
 
 
-def _convert_traffic_light_state_to_int(state: str) -> int:
-    """
-    Convert traffic light state string to integer.
+def _convert_traffic_light_state_to_int(state) -> int:
+    # None = unobserved
+    if state is None:
+        return 0
 
-    Args:
-        state: Traffic light state string from types.py
+    # int = already converted (WaymonicTLS values from TL processor)
+    if isinstance(state, int):
+        return state
 
-    Returns:
-        Integer representation
-    """
-    state_map = {
-        types.TRAFFIC_LIGHT_UNKNOWN: 0,
-        types.TRAFFIC_LIGHT_ARROW_RED: 1,
-        types.TRAFFIC_LIGHT_ARROW_YELLOW: 2,
-        types.TRAFFIC_LIGHT_ARROW_GREEN: 3,
-        types.TRAFFIC_LIGHT_RED: 4,
-        types.TRAFFIC_LIGHT_YELLOW: 5,
-        types.TRAFFIC_LIGHT_GREEN: 6,
-        types.TRAFFIC_LIGHT_FLASHING_RED: 7,
-        types.TRAFFIC_LIGHT_FLASHING_YELLOW: 8,
-    }
-    return state_map.get(state, 0)
+    # TrafficLightStatus enum from py123d (unprocessed data)
+    if isinstance(state, TrafficLightStatus):
+        tls_map = {
+            TrafficLightStatus.RED: 4,
+            TrafficLightStatus.GREEN: 6,
+            TrafficLightStatus.YELLOW: 5,
+        }
+        return tls_map.get(state, 0)
+
+    return 0

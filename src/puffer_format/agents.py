@@ -3,8 +3,9 @@ Convert dynamic agents from intermediate format to Puffer format.
 """
 
 import numpy as np
+from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
 
-from src import logger_utils, types
+from src import logger_utils
 from src.puffer_format import routes
 
 
@@ -16,8 +17,7 @@ def convert_dynamic_agents(
     road_map_elements: dict,
     min_route_valid_points: int = 0,
     route_check_timestep: int = 0,
-    sdc_agent_id: int | None = None,
-) -> tuple[list[dict], int]:
+) -> list[dict]:
     """
     Convert dynamic agents from intermediate format to Puffer format.
 
@@ -26,35 +26,29 @@ def convert_dynamic_agents(
         road_map_elements: Dict of static map elements (for reference)
         min_route_valid_points: Minimum valid trajectory points required for route computation (0 = no filtering)
         route_check_timestep: Timestep at which agent must be valid for route computation (default: 0)
-        sdc_agent_id: Original agent ID of the SDC (for index mapping)
 
     Returns:
         Tuple of (list of agent dicts, sdc sequential index)
     """
     puffer_agents = []
-    sdc_sequential_idx = 0
 
     # Extract lane centers once for all agents (optimization)
     lane_data = routes.extract_lane_centers(road_map_elements)
 
     for idx, (agent_id, agent_data) in enumerate(dynamic_agents.items()):
-        if agent_id == sdc_agent_id:
-            sdc_sequential_idx = idx
-        states = agent_data["states"]
-
         # Get position data (x, y, z)
-        position = states["position"]
+        position = agent_data["position"]
         if position.shape[1] == 2:
             # Add z=0 if only x,y provided
             position = np.column_stack([position, np.zeros(len(position))])
 
         # Get heading, velocity, dimensions
-        heading = states["heading"]
-        velocity = states["velocity"]
-        agent_length = states["length"]
-        width = states["width"]
-        height = states["height"]
-        valid = states["valid"]
+        heading = agent_data["heading"]
+        velocity = agent_data["velocity"]
+        agent_length = agent_data["length"]
+        width = agent_data["width"]
+        height = agent_data["height"]
+        valid = agent_data["valid"]
 
         # Convert agent type to int
         agent_type_int = _convert_agent_type_to_int(agent_data["type"])
@@ -99,26 +93,17 @@ def convert_dynamic_agents(
 
         puffer_agents.append(puffer_agent)
 
-    return puffer_agents, sdc_sequential_idx
+    return puffer_agents
 
 
-def _convert_agent_type_to_int(agent_type: str) -> int:
-    """
-    Convert agent type string to integer.
-
-    Args:
-        agent_type: Agent type string from types.py
-
-    Returns:
-        Integer representation
-    """
+def _convert_agent_type_to_int(agent_type) -> int:
     type_map = {
-        types.VEHICLE: 1,
-        types.PEDESTRIAN: 2,
-        types.CYCLIST: 3,
-        types.OTHER: 4,
+        DefaultBoxDetectionLabel.EGO: 1,
+        DefaultBoxDetectionLabel.VEHICLE: 1,
+        DefaultBoxDetectionLabel.PERSON: 2,
+        DefaultBoxDetectionLabel.BICYCLE: 3,
     }
-    return type_map.get(agent_type, 0)  # Default to 0 for unknown
+    return type_map.get(agent_type, 4)
 
 
 def _compute_routes(

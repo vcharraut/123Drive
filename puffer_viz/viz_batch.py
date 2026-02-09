@@ -67,11 +67,6 @@ def load_puffer_scenario(file_path: str) -> dict:
                 if "states" in element and isinstance(element["states"], list):
                     element["states"] = np.array(element["states"])
 
-        if "metadata" in scenario:
-            metadata = scenario["metadata"]
-            if "timesteps" in metadata and isinstance(metadata["timesteps"], list):
-                metadata["timesteps"] = np.array(metadata["timesteps"])
-
         return scenario
 
 
@@ -163,7 +158,8 @@ Examples:
         try:
             # Load scenario
             scenario = load_puffer_scenario(puffer_file)
-            length = scenario.get("length", 0)
+            metadata = scenario.get("metadata", {})
+            length = metadata.get("scenario_length", 0)
 
             print(f"  → Scenario has {length} timesteps")
 

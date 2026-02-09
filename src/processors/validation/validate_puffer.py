@@ -33,7 +33,7 @@ _REQUIRED_TOP_LEVEL_KEYS = {
     "traffic_control_elements",
     "metadata",
 }
-_REQUIRED_METADATA_KEYS = {"dataset_name", "scenario_length", "timesteps", "sdc_index"}
+_REQUIRED_METADATA_KEYS = {"dataset_name", "scenario_length", "sdc_index"}
 _REQUIRED_AGENT_KEYS = {"id", "type", "states", "routes"}
 _REQUIRED_AGENT_STATE_KEYS = {"xyz", "heading", "velocity", "length", "width", "height", "valid"}
 _REQUIRED_ROAD_KEYS = {"id", "type", "xyz"}
@@ -220,8 +220,7 @@ def strict_validate(
     warnings = []
 
     metadata = puffer_dict.get("metadata", {})
-    timesteps = metadata.get("timesteps", [])
-    dt = _compute_timestep(timesteps)
+    dt = metadata.get("timestep_seconds", 0.1)
     expected_length = metadata.get("scenario_length", 0)
     agents = puffer_dict.get("dynamic_agents", [])
 
@@ -258,15 +257,6 @@ def strict_validate(
     _validate_scenario_coherence(puffer_dict, validation_level, errors, warnings)
 
     return len(errors) == 0, errors, warnings
-
-
-def _compute_timestep(timesteps) -> float:
-    if isinstance(timesteps, np.ndarray) and len(timesteps) >= 2:
-        return float(np.mean(np.diff(timesteps)))
-    if isinstance(timesteps, list) and len(timesteps) >= 2:
-        dts = [timesteps[i + 1] - timesteps[i] for i in range(len(timesteps) - 1)]
-        return sum(dts) / len(dts)
-    return 0.1
 
 
 def _validate_strict_agents(
@@ -580,14 +570,6 @@ def _validate_scenario_coherence(puffer_dict: dict, validation_level: int, error
         sdc_index = metadata.get("sdc_index", 0)
         if sdc_index >= len(agents):
             errors.append(f"sdc_index {sdc_index} out of range (have {len(agents)} agents)")
-
-    if "timesteps" in metadata:
-        timesteps = metadata["timesteps"]
-        if isinstance(timesteps, np.ndarray) and len(timesteps) > 1:
-            if not np.all(np.diff(timesteps) > 0):
-                errors.append("Timestamps are not monotonically increasing")
-            if len(np.unique(timesteps)) < len(timesteps):
-                errors.append("Duplicate timestamps found")
 
     if validation_level >= 3:
         if len(agents) > 500:

@@ -1,6 +1,5 @@
 import argparse
 import os
-import sys
 
 from joblib import Parallel, delayed
 from tqdm import tqdm
@@ -8,6 +7,7 @@ from tqdm import tqdm
 from src import logger_utils
 from src.processors.polyline_interpolation.processor import interpolate_polylines
 from src.processors.traffic_lights.processor import add_traffic_lights_to_scenario
+from src.processors.validation.validate_puffer import soft_validate
 from src.puffer_format.pufferdrive import convert_to_puffer_dict, puffer_dict_to_binary
 from src.py123d_loader.extractor import convert_py123d_scenario
 from src.py123d_loader.load import get_py123d_scenarios
@@ -22,55 +22,47 @@ def process_one_scenario(
     output_dir,
     interpolate=False,
     traffic_lights=False,
+    validate=False,
     max_segment_length=2.0,
     polyline_reduction_threshold=0.1,
     dist_threshold=10.0,
     min_route_valid_points=0,
     route_check_timestep=0,
 ):
-    try:
-        # 1. Convert Raw -> Intermediate
-        scenario = convert_py123d_scenario(raw_scenario)
+    # 1. Convert Raw -> Intermediate
+    scenario = convert_py123d_scenario(raw_scenario)
 
-        # 2. Apply Processors
-        if interpolate:
-            scenario = interpolate_polylines(scenario, max_segment_length=max_segment_length)
+    # 2. Apply Processors
+    if interpolate:
+        scenario = interpolate_polylines(scenario, max_segment_length=max_segment_length)
 
-        if traffic_lights:
-            scenario = add_traffic_lights_to_scenario(scenario)
+    if traffic_lights:
+        scenario = add_traffic_lights_to_scenario(scenario)
 
-        # 3. Convert Intermediate -> Puffer Dict
-        puffer_dict = convert_to_puffer_dict(
-            scenario,
-            polyline_reduction_threshold=polyline_reduction_threshold,
-            dist_threshold=dist_threshold,
-            min_route_valid_points=min_route_valid_points,
-            route_check_timestep=route_check_timestep,
-        )
+    # 3. Convert Intermediate -> Puffer Dict
+    puffer_dict = convert_to_puffer_dict(
+        scenario,
+        polyline_reduction_threshold=polyline_reduction_threshold,
+        dist_threshold=dist_threshold,
+        min_route_valid_points=min_route_valid_points,
+        route_check_timestep=route_check_timestep,
+    )
 
-        # 4. Convert Puffer Dict -> Binary
-        binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
+    # 4. Validate Puffer Dict (optional)
+    if validate:
+        is_valid, errors, warnings = soft_validate(puffer_dict)
+        for warning in warnings:
+            logger.warning(f"map_{map_id}: {warning}")
+        for error in errors:
+            logger.error(f"map_{map_id}: {error}")
 
-        # 5. Write to file
-        output_path = os.path.join(output_dir, f"map_{map_id:03d}.bin")
-        with open(output_path, "wb") as f:
-            f.write(binary_data)
+    # 5. Convert Puffer Dict -> Binary
+    binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
 
-        return {"status": "ok", "map_id": map_id}
-
-    except Exception as e:
-        return {"status": "error", "map_id": map_id, "error": str(e)}
-
-
-def chunk_iterator(iterator, chunk_size):
-    chunk = []
-    for item in iterator:
-        chunk.append(item)
-        if len(chunk) >= chunk_size:
-            yield chunk
-            chunk = []
-    if chunk:
-        yield chunk
+    # 6. Write to file
+    output_path = os.path.join(output_dir, f"map_{map_id:03d}.bin")
+    with open(output_path, "wb") as f:
+        f.write(binary_data)
 
 
 def main():
@@ -79,17 +71,23 @@ def main():
     # Core arguments
     parser.add_argument("--dataset_path", required=True, help="Path to py123d dataset (logs/ and maps/)")
     parser.add_argument("--output_dir", default="./output", help="Directory to save binary files")
-    parser.add_argument("--num_workers", type=int, default=8, help="Number of parallel workers")
-    parser.add_argument("--batch_size", type=int, default=10, help="Batch size for processing")
-    parser.add_argument("--max_scenarios", type=int, default=None, help="Maximum number of scenarios to process")
+    parser.add_argument("--num_workers", type=int, default=1, help="Number of parallel workers")
+    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for processing")
 
     # Dataset filtering
-    parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios (no logs)")
+    parser.add_argument("--max_scenarios", type=int, default=None, help="Maximum number of scenarios to process")
+    parser.add_argument("--datasets", nargs="+", help="Dataset names to include (e.g. nuplan, wod-motion)")
+    parser.add_argument("--split_types", nargs="+", help="Split types to include (e.g. train, val, test)")
+    parser.add_argument("--split_names", nargs="+", help="Split names to include (e.g. nuplan-mini_val)")
+    parser.add_argument("--log_names", nargs="+", help="Log names to include")
+    parser.add_argument("--duration_s", type=float, default=0.0, help="Duration of scenario in seconds")
     parser.add_argument("--history_s", type=float, default=0.0, help="History duration in seconds")
+    parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios (no logs)")
 
     # Processor flags
     parser.add_argument("--interpolate", action="store_true", help="Enable polyline interpolation")
     parser.add_argument("--traffic_lights", action="store_true", help="Generate synthetic traffic lights")
+    parser.add_argument("--validate", action="store_true", help="Validate puffer dict before binary conversion")
 
     # Configuration parameters
     parser.add_argument("--max_segment_length", type=float, default=2.0, help="Max segment length for interpolation")
@@ -103,52 +101,37 @@ def main():
 
     logger.info(f"Starting conversion: {args.dataset_path} -> {args.output_dir}")
 
-    # Get scenarios iterator
-    try:
-        scenarios_iter = iter(get_py123d_scenarios(args.dataset_path, map_only=args.map_only, history_s=args.history_s))
-    except Exception as e:
-        logger.error(f"Failed to load dataset: {e}")
-        sys.exit(1)
+    scenarios = get_py123d_scenarios(
+        dataset_path=args.dataset_path,
+        max_scenarios=args.max_scenarios,
+        datasets=args.datasets,
+        split_types=args.split_types,
+        split_names=args.split_names,
+        log_names=args.log_names,
+        history_s=args.history_s,
+        duration_s=None if args.duration_s == 0.0 else args.duration_s,
+        map_only=args.map_only,
+    )
 
-    map_id = 0
-    errors = 0
-    processed = 0
+    scenarios = list(scenarios)
 
-    # Process in batches
-    for batch in tqdm(chunk_iterator(scenarios_iter, args.batch_size), desc="Processing batches"):
-        if args.max_scenarios and map_id >= args.max_scenarios:
-            break
-
-        tasks = []
-        for raw_scenario in batch:
-            if args.max_scenarios and map_id >= args.max_scenarios:
-                break
-
-            tasks.append((raw_scenario, map_id))
-            map_id += 1
-
-        results = Parallel(n_jobs=args.num_workers)(
+    with Parallel(n_jobs=args.num_workers) as parallel:
+        parallel(
             delayed(process_one_scenario)(
-                raw,
-                mid,
-                args.output_dir,
+                raw_scenario=scenario,
+                map_id=i,
+                output_dir=args.output_dir,
                 interpolate=args.interpolate,
                 traffic_lights=args.traffic_lights,
+                validate=args.validate,
                 max_segment_length=args.max_segment_length,
                 polyline_reduction_threshold=args.polyline_reduction_threshold,
                 dist_threshold=args.dist_threshold,
             )
-            for raw, mid in tasks
+            for i, scenario in tqdm(enumerate(scenarios), total=len(scenarios))
         )
 
-        for res in results:
-            if res["status"] == "error":
-                errors += 1
-                logger.error(f"Error processing map_{res['map_id']}: {res['error']}")
-            else:
-                processed += 1
-
-    logger.info(f"Conversion complete. Processed: {processed}, Errors: {errors}")
+    logger.info("Conversion complete.")
 
 
 if __name__ == "__main__":

@@ -19,43 +19,37 @@ def convert_to_puffer_dict(
     if not isinstance(scenario, dict):
         raise TypeError(f"Expected dict, got {type(scenario).__name__}")
 
-    required_fields = ["id", "dynamic_agents", "static_map_elements", "dynamic_map_elements", "metadata"]
+    required_fields = ["id", "agents", "map", "traffic_lights"]
     missing = [f for f in required_fields if f not in scenario]
     if missing:
         raise ValueError(f"scenario missing required fields: {missing}")
 
     scenario_id = scenario["id"]
     road_map_elements = roadgraph.convert_road_map_elements(
-        scenario["static_map_elements"],
+        scenario["map"],
         polyline_reduction_threshold,
         dist_threshold,
     )
 
-    metadata = scenario["metadata"]
-    sdc_agent_id = metadata.get("sdc_index", 0)
-
-    dynamic_agents, sdc_sequential_idx = agents.convert_dynamic_agents(
-        scenario["dynamic_agents"],
-        scenario["static_map_elements"],
+    dynamic_agents = agents.convert_dynamic_agents(
+        scenario["agents"],
+        scenario["map"],
         min_route_valid_points=min_route_valid_points,
         route_check_timestep=route_check_timestep,
-        sdc_agent_id=sdc_agent_id,
     )
 
     traffic_control_elements = traffic_lights.convert_traffic_control_elements(
-        scenario["dynamic_map_elements"],
-        scenario["static_map_elements"],
+        scenario["traffic_lights"],
+        scenario["map"],
     )
 
     puffer_metadata = {
-        "dataset_name": metadata.get("dataset_name", ""),
-        "scenario_length": metadata.get("scenario_length", 0),
-        "timesteps": metadata.get("timesteps", []),
-        "sdc_index": sdc_sequential_idx,
+        "dataset_name": scenario.get("dataset_name", ""),
+        "scenario_length": scenario.get("scenario_length", 0),
+        "sdc_index": 0,
+        "objects_of_interests": [],
+        "tracks_to_predict": [],
     }
-
-    puffer_metadata["objects_of_interests"] = []
-    puffer_metadata["tracks_to_predict"] = []
 
     return {
         "scenario_id": scenario_id,
@@ -70,10 +64,12 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:  # noqa:
     dynamic_agents = puffer_dict["dynamic_agents"]
     road_map_elements = puffer_dict["road_map_elements"]
     traffic_control_elements = puffer_dict["traffic_control_elements"]
+    metadata = puffer_dict["metadata"]
 
     buffer = bytearray()
     buffer.extend(struct.pack("iii", len(dynamic_agents), len(road_map_elements), len(traffic_control_elements)))
 
+    # Agents
     for agent in dynamic_agents:
         agent_id = int(agent["id"])
         agent_type = int(agent["type"])
@@ -145,6 +141,7 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:  # noqa:
         mark_as_expert = 0 if (routes and len(routes) > 0) else 1
         buffer.extend(struct.pack("i", mark_as_expert))
 
+    # Road Map Elements
     for road in road_map_elements:
         road_id = int(road["id"])
         road_type = int(road["type"])
@@ -172,6 +169,7 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:  # noqa:
 
             buffer.extend(struct.pack("f", road["speed_limit"]))
 
+    # Traffic Control Elements
     for element in traffic_control_elements:
         traffic_id = int(element["id"])
         traffic_type = int(element["type"])
@@ -196,8 +194,7 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:  # noqa:
         for lane in controlled_lanes:
             buffer.extend(struct.pack("i", int(lane)))
 
-    metadata = puffer_dict["metadata"]
-
+    # Metadata
     scenario_id = puffer_dict["scenario_id"][:128]
     buffer.extend(scenario_id.encode("utf-8").ljust(128, b"\0"))
 
