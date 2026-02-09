@@ -2520,7 +2520,7 @@ wheels = [
 [[package]]
 name = "py123d"
 version = "0.0.8"
-source = { git = "https://github.com/autonomousvision/py123d.git?branch=dev_v0.0.9#c899a244ad8246c80f48a4c05d4563ea6d8217a7" }
+source = { git = "https://github.com/autonomousvision/py123d.git?branch=dev_v0.0.9#0621b9900dd193b37ab34e37cd23cf527af60e35" }
 dependencies = [
     { name = "dracopy" },
     { name = "geopandas" },
