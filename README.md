@@ -25,7 +25,3 @@ uv run convert --dataset_path /path/to/data --output_dir ./output --num_workers 
 | `--max_scenarios N` | Limit number of scenarios to process |
 | `--map_only` | Load map-only scenarios (no logs) |
 
-
-## License
-
-See LICENSE file for details.
