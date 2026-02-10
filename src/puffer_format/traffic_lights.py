@@ -25,7 +25,7 @@ def convert_traffic_control_elements(dynamic_map_elements: dict, static_map_elem
     puffer_elements = []
 
     for element_id, element_data in dynamic_map_elements.items():
-        element_type = 1 # TODO: Add right type mapping when we have more types in the data
+        element_type = 1  # TODO: Add right type mapping when we have more types in the data
         position = element_data["position"]
         states = element_data["states"]
         controlled_lane = element_data["controlled_lane"]

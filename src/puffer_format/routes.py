@@ -847,7 +847,8 @@ def _is_offroad_at_init(
 
         polyline = element["polyline"]
         if polyline is None or len(polyline) < 2:
-            raise ValueError(f"Invalid polyline for element {element_id} of type {element_type}")
+            continue
+            # raise ValueError(f"Invalid polyline for element {element_id} of type {element_type}")
 
         polyline_2d = polyline[:, :2]
 
