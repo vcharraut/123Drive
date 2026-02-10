@@ -63,11 +63,11 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     if map_api is None:
         raise ValueError("Map API is required to convert scenario")
 
-    centroid = (
-        _compute_map_centroid_from_ego_positions(scene)
-        if scene is not None
-        else _compute_map_centroid_from_road_layers(map_api)
-    )
+    if scene:
+        centroid = _compute_map_centroid_from_ego_positions(scene)
+    else:
+        centroid = _compute_map_centroid_from_road_layers(map_api)
+
     scenario["map"] = extract_static_map_elements(map_api, centroid)
 
     if scene is not None:
@@ -221,7 +221,7 @@ def _compute_map_centroid_from_road_layers(map_api: MapAPI) -> np.ndarray:
     """Compute map centroid using available lane/road geometry."""
 
     points: list[np.ndarray] = []
-    for layer in [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE, MapLayer.CROSSWALK]:
+    for layer in [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE]:
         if layer not in map_api._occupancy_maps:
             continue
         ids = map_api._occupancy_maps[layer].ids
@@ -234,54 +234,67 @@ def _compute_map_centroid_from_road_layers(map_api: MapAPI) -> np.ndarray:
                 points.append(coords)
 
     if not points:
-        return np.array([0.0, 0.0], dtype=np.float32)
+        return np.array([0.0, 0.0])
 
-    all_xy = np.vstack(points)
-    return all_xy.mean(axis=0).astype(np.float32)
+    return np.vstack(points).mean(axis=0)
+
+
+_MAP_LAYERS = [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE, MapLayer.CROSSWALK]
+
+
+def _iter_map_objects(map_api, centroid):
+    if map_api.dataset == "carla" or map_api.map_is_local:
+        for layer in _MAP_LAYERS:
+            if layer not in map_api._occupancy_maps:
+                continue
+            for oid in map_api._occupancy_maps[layer].ids:
+                obj = map_api.get_map_object(oid, layer)
+                if obj:
+                    yield obj
+    else:
+        layers = map_api.get_map_objects_in_radius(
+            Point2D(centroid[0], centroid[1]),
+            radius=300.0,
+            layers=_MAP_LAYERS,
+        )
+        for layer in _MAP_LAYERS:
+            yield from layers.get(layer, [])
 
 
 def extract_static_map_elements(map_api: MapAPI, centroid: np.ndarray) -> dict[int, dict]:
     """Extract static map elements from a py123d MapAPI."""
+    result = {}
+    non_lane_objects = []
 
-    layers = map_api.get_map_objects_in_radius(
-        Point2D(centroid[0], centroid[1]),
-        radius=300.0,
-        layers=[MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE, MapLayer.CROSSWALK],
-    )
+    for obj in _iter_map_objects(map_api, centroid):
+        if isinstance(obj, Lane):
+            result[obj.object_id] = convert_map_object_to_static_element(obj, centroid)
+        else:
+            non_lane_objects.append(obj)
 
-    map_layer_to_take = [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE, MapLayer.CROSSWALK]
+    # Non-lane elements get sequential IDs after max lane ID to avoid collisions
+    # (object_id namespaces overlap across map layers)
+    next_id = max(result.keys(), default=-1) + 1
+    for obj in non_lane_objects:
+        result[next_id] = convert_map_object_to_static_element(obj, centroid)
+        next_id += 1
 
-    static_map_elements: dict[int, dict] = {}
-
-    for map_layer in map_layer_to_take:
-        if map_layer not in layers:
-            continue
-
-        for map_object in layers[map_layer]:
-            static_map_elements[map_object.object_id] = convert_map_object_to_static_element(map_object, centroid)
-
-    return static_map_elements
+    return result
 
 
-def convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> dict:
+def convert_map_object_to_static_element(map_object, centroid):
     if isinstance(map_object, Lane):
         polyline = centered_array(map_object.centerline.array, centroid)
-        lane_type = LaneType.SURFACE_STREET # TODO: map lane types properly
         speed_limit_kmh = mps_to_kmh(map_object.speed_limit_mps)
-        left_neighbor = [map_object.left_lane_id]
-        right_neighbor = [map_object.right_lane_id]
-        entry_lanes = map_object.predecessor_ids
-        exit_lanes = map_object.successor_ids
-
         return {
-            "type": lane_type,
+            "type": LaneType.SURFACE_STREET,  # TODO: map lane types properly
             "polyline": polyline,
             "speed_limit_mph": kmh_to_mph(speed_limit_kmh) if speed_limit_kmh >= 0 else -1,
             "speed_limit_kmh": speed_limit_kmh,
-            "entry_lanes": entry_lanes,
-            "exit_lanes": exit_lanes,
-            "left_neighbor": left_neighbor,
-            "right_neighbor": right_neighbor,
+            "entry_lanes": map_object.predecessor_ids,
+            "exit_lanes": map_object.successor_ids,
+            "left_neighbor": [map_object.left_lane_id],
+            "right_neighbor": [map_object.right_lane_id],
             "left_boundaries": [],
             "right_boundaries": [],
         }
@@ -308,12 +321,6 @@ def convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> di
         }
 
     return {
-        "type": types.UNKNOWN,
+        "type": "UNKNOWN",
         "polyline": None,
     }
-
-
-
-
-
-
