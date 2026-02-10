@@ -1,4 +1,5 @@
 import argparse
+import functools
 import os
 
 from joblib import Parallel, delayed
@@ -7,7 +8,7 @@ from tqdm import tqdm
 from src import logger_utils
 from src.processors.polyline.processor import process_polylines
 from src.processors.traffic_lights.processor import add_traffic_lights_to_scenario
-from src.processors.validation.validate_puffer import soft_validate
+from src.processors.validation.validate_puffer import soft_validate, strict_validate
 from src.puffer_format.pufferdrive import convert_to_puffer_dict, puffer_dict_to_binary
 from src.py123d_loader.extractor import convert_py123d_scenario
 from src.py123d_loader.load import get_py123d_scenarios
@@ -21,7 +22,7 @@ def process_one_scenario(
     map_id,
     output_dir,
     traffic_lights=False,
-    validate=False,
+    validate_level=0,
     max_segment_length=2.0,
     area_threshold=0.1,
     dist_threshold=10.0,
@@ -51,12 +52,23 @@ def process_one_scenario(
         )
 
         # 4. Validate Puffer Dict (optional)
-        if validate:
-            is_valid, errors, warnings = soft_validate(puffer_dict)
+        is_valid = True
+        if validate_level > 0:
+            if validate_level > 1:
+                validate_func = functools.partial(strict_validate, validation_level=validate_level)
+            else:
+                validate_func = soft_validate
+
+            is_valid, errors, warnings = validate_func(puffer_dict)
             for warning in warnings:
                 logger.warning(f"map_{map_id}: {warning}")
             for error in errors:
                 logger.error(f"map_{map_id}: {error}")
+
+        if not is_valid:
+            raise ValueError(
+                f"Validation failed for map_{map_id} with {len(errors)} errors and {len(warnings)} warnings"
+            )
 
         # 5. Convert Puffer Dict -> Binary
         binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
@@ -130,9 +142,10 @@ def main():
         help="Generate synthetic traffic lights",
     )
     parser.add_argument(
-        "--validate",
-        action="store_true",
-        help="Validate puffer dict before binary conversion",
+        "--validate_level",
+        type=int,
+        default=1,
+        help="Validation level (0 = no validation, 1 = soft validation, >1 = strict validation)",
     )
 
     # Configuration parameters
@@ -195,7 +208,7 @@ def main():
                 map_id=i,
                 output_dir=args.output_dir,
                 traffic_lights=args.traffic_lights,
-                validate=args.validate,
+                validate_level=args.validate_level,
                 max_segment_length=args.max_segment_length,
                 area_threshold=args.area_threshold,
                 dist_threshold=args.dist_threshold,
