@@ -11,8 +11,6 @@ logger = logger_utils.get_logger(__name__)
 
 def convert_to_puffer_dict(
     scenario: dict,
-    polyline_reduction_threshold: float = 0.1,
-    dist_threshold: float = 10.0,
     min_route_valid_points: int = 0,
     route_check_timestep: int = 0,
 ) -> dict:
@@ -31,11 +29,7 @@ def convert_to_puffer_dict(
         route_check_timestep=route_check_timestep,
     )
 
-    road_map_elements = roadgraph.convert_road_map_elements(
-        scenario["map"],
-        polyline_reduction_threshold,
-        dist_threshold,
-    )
+    road_map_elements = roadgraph.convert_road_map_elements(scenario["map"])
 
     traffic_control_elements = traffic_lights.convert_traffic_control_elements(
         scenario["traffic_lights"],
