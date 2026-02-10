@@ -3,7 +3,7 @@ import struct
 import numpy as np
 
 from src import logger_utils
-from src.puffer_format import agents, roadgraph, traffic_lights
+from src.puffer_format import agents, roadgraph, traffic_controls
 
 
 logger = logger_utils.get_logger(__name__)
@@ -31,9 +31,10 @@ def convert_to_puffer_dict(
 
     road_map_elements = roadgraph.convert_road_map_elements(scenario["map"])
 
-    traffic_control_elements = traffic_lights.convert_traffic_control_elements(
+    traffic_control_elements = traffic_controls.convert_traffic_control_elements(
         scenario["traffic_lights"],
         scenario["objects"],
+        scenario["map"],
     )
 
     puffer_metadata = {

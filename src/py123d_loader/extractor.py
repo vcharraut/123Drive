@@ -293,7 +293,7 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray) -> dict[int, dict]:
     # (object_id namespaces overlap across map layers)
     next_id = max(result.keys(), default=-1) + 1
     for obj in non_lane_objects:
-        if int(obj.layer) not in [1, 2, 4, 5, 6, 7]:
+        if int(obj.layer) not in [1, 2, 4, 5, 6]:
             result[next_id] = convert_map_object_to_static_element(obj, centroid)
             next_id += 1
 
@@ -336,4 +336,12 @@ def convert_map_object_to_static_element(map_object, centroid):
         return {
             "type": types.CROSSWALK,
             "polygon": polygon,
+        }
+
+    if int(map_object.layer) == 7: # STOP_ZONE
+        polygon = centered_array(map_object.outline_3d.array, centroid)
+        return {
+            "type": map_object.stop_zone_type,
+            "polygon": polygon,
+            "controlled_lanes": map_object.lane_ids,
         }

@@ -4,6 +4,7 @@ Convert traffic control elements from intermediate format to Puffer format.
 
 import numpy as np
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightStatus
+from py123d.datatypes.map_objects.map_layer_types import StopZoneType
 
 from src import logger_utils, types
 
@@ -11,20 +12,21 @@ from src import logger_utils, types
 logger = logger_utils.get_logger(__name__)
 
 
-def convert_traffic_control_elements(dynamic_map_elements: dict, static_map_elements: dict) -> list[dict]:
+def convert_traffic_control_elements(traffic_lights: dict, objects: dict, map: dict) -> list[dict]:
     """
     Convert dynamic map elements to Puffer traffic_control_elements.
 
     Args:
-        dynamic_map_elements: Dict of dynamic map elements from intermediate scenario
-        length: Number of timesteps
+        traffic_lights: Dict of traffic light elements from intermediate scenario
+        objects: Dict of static map elements from intermediate scenario
+        map: Map data for the scenario (used to extract lane information for traffic control elements)
 
     Returns:
         List of traffic control element dictionaries in Puffer format
     """
     puffer_elements = []
 
-    for element_id, element_data in dynamic_map_elements.items():
+    for element_id, element_data in traffic_lights.items():
         element_type = 1  # TODO: Add right type mapping when we have more types in the data
         position = element_data["position"]
         states = element_data["states"]
@@ -58,9 +60,7 @@ def convert_traffic_control_elements(dynamic_map_elements: dict, static_map_elem
 
         puffer_elements.append(puffer_element)
 
-    for element_id, element_data in static_map_elements.items():
-        pass
-
+    # for element_id, element_data in objects.items():
         # element_type = element_data["type"]
 
         # # Convert traffic light type to int
@@ -89,6 +89,32 @@ def convert_traffic_control_elements(dynamic_map_elements: dict, static_map_elem
         # }
 
         # puffer_elements.append(puffer_element)
+
+    for element_id, element_data in map.items():
+        if isinstance(element_data["type"], StopZoneType):
+            element_type_int = int(element_data["type"])
+            lanes = element_data["controlled_lanes"]
+
+            if element_type_int == 1: # TRAFFIC_LIGHT
+                # For stop zones, we don't have a single position, so we can use the position of the first lane as a proxy
+                first_lane_id = lanes[0]
+                lane_data = map[first_lane_id]
+                position = lane_data["polyline"][0]
+            elif element_type_int == 2: # STOP_SIGN
+                continue
+                # # For stop signs, we can use the centroid of the stop zone polygon as the position
+                # polygon = element_data["polygon"]
+                # position = polygon[1]  # Use the first point of the polygon as a proxy for the position
+
+            puffer_element = {
+                "id": int(element_id),
+                "type": element_type_int,
+                "xyz": position,
+                "states": [],
+                "controlled_lanes": lanes,
+            }
+
+            puffer_elements.append(puffer_element)
 
     return puffer_elements
 
