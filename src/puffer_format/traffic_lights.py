@@ -59,34 +59,36 @@ def convert_traffic_control_elements(dynamic_map_elements: dict, static_map_elem
         puffer_elements.append(puffer_element)
 
     for element_id, element_data in static_map_elements.items():
-        element_type = element_data["type"]
+        pass
 
-        # Convert traffic light type to int
-        element_type_int = _convert_traffic_control_type_to_int(element_type)
+        # element_type = element_data["type"]
 
-        if element_type_int == 0:
-            continue
+        # # Convert traffic light type to int
+        # element_type_int = _convert_traffic_control_type_to_int(element_type)
 
-        position = element_data["position"]
-        lanes = element_data["lanes"]
+        # if element_type_int == 0:
+        #     continue
 
-        # Normalize lanes to list (PufferDrive expects list)
-        if isinstance(lanes, int):
-            controlled_lanes = [lanes]
-        elif isinstance(lanes, list):
-            controlled_lanes = lanes
-        else:
-            raise TypeError(f"lanes must be int or list[int], got {type(lanes).__name__}")
+        # position = element_data["position"]
+        # lanes = element_data["lanes"]
 
-        puffer_element = {
-            "id": int(element_id),
-            "type": element_type_int,
-            "xyz": position,
-            "states": [],
-            "controlled_lanes": controlled_lanes,
-        }
+        # # Normalize lanes to list (PufferDrive expects list)
+        # if isinstance(lanes, int):
+        #     controlled_lanes = [lanes]
+        # elif isinstance(lanes, list):
+        #     controlled_lanes = lanes
+        # else:
+        #     raise TypeError(f"lanes must be int or list[int], got {type(lanes).__name__}")
 
-        puffer_elements.append(puffer_element)
+        # puffer_element = {
+        #     "id": int(element_id),
+        #     "type": element_type_int,
+        #     "xyz": position,
+        #     "states": [],
+        #     "controlled_lanes": controlled_lanes,
+        # }
+
+        # puffer_elements.append(puffer_element)
 
     return puffer_elements
 

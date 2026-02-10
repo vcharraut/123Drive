@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-
-from src import types
+from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
 
 
 # simplified representation
@@ -228,13 +227,13 @@ def assign_veh_states_to_lane(
     ]
 
     for _id, track in tracks.items():  # for each vehicle
-        if track["type"] != types.VEHICLE:
+        if track["type"] not in (DefaultBoxDetectionLabel.VEHICLE, DefaultBoxDetectionLabel.EGO):
             continue
 
-        position = track["states"]["position"]
-        valid = track["states"]["valid"]
-        velocity = track["states"]["velocity"]
-        heading = track["states"]["heading"]
+        position = track["position"]
+        valid = track["valid"]
+        velocity = track["velocity"]
+        heading = track["heading"]
 
         for tt in range(start_step, end_step):  # for each historical state of this vehicle
             if not valid[tt]:

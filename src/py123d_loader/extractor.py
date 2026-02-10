@@ -29,6 +29,7 @@ def create_intermediate_scenario(scenario_id: str, dataset_name: str) -> dict:
         "agents": {},
         "map": {},
         "traffic_lights": {},
+        "objects": {},
         "dataset_name": dataset_name,
         "scenario_length": 0,
         "sdc_index": 0,
@@ -70,7 +71,8 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     scenario["map"] = extract_map(map_api, centroid)
 
     if scene is not None:
-        scenario["agents"] = extract_agents(scene, centroid)
+        objects = extract_objects(scene, centroid)
+        scenario["agents"], scenario["objects"] = _split_agents_and_objects(objects)
         scenario["traffic_lights"] = extract_traffic_lights(scene, map_api, centroid)
         scenario["scenario_length"] = scene.number_of_iterations
         scenario["timestep_seconds"] = scene.log_metadata.timestep_seconds
@@ -78,21 +80,21 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     return scenario
 
 
-def extract_agents(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
-    """Extract dynamic agents from py123d box detections and ego state.
+def extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
+    """Extract dynamic objects from py123d box detections and ego state.
 
     Returns:
         Dict mapping agent_id to agent data dict.
     """
 
     episode_length = scene.number_of_iterations
-    agents: dict[int, dict] = {}
-    agent_id = 0
-    tokens_to_agent_id: dict[str, int] = {}
+    objects: dict[int, dict] = {}
+    object_id = 0
+    tokens_to_object_id: dict[str, int] = {}
 
     # Extract ego vehicle
-    agents[agent_id] = {
-        "type": DefaultBoxDetectionLabel.VEHICLE,
+    objects[object_id] = {
+        "type": DefaultBoxDetectionLabel.EGO,
         "position": np.zeros((episode_length, 3), dtype=np.float32),
         "heading": np.zeros((episode_length,), dtype=np.float32),
         "velocity": np.zeros((episode_length, 2), dtype=np.float32),
@@ -111,19 +113,19 @@ def extract_agents(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
         y = float(center_se3.y) - float(centroid[1])
         z = float(center_se3.z)
 
-        agent = agents[agent_id]
-        agent["position"][frame_idx] = [x, y, z]
-        agent["heading"][frame_idx] = heading
-        agent["valid"][frame_idx] = True
-        agent["length"][frame_idx] = float(ego_state.vehicle_parameters.length)
-        agent["width"][frame_idx] = float(ego_state.vehicle_parameters.width)
-        agent["height"][frame_idx] = float(ego_state.vehicle_parameters.height)
+        obj = objects[object_id]
+        obj["position"][frame_idx] = [x, y, z]
+        obj["heading"][frame_idx] = heading
+        obj["valid"][frame_idx] = True
+        obj["length"][frame_idx] = float(ego_state.vehicle_parameters.length)
+        obj["width"][frame_idx] = float(ego_state.vehicle_parameters.width)
+        obj["height"][frame_idx] = float(ego_state.vehicle_parameters.height)
 
         if ego_state.dynamic_state_se3 is not None:
             vel = ego_state.dynamic_state_se3.velocity_3d
-            agent["velocity"][frame_idx] = [float(vel.x), float(vel.y)]
+            obj["velocity"][frame_idx] = [float(vel.x), float(vel.y)]
 
-    # Extract other agents from box detections
+    # Extract other objects from box detections
     for frame_idx in range(episode_length):
         detections = scene.get_box_detections_at_iteration(frame_idx)
         if not detections:
@@ -131,14 +133,14 @@ def extract_agents(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
 
         for detection in detections:
             track_token = detection.metadata.track_token
-            if track_token in tokens_to_agent_id:
-                agent_id = tokens_to_agent_id[track_token]
+            if track_token in tokens_to_object_id:
+                object_id = tokens_to_object_id[track_token]
             else:
-                agent_id += 1
-                tokens_to_agent_id[track_token] = agent_id
+                object_id += 1
+                tokens_to_object_id[track_token] = object_id
 
-            if agent_id not in agents:
-                agents[agent_id] = {
+            if object_id not in objects:
+                objects[object_id] = {
                     "type": detection.metadata.default_label,
                     "position": np.zeros((episode_length, 3), dtype=np.float32),
                     "heading": np.zeros((episode_length,), dtype=np.float32),
@@ -157,21 +159,41 @@ def extract_agents(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
             y = float(center_se3.y) - float(centroid[1])
             z = float(center_se3.z)
 
-            agent = agents[agent_id]
-            agent["position"][frame_idx] = [x, y, z]
-            agent["heading"][frame_idx] = heading
-            agent["valid"][frame_idx] = True
-            agent["length"][frame_idx] = float(bbox.length)
-            agent["width"][frame_idx] = float(bbox.width)
-            agent["height"][frame_idx] = float(bbox.height)
+            obj = objects[object_id]
+            obj["position"][frame_idx] = [x, y, z]
+            obj["heading"][frame_idx] = heading
+            obj["valid"][frame_idx] = True
+            obj["length"][frame_idx] = float(bbox.length)
+            obj["width"][frame_idx] = float(bbox.width)
+            obj["height"][frame_idx] = float(bbox.height)
 
             if detection.velocity_2d is not None:
-                agent["velocity"][frame_idx] = [
+                obj["velocity"][frame_idx] = [
                     float(detection.velocity_2d.x),
                     float(detection.velocity_2d.y),
                 ]
 
-    return agents
+    return objects
+
+
+def _split_agents_and_objects(objects: dict[int, dict]) -> tuple[dict[int, dict], dict[int, dict]]:
+    """Split agents and objects based on type."""
+    agents = {}
+    non_agents = {}
+    for object_id, obj in objects.items():
+        print(f"Object ID {object_id} has type {obj['type']}")
+        if obj["type"] in [
+            DefaultBoxDetectionLabel.EGO,
+            DefaultBoxDetectionLabel.VEHICLE,
+            DefaultBoxDetectionLabel.TRAIN,
+            DefaultBoxDetectionLabel.BICYCLE,
+            DefaultBoxDetectionLabel.PERSON,
+            DefaultBoxDetectionLabel.ANIMAL,
+        ]:
+            agents[object_id] = obj
+        else:
+            non_agents[object_id] = obj
+    return agents, non_agents
 
 
 def extract_traffic_lights(scene: SceneAPI, map_api: MapAPI | None, centroid: np.ndarray) -> dict[int, dict]:
@@ -238,12 +260,12 @@ def _compute_map_centroid_from_road_layers(map_api: MapAPI) -> np.ndarray:
     return np.vstack(points).mean(axis=0)
 
 
-_MAP_LAYERS = [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE, MapLayer.CROSSWALK]
-
 
 def _iter_map_objects(map_api, centroid):
+    all_map_layers = map_api.get_available_map_layers()
+
     if map_api.dataset == "carla" or map_api.map_is_local:
-        for layer in map_api.get_available_map_layers():
+        for layer in all_map_layers:
             for oid in map_api._occupancy_maps[layer].ids:
                 obj = map_api.get_map_object(oid, layer)
                 if obj:
@@ -251,10 +273,10 @@ def _iter_map_objects(map_api, centroid):
     else:
         layers = map_api.get_map_objects_in_radius(
             Point2D(centroid[0], centroid[1]),
-            radius=300.0,
-            layers=_MAP_LAYERS,
+            radius=250.0,
+            layers=all_map_layers,
         )
-        for layer in _MAP_LAYERS:
+        for layer in all_map_layers:
             yield from layers.get(layer, [])
 
 
@@ -264,7 +286,7 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray) -> dict[int, dict]:
     non_lane_objects = []
 
     for obj in _iter_map_objects(map_api, centroid):
-        if int(obj.layer) == 0: # LANE
+        if int(obj.layer) == 0:  # LANE
             result[obj.object_id] = convert_map_object_to_static_element(obj, centroid)
         else:
             non_lane_objects.append(obj)
@@ -273,14 +295,15 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray) -> dict[int, dict]:
     # (object_id namespaces overlap across map layers)
     next_id = max(result.keys(), default=-1) + 1
     for obj in non_lane_objects:
-        result[next_id] = convert_map_object_to_static_element(obj, centroid)
-        next_id += 1
+        if int(obj.layer) not in [1, 2, 4, 5, 6, 7]:
+            result[next_id] = convert_map_object_to_static_element(obj, centroid)
+            next_id += 1
 
     return result
 
 
 def convert_map_object_to_static_element(map_object, centroid):
-    if int(map_object.layer) == 0: # LANE
+    if int(map_object.layer) == 0:  # LANE
         polyline = centered_array(map_object.centerline.array, centroid)
         speed_limit_kmh = mps_to_kmh(map_object.speed_limit_mps)
         return {
@@ -296,28 +319,23 @@ def convert_map_object_to_static_element(map_object, centroid):
             "right_boundaries": [],
         }
 
-    if int(map_object.layer) == 9: # ROAD_LINE
+    if int(map_object.layer) == 9:  # ROAD_LINE
         polyline = centered_array(map_object.polyline_3d.array, centroid)
         return {
             "type": map_object.road_line_type,
             "polyline": polyline,
         }
 
-    if int(map_object.layer) == 8: # ROAD_EDGE
+    if int(map_object.layer) == 8:  # ROAD_EDGE
         polyline = centered_array(map_object.polyline_3d.array, centroid)
         return {
             "type": map_object.road_edge_type,
             "polyline": polyline,
         }
 
-    if int(map_object.layer) == 3: # CROSSWALK
+    if int(map_object.layer) == 3:  # CROSSWALK
         polygon = centered_array(map_object.outline_3d.array, centroid)
         return {
             "type": types.CROSSWALK,
             "polygon": polygon,
         }
-
-    return {
-        "type": "UNKNOWN",
-        "polyline": None,
-    }

@@ -29,6 +29,8 @@ def two_lines_parallel(line1, line2, LINE_PARALLEL_THRESHOLD: float = 15) -> boo
     mag_vec1 = math.sqrt(vec1[0] ** 2 + vec1[1] ** 2)
     mag_vec2 = math.sqrt(vec2[0] ** 2 + vec2[1] ** 2)
 
+    if mag_vec1 == 0 or mag_vec2 == 0:
+        return False
     cos_angle = dot_product / (mag_vec1 * mag_vec2)
     cos_angle = max(min(cos_angle, 1), -1)
 
@@ -116,6 +118,7 @@ def vector_heading(vec, unit: str = "radian") -> float:
         return np.arctan2(vec[1], vec[0])
     elif unit == "degree":
         return np.rad2deg(np.arctan2(vec[1], vec[0]))
+    raise ValueError(f"Unknown unit: {unit}")
 
 
 def angle_of_two_vectors(vec1, vec2, unit: str = "radian") -> float:

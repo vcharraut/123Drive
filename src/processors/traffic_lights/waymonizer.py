@@ -91,15 +91,15 @@ class Waymonizer:
 
         # LOAD SCENARIO
         roadedge_roadline_features: dict = {}
-        for _id, feature in scenario["static_map_elements"].items():
+        for _id, feature in scenario["map"].items():
             _id = int(_id)
-            if feature["type"] in [types.LANE_SURFACE_STREET, types.LANE_FREEWAY]:
-                self.lanecenters[_id] = LaneCenter(_id, feature, length=scenario["metadata"]["scenario_length"])
-            elif types.is_road_edge(feature["type"]) or types.is_road_line(feature["type"]):
+            if feature["type"] in [LaneType.SURFACE_STREET, LaneType.FREEWAY]:
+                self.lanecenters[_id] = LaneCenter(_id, feature, length=scenario["scenario_length"])
+            elif isinstance(feature["type"], (RoadEdgeType, RoadLineType)):
                 roadedge_roadline_features[_id] = feature
 
         # embed stop sign data into lane features
-        for _id, feature in scenario["static_map_elements"].items():
+        for _id, feature in scenario["map"].items():
             _id = int(_id)
             if feature["type"] == types.STOP_SIGN:
                 for id in feature["lanes"]:
@@ -107,13 +107,13 @@ class Waymonizer:
                         self.lanecenters[id].needs_stop = True
                 self.stop_signs.add(Pt(feature["position"][0], feature["position"][1]))
 
-        # embde traffic light data into lane features
-        for id_, dynamic_state in scenario["dynamic_map_elements"].items():
+        # embed traffic light data into lane features
+        for id_, dynamic_state in scenario["traffic_lights"].items():
             lane = dynamic_state["controlled_lane"]
 
-            lane_type = scenario["static_map_elements"][lane]["type"]
+            lane_type = scenario["map"][lane]["type"]
 
-            if lane_type == types.LANE_BIKE_LANE:
+            if lane_type == LaneType.BIKE_LANE:
                 continue
 
             states = dynamic_state["states"]
@@ -127,7 +127,7 @@ class Waymonizer:
         for feature in self.lanecenters.values():
             for boundary in feature.lane.left_boundaries + feature.lane.right_boundaries:
                 boundary_type = roadedge_roadline_features[int(boundary.feature_id)]["type"]
-                if types.is_road_line(boundary_type) or types.is_road_edge(boundary_type):
+                if isinstance(boundary_type, (RoadLineType, RoadEdgeType)):
                     polyline = roadedge_roadline_features[int(boundary.feature_id)]["polyline"][:]
                 boundary.polyline = [Pt(pt[0], pt[1], pt[2]) for pt in polyline]
 

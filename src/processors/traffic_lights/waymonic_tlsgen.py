@@ -47,7 +47,7 @@ class WaymonicTLSGenerator:
         self.scenario = scenario
         self.lanecenters: dict[int, LaneCenter] = lanecenters
         self.signalized_intersections: list[list[int]] = signalized_intersections
-        self.T: int = len(scenario["metadata"]["timesteps"])
+        self.T: int = scenario.get("scenario_length", 0)
 
     def generate_waymonic_tls(
         self,
@@ -93,7 +93,7 @@ class WaymonicTLSGenerator:
             if not veh_states_file or not os.path.exists(Path(veh_states_file)):
                 lane_center_matrix, lc_id_to_row, row_to_lc_id = self._form_waymonic_lanecenter_matrix()
                 veh_assignment = assign_veh_states_to_lane(
-                    self.scenario["dynamic_agents"],
+                    self.scenario["agents"],
                     lane_center_matrix,
                     row_to_lc_id,
                     end_step=self.scenario_length,

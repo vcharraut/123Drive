@@ -24,36 +24,35 @@ def convert_to_puffer_dict(
     if missing:
         raise ValueError(f"scenario missing required fields: {missing}")
 
-    scenario_id = scenario["id"]
-    road_map_elements = roadgraph.convert_road_map_elements(
-        scenario["map"],
-        polyline_reduction_threshold,
-        dist_threshold,
-    )
-
-    dynamic_agents = agents.convert_dynamic_agents(
+    puffer_agents, sdc_index = agents.convert_agents(
         scenario["agents"],
         scenario["map"],
         min_route_valid_points=min_route_valid_points,
         route_check_timestep=route_check_timestep,
     )
 
+    road_map_elements = roadgraph.convert_road_map_elements(
+        scenario["map"],
+        polyline_reduction_threshold,
+        dist_threshold,
+    )
+
     traffic_control_elements = traffic_lights.convert_traffic_control_elements(
         scenario["traffic_lights"],
-        scenario["map"],
+        scenario["objects"],
     )
 
     puffer_metadata = {
         "dataset_name": scenario.get("dataset_name", ""),
         "scenario_length": scenario.get("scenario_length", 0),
-        "sdc_index": 0,
+        "sdc_index": sdc_index,
         "objects_of_interests": [],
         "tracks_to_predict": [],
     }
 
     return {
-        "scenario_id": scenario_id,
-        "dynamic_agents": dynamic_agents,
+        "scenario_id": scenario["id"],
+        "agents": puffer_agents,
         "road_map_elements": road_map_elements,
         "traffic_control_elements": traffic_control_elements,
         "metadata": puffer_metadata,
@@ -61,16 +60,16 @@ def convert_to_puffer_dict(
 
 
 def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:  # noqa: C901
-    dynamic_agents = puffer_dict["dynamic_agents"]
+    agents = puffer_dict["agents"]
     road_map_elements = puffer_dict["road_map_elements"]
     traffic_control_elements = puffer_dict["traffic_control_elements"]
     metadata = puffer_dict["metadata"]
 
     buffer = bytearray()
-    buffer.extend(struct.pack("iii", len(dynamic_agents), len(road_map_elements), len(traffic_control_elements)))
+    buffer.extend(struct.pack("iii", len(agents), len(road_map_elements), len(traffic_control_elements)))
 
     # Agents
-    for agent in dynamic_agents:
+    for agent in agents:
         agent_id = int(agent["id"])
         agent_type = int(agent["type"])
         buffer.extend(struct.pack("ii", agent_id, agent_type))
@@ -97,13 +96,6 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:  # noqa:
         for i in range(2):
             for j in range(trajectory_length):
                 buffer.extend(struct.pack("f", float(velocity[j, i])))
-
-        if isinstance(length, (int, float)):
-            length = np.full(trajectory_length, float(length))
-        if isinstance(width, (int, float)):
-            width = np.full(trajectory_length, float(width))
-        if isinstance(height, (int, float)):
-            height = np.full(trajectory_length, float(height))
 
         for j in range(trajectory_length):
             buffer.extend(struct.pack("f", float(length[j])))

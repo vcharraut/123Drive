@@ -12,12 +12,12 @@ from src.puffer_format import routes
 logger = logger_utils.get_logger(__name__)
 
 
-def convert_dynamic_agents(
+def convert_agents(
     dynamic_agents: dict,
     road_map_elements: dict,
     min_route_valid_points: int = 0,
     route_check_timestep: int = 0,
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     """
     Convert dynamic agents from intermediate format to Puffer format.
 
@@ -28,9 +28,10 @@ def convert_dynamic_agents(
         route_check_timestep: Timestep at which agent must be valid for route computation (default: 0)
 
     Returns:
-        List of agent dicts in Puffer format.
+        Tuple of (list of converted agents, sdc_index)
     """
     puffer_agents = []
+    sdc_index = -1
 
     # Extract lane centers once for all agents (optimization)
     lane_data = routes.extract_lane_centers(road_map_elements)
@@ -49,6 +50,9 @@ def convert_dynamic_agents(
         width = agent_data["width"]
         height = agent_data["height"]
         valid = agent_data["valid"]
+
+        if agent_data["type"] == DefaultBoxDetectionLabel.EGO:
+            sdc_index = idx
 
         # Convert agent type to int
         agent_type_int = _convert_agent_type_to_int(agent_data["type"])
@@ -93,7 +97,7 @@ def convert_dynamic_agents(
 
         puffer_agents.append(puffer_agent)
 
-    return puffer_agents
+    return puffer_agents, sdc_index
 
 
 def _convert_agent_type_to_int(agent_type) -> int:
