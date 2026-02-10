@@ -103,7 +103,7 @@ def convert_road_map_elements(
     for element_id, element_data in static_map_elements.items():
         element_type = element_data["type"]
 
-        if element_type in FILTERED_TYPES: # TODO: Add right type mapping when we have more types in the data
+        if element_type in FILTERED_TYPES:  # TODO: Add right type mapping when we have more types in the data
             continue
 
         if not element_type:

@@ -55,7 +55,6 @@ def get_lane_position(map_api: MapAPI | None, lane_id: int, center: np.ndarray) 
     return [x, y, z]
 
 
-
 def resolve_py123d_data_root(dataset_path: str | None) -> Path:
     """Resolve py123d data root path.
 

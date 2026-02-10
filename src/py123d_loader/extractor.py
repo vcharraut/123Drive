@@ -259,7 +259,6 @@ def _compute_map_centroid_from_road_layers(map_api: MapAPI) -> np.ndarray:
     return np.vstack(points).mean(axis=0)
 
 
-
 def _iter_map_objects(map_api, centroid):
     all_map_layers = map_api.get_available_map_layers()
 

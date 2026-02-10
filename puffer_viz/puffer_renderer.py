@@ -239,7 +239,6 @@ def render_scenario_video(
 
     print(f"Scenario has {length} timesteps")
 
-
     # Setup figure
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     ax.set_aspect("equal")
@@ -386,7 +385,6 @@ def _render_routes(ax: plt.Axes, puffer_scenario: dict) -> None:
     # Render each agent's route with matching color
     for agent in agents:
         agent_id = agent.get("id", -1)
-        mark_as_expert = agent.get("mark_as_expert", False)
         routes = agent.get("routes", [])
 
         initial_pos_x = agent["states"]["xyz"][0, 0]
@@ -397,7 +395,7 @@ def _render_routes(ax: plt.Axes, puffer_scenario: dict) -> None:
 
         for route in routes[:1]:
             # Get agent color
-            is_ego = mark_as_expert or (agent_id == ego_id)
+            is_ego = agent_id == ego_id
             agent_color = get_agent_color(agent_id, is_ego)
 
             # Routes is a list of lane IDs
@@ -445,7 +443,7 @@ def _render_traffic_lights(ax: plt.Axes, puffer_scenario: dict, timestep: int) -
     for element in traffic_elements:
         xyz = element.get("xyz", np.array([]))
         if len(xyz) < 3:
-            continue
+            raise ValueError(f"Traffic control element {element.get('id', 'unknown')} has invalid geometry")
 
         x, y = xyz[0], xyz[1]
 
@@ -593,9 +591,8 @@ def _get_ego_position(puffer_scenario: dict, timestep: int) -> tuple:
 
     for agent in dynamic_agents:
         agent_id = agent.get("id")
-        mark_as_expert = agent.get("mark_as_expert", False)
 
-        if agent_id == ego_id or mark_as_expert:
+        if agent_id == ego_id:
             states = agent.get("states", {})
             xyz = np.array(states.get("xyz", []))
             valid = np.array(states.get("valid", []))

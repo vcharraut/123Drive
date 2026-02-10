@@ -18,7 +18,7 @@ from src.processors.polyline_interpolation.utils import (
 logger = logger_utils.get_logger(__name__)
 
 
-def interpolate_polylines(scenario: dict[str, Any],max_segment_length: float = 2.0) -> dict[str, Any]:
+def interpolate_polylines(scenario: dict[str, Any], max_segment_length: float = 2.0) -> dict[str, Any]:
     """
     Interpolate polylines in map elements to ensure dense representation.
 
@@ -52,6 +52,7 @@ def interpolate_polylines(scenario: dict[str, Any],max_segment_length: float = 2
     for element_id, element in map_elements.items():
         # Skip elements without polylines
         if "polyline" not in element:
+            logger.debug(f"Scenario {scenario_id}, element {element_id}: no polyline, skipping")
             continue
 
         polyline = element["polyline"]
@@ -66,7 +67,7 @@ def interpolate_polylines(scenario: dict[str, Any],max_segment_length: float = 2
         # Validate original polyline
         if not validate_polyline(polyline, element_id=str(element_id)):
             logger.warning(f"Scenario {scenario_id}, element {element_id}: invalid polyline, skipping")
-            # continue
+            continue
 
         # Interpolate polyline
         try:
@@ -74,7 +75,7 @@ def interpolate_polylines(scenario: dict[str, Any],max_segment_length: float = 2
             interpolated_polyline = distance_based_interpolate(interpolated_polyline, max_segment_length)
         except Exception as e:
             logger.error(f"Scenario {scenario_id}, element {element_id}: interpolation failed: {e}. Skipping element.")
-            # continue
+            continue
 
         # Validate interpolated polyline
         if not validate_polyline(interpolated_polyline, element_id=str(element_id)):
