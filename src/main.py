@@ -5,7 +5,7 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from src import logger_utils
-from src.processors.polyline_interpolation.processor import interpolate_polylines
+from src.processors.polyline.processor import process_polylines
 from src.processors.traffic_lights.processor import add_traffic_lights_to_scenario
 from src.processors.validation.validate_puffer import soft_validate
 from src.puffer_format.pufferdrive import convert_to_puffer_dict, puffer_dict_to_binary
@@ -20,11 +20,10 @@ def process_one_scenario(
     raw_scenario,
     map_id,
     output_dir,
-    interpolate=False,
     traffic_lights=False,
     validate=False,
     max_segment_length=2.0,
-    polyline_reduction_threshold=0.1,
+    area_threshold=0.1,
     dist_threshold=10.0,
     min_route_valid_points=0,
     route_check_timestep=0,
@@ -34,8 +33,12 @@ def process_one_scenario(
         scenario = convert_py123d_scenario(raw_scenario)
 
         # 2. Apply Processors
-        if interpolate:
-            scenario = interpolate_polylines(scenario, max_segment_length=max_segment_length)
+        scenario = process_polylines(
+            scenario,
+            max_segment_length=max_segment_length,
+            area_threshold=area_threshold,
+            dist_threshold=dist_threshold,
+        )
 
         if traffic_lights:
             scenario = add_traffic_lights_to_scenario(scenario)
@@ -43,8 +46,6 @@ def process_one_scenario(
         # 3. Convert Intermediate -> Puffer Dict
         puffer_dict = convert_to_puffer_dict(
             scenario,
-            polyline_reduction_threshold=polyline_reduction_threshold,
-            dist_threshold=dist_threshold,
             min_route_valid_points=min_route_valid_points,
             route_check_timestep=route_check_timestep,
         )
@@ -124,11 +125,6 @@ def main():
 
     # Processor flags
     parser.add_argument(
-        "--interpolate",
-        action="store_true",
-        help="Enable polyline interpolation",
-    )
-    parser.add_argument(
         "--traffic_lights",
         action="store_true",
         help="Generate synthetic traffic lights",
@@ -147,10 +143,10 @@ def main():
         help="Max segment length for interpolation",
     )
     parser.add_argument(
-        "--polyline_reduction_threshold",
+        "--area_threshold",
         type=float,
         default=0.1,
-        help="Polyline reduction threshold",
+        help="Area threshold for polyline simplification (0 = disabled)",
     )
     parser.add_argument(
         "--dist_threshold",
@@ -198,11 +194,10 @@ def main():
                 raw_scenario=scenario,
                 map_id=i,
                 output_dir=args.output_dir,
-                interpolate=args.interpolate,
                 traffic_lights=args.traffic_lights,
                 validate=args.validate,
                 max_segment_length=args.max_segment_length,
-                polyline_reduction_threshold=args.polyline_reduction_threshold,
+                area_threshold=args.area_threshold,
                 dist_threshold=args.dist_threshold,
                 min_route_valid_points=args.min_route_valid_points,
                 route_check_timestep=args.route_check_timestep,

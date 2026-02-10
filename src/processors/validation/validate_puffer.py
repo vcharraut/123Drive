@@ -28,7 +28,7 @@ VALID_TL_STATES = {TL_STATE_UNKNOWN, TL_STATE_RED, TL_STATE_YELLOW, TL_STATE_GRE
 # Expected keys
 _REQUIRED_TOP_LEVEL_KEYS = {
     "scenario_id",
-    "dynamic_agents",
+    "agents",
     "road_map_elements",
     "traffic_control_elements",
     "metadata",

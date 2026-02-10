@@ -319,6 +319,7 @@ def _render_road_map(ax: plt.Axes, puffer_scenario: dict, render_mode="plot", sh
         xyz = element.get("xyz", np.array([]))
 
         if len(xyz) == 0:
+            print(f"Skipping road element {element.get('id', 'unknown')}: empty geometry")
             continue
 
         x, y = xyz[:, 0], xyz[:, 1]
@@ -338,6 +339,7 @@ def _render_road_map(ax: plt.Axes, puffer_scenario: dict, render_mode="plot", sh
             ax.scatter(x, y, color=COLORS["stop_sign"], s=30, marker="s", zorder=10)
             continue
         else:
+            print(f"Skipping road element {element.get('id', 'unknown')}: unknown type {element_type}")
             continue
 
         # Render polyline
