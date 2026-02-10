@@ -371,7 +371,7 @@ def _render_road_map(ax: plt.Axes, puffer_scenario: dict, render_mode="plot", sh
 
 def _render_routes(ax: plt.Axes, puffer_scenario: dict) -> None:
     """Render agent routes as dashed lines with agent-specific colors."""
-    agents = puffer_scenario.get("dynamic_agents", [])
+    agents = puffer_scenario.get("agents", [])
     road_elements = puffer_scenario.get("road_map_elements", [])
     metadata = puffer_scenario.get("metadata", {})
     ego_id = metadata.get("ego_id", -1)
@@ -472,7 +472,7 @@ def _render_traffic_lights(ax: plt.Axes, puffer_scenario: dict, timestep: int) -
 
 def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_future: bool) -> None:
     """Render dynamic agents (vehicles, pedestrians, cyclists) at the given timestep."""
-    agents = puffer_scenario.get("dynamic_agents", [])
+    agents = puffer_scenario.get("agents", [])
     metadata = puffer_scenario.get("metadata", {})
 
     idx_agents_to_predict = []
@@ -589,7 +589,7 @@ def _get_ego_position(puffer_scenario: dict, timestep: int) -> tuple:
     """
     metadata = puffer_scenario.get("metadata", {})
     ego_id = metadata.get("sdc_index")
-    dynamic_agents = puffer_scenario.get("dynamic_agents", [])
+    dynamic_agents = puffer_scenario.get("agents", [])
 
     for agent in dynamic_agents:
         agent_id = agent.get("id")

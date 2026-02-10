@@ -42,8 +42,8 @@ def load_puffer_scenario(file_path: str) -> dict:
             scenario = json.load(f)
 
         # Convert lists back to numpy arrays where needed
-        if "dynamic_agents" in scenario:
-            for agent in scenario["dynamic_agents"]:
+        if "agents" in scenario:
+            for agent in scenario["agents"]:
                 if "states" in agent:
                     states = agent["states"]
                     for key in ["xyz", "heading", "velocity", "length", "width", "height", "valid"]:

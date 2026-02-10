@@ -97,7 +97,7 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
     # Build scenario dict
     return {
         "scenario_id": scenario_id,
-        "dynamic_agents": dynamic_agents,
+        "agents": dynamic_agents,
         "road_map_elements": road_map_elements,
         "traffic_control_elements": traffic_control_elements,
         "metadata": {

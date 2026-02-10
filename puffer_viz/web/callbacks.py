@@ -351,7 +351,7 @@ def register_callbacks(app):
         scenario = _deserialize_scenario(scenario)
         metadata = scenario.get("metadata", {})
         sdc_index = metadata.get("sdc_index", -1)
-        dynamic_agents = scenario.get("dynamic_agents", [])
+        dynamic_agents = scenario.get("agents", [])
 
         # Find ego position
         ego_x, ego_y = None, None
@@ -434,7 +434,7 @@ def _deserialize_scenario(scenario):
         return None
 
     # Convert agent states
-    for agent in scenario.get("dynamic_agents", []):
+    for agent in scenario.get("agents", []):
         states = agent.get("states", {})
         for key in ["xyz", "heading", "velocity", "length", "width", "height", "valid"]:
             if key in states and isinstance(states[key], list):
@@ -465,7 +465,7 @@ def _get_highlight_lanes(scenario, selected):
 
     if elem_type == "agent":
         # Highlight route lanes
-        for agent in scenario.get("dynamic_agents", []):
+        for agent in scenario.get("agents", []):
             if agent["id"] == elem_id:
                 routes = agent.get("routes", [])
                 if routes:

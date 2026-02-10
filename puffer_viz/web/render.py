@@ -308,7 +308,7 @@ def _add_crosswalks_batched(fig, scenario):
 
 
 def _add_routes_batched(fig, scenario, metadata):
-    agents = scenario.get("dynamic_agents", [])
+    agents = scenario.get("agents", [])
     road_elements = scenario.get("road_map_elements", [])
 
     if not agents:
@@ -350,7 +350,7 @@ def _add_routes_batched(fig, scenario, metadata):
 
 
 def _add_trajectories_batched(fig, scenario, timestep, metadata):
-    agents = scenario.get("dynamic_agents", [])
+    agents = scenario.get("agents", [])
 
     if not agents:
         return
@@ -411,7 +411,7 @@ def _add_trajectories_batched(fig, scenario, timestep, metadata):
 
 
 def _add_agents_batched(fig, scenario, timestep, metadata, show_ids):
-    agents = scenario.get("dynamic_agents", [])
+    agents = scenario.get("agents", [])
     tracks_to_predict = metadata.get("tracks_to_predict", [])
     objects_of_interest = metadata.get("objects_of_interests", [])
 
@@ -635,7 +635,7 @@ def _highlight_selection(fig, scenario, selected_element, timestep):
     elem_id = selected_element.get("id")
 
     if elem_type == "agent":
-        agents = scenario.get("dynamic_agents", [])
+        agents = scenario.get("agents", [])
         for agent in agents:
             if agent["id"] == elem_id:
                 states = agent.get("states", {})

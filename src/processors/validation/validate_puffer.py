@@ -10,7 +10,7 @@ import numpy as np
 
 
 # Type mappings
-AGENT_TYPE_MAP = {0: "PEDESTRIAN", 1: "VEHICLE", 2: "CYCLIST", 3: "OTHER"}
+AGENT_TYPE_MAP = {1: "VEHICLE", 2: "PEDESTRIAN", 3: "CYCLIST", 4: "OTHER"}
 VALID_AGENT_TYPES = set(AGENT_TYPE_MAP.keys())
 
 # Road types: 1-10 = lanes, 11-18 = road lines, 21-23 = road edges, 31+ = other
@@ -53,7 +53,7 @@ def soft_validate(puffer_dict: dict) -> tuple[bool, list[str], list[str]]:
 
     _validate_top_level(puffer_dict, errors, warnings)
     _validate_metadata(puffer_dict.get("metadata", {}), errors, warnings)
-    _validate_dynamic_agents(puffer_dict.get("dynamic_agents", []), errors, warnings)
+    _validate_dynamic_agents(puffer_dict.get("agents", []), errors, warnings)
     _validate_road_map_elements(puffer_dict.get("road_map_elements", []), errors, warnings)
     _validate_traffic_control_elements(puffer_dict.get("traffic_control_elements", []), errors, warnings)
 
@@ -222,7 +222,7 @@ def strict_validate(
     metadata = puffer_dict.get("metadata", {})
     dt = metadata.get("timestep_seconds", 0.1)
     expected_length = metadata.get("scenario_length", 0)
-    agents = puffer_dict.get("dynamic_agents", [])
+    agents = puffer_dict.get("agents", [])
 
     # Skip agent validation for map_only scenarios
     if agents:
@@ -562,7 +562,7 @@ def _validate_strict_traffic_control(
 
 def _validate_scenario_coherence(puffer_dict: dict, validation_level: int, errors: list, warnings: list):
     metadata = puffer_dict.get("metadata", {})
-    agents = puffer_dict.get("dynamic_agents", [])
+    agents = puffer_dict.get("agents", [])
     roads = puffer_dict.get("road_map_elements", [])
 
     # Skip sdc_index check for map_only scenarios (no agents)
@@ -575,7 +575,7 @@ def _validate_scenario_coherence(puffer_dict: dict, validation_level: int, error
         if len(agents) > 500:
             warnings.append(f"Scenario has {len(agents)} agents (unusually high)")
         elif len(agents) == 0:
-            warnings.append("Scenario has no dynamic agents")
+            warnings.append("Scenario has no agents")
 
         if len(roads) > 1000:
             warnings.append(f"Scenario has {len(roads)} map elements (unusually high, expected 10-500)")

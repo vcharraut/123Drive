@@ -21,7 +21,7 @@ def create_scenario_info(scenario):
         return html.Div("No scenario loaded", className="text-muted")
 
     metadata = scenario.get("metadata", {})
-    agents = scenario.get("dynamic_agents", [])
+    agents = scenario.get("agents", [])
     roads = scenario.get("road_map_elements", [])
     traffic = scenario.get("traffic_control_elements", [])
 
@@ -83,7 +83,7 @@ def create_element_info(scenario, selected_element, timestep):
 
 def _agent_info(scenario, agent_id, timestep):
     """Create detailed agent info panel."""
-    agents = scenario.get("dynamic_agents", [])
+    agents = scenario.get("agents", [])
     metadata = scenario.get("metadata", {})
     sdc_index = metadata.get("sdc_index", -1)
     ttp = metadata.get("tracks_to_predict", [])
