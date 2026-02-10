@@ -40,12 +40,12 @@ def centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
 
 
 def get_lane_position(map_api: MapAPI | None, lane_id: int, center: np.ndarray) -> list[float]:
-    if map_api is None:
-        return [0.0, 0.0, 0.0]
-
     lane = map_api.get_map_object(lane_id, MapLayer.LANE)
     if lane is None or not hasattr(lane, "centerline"):
-        return [0.0, 0.0, 0.0]
+        raise ValueError(f"Lane {lane_id} not found or has no centerline")
+
+    if len(lane.centerline.array) == 0:
+        raise ValueError(f"Lane {lane_id} has empty centerline")
 
     point = lane.centerline.array[0]
     x = float(point[0]) - float(center[0])

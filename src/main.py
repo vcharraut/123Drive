@@ -29,40 +29,43 @@ def process_one_scenario(
     min_route_valid_points=0,
     route_check_timestep=0,
 ):
-    # 1. Convert Raw -> Intermediate
-    scenario = convert_py123d_scenario(raw_scenario)
+    try:
+        # 1. Convert Raw -> Intermediate
+        scenario = convert_py123d_scenario(raw_scenario)
 
-    # 2. Apply Processors
-    if interpolate:
-        scenario = interpolate_polylines(scenario, max_segment_length=max_segment_length)
+        # 2. Apply Processors
+        if interpolate:
+            scenario = interpolate_polylines(scenario, max_segment_length=max_segment_length)
 
-    if traffic_lights:
-        scenario = add_traffic_lights_to_scenario(scenario)
+        if traffic_lights:
+            scenario = add_traffic_lights_to_scenario(scenario)
 
-    # 3. Convert Intermediate -> Puffer Dict
-    puffer_dict = convert_to_puffer_dict(
-        scenario,
-        polyline_reduction_threshold=polyline_reduction_threshold,
-        dist_threshold=dist_threshold,
-        min_route_valid_points=min_route_valid_points,
-        route_check_timestep=route_check_timestep,
-    )
+        # 3. Convert Intermediate -> Puffer Dict
+        puffer_dict = convert_to_puffer_dict(
+            scenario,
+            polyline_reduction_threshold=polyline_reduction_threshold,
+            dist_threshold=dist_threshold,
+            min_route_valid_points=min_route_valid_points,
+            route_check_timestep=route_check_timestep,
+        )
 
-    # 4. Validate Puffer Dict (optional)
-    if validate:
-        is_valid, errors, warnings = soft_validate(puffer_dict)
-        for warning in warnings:
-            logger.warning(f"map_{map_id}: {warning}")
-        for error in errors:
-            logger.error(f"map_{map_id}: {error}")
+        # 4. Validate Puffer Dict (optional)
+        if validate:
+            is_valid, errors, warnings = soft_validate(puffer_dict)
+            for warning in warnings:
+                logger.warning(f"map_{map_id}: {warning}")
+            for error in errors:
+                logger.error(f"map_{map_id}: {error}")
 
-    # 5. Convert Puffer Dict -> Binary
-    binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
+        # 5. Convert Puffer Dict -> Binary
+        binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
 
-    # 6. Write to file
-    output_path = os.path.join(output_dir, f"map_{map_id:03d}.bin")
-    with open(output_path, "wb") as f:
-        f.write(binary_data)
+        # 6. Write to file
+        output_path = os.path.join(output_dir, f"map_{map_id:03d}.bin")
+        with open(output_path, "wb") as f:
+            f.write(binary_data)
+    except Exception as e:
+        logger.error(f"Error processing scenario map_{map_id}: {e}")
 
 
 def main():
@@ -75,24 +78,98 @@ def main():
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for processing")
 
     # Dataset filtering
-    parser.add_argument("--max_scenarios", type=int, default=None, help="Maximum number of scenarios to process")
-    parser.add_argument("--datasets", nargs="+", help="Dataset names to include (e.g. nuplan, wod-motion)")
-    parser.add_argument("--split_types", nargs="+", help="Split types to include (e.g. train, val, test)")
-    parser.add_argument("--split_names", nargs="+", help="Split names to include (e.g. nuplan-mini_val)")
-    parser.add_argument("--log_names", nargs="+", help="Log names to include")
-    parser.add_argument("--duration_s", type=float, default=0.0, help="Duration of scenario in seconds")
-    parser.add_argument("--history_s", type=float, default=0.0, help="History duration in seconds")
-    parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios (no logs)")
+    parser.add_argument(
+        "--max_scenarios",
+        type=int,
+        default=None,
+        help="Maximum number of scenarios to process",
+    )
+    parser.add_argument(
+        "--datasets",
+        nargs="+",
+        help="Dataset names to include (e.g. nuplan, wod-motion)",
+    )
+    parser.add_argument(
+        "--split_types",
+        nargs="+",
+        help="Split types to include (e.g. train, val, test)",
+    )
+    parser.add_argument(
+        "--split_names",
+        nargs="+",
+        help="Split names to include (e.g. nuplan-mini_val)",
+    )
+    parser.add_argument(
+        "--log_names",
+        nargs="+",
+        help="Log names to include",
+    )
+    parser.add_argument(
+        "--duration_s",
+        type=float,
+        default=0.0,
+        help="Duration of scenario in seconds",
+    )
+    parser.add_argument(
+        "--history_s",
+        type=float,
+        default=0.0,
+        help="History duration in seconds",
+    )
+    parser.add_argument(
+        "--map_only",
+        action="store_true",
+        help="Load map-only scenarios (no logs)",
+    )
 
     # Processor flags
-    parser.add_argument("--interpolate", action="store_true", help="Enable polyline interpolation")
-    parser.add_argument("--traffic_lights", action="store_true", help="Generate synthetic traffic lights")
-    parser.add_argument("--validate", action="store_true", help="Validate puffer dict before binary conversion")
+    parser.add_argument(
+        "--interpolate",
+        action="store_true",
+        help="Enable polyline interpolation",
+    )
+    parser.add_argument(
+        "--traffic_lights",
+        action="store_true",
+        help="Generate synthetic traffic lights",
+    )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Validate puffer dict before binary conversion",
+    )
 
     # Configuration parameters
-    parser.add_argument("--max_segment_length", type=float, default=2.0, help="Max segment length for interpolation")
-    parser.add_argument("--polyline_reduction_threshold", type=float, default=0.1, help="Polyline reduction threshold")
-    parser.add_argument("--dist_threshold", type=float, default=10.0, help="Distance threshold for road graph")
+    parser.add_argument(
+        "--max_segment_length",
+        type=float,
+        default=2.0,
+        help="Max segment length for interpolation",
+    )
+    parser.add_argument(
+        "--polyline_reduction_threshold",
+        type=float,
+        default=0.1,
+        help="Polyline reduction threshold",
+    )
+    parser.add_argument(
+        "--dist_threshold",
+        type=float,
+        default=10.0,
+        help="Distance threshold for road graph",
+    )
+    parser.add_argument(
+        "--min_route_valid_points",
+        type=int,
+        default=0,
+        help="Min valid trajectory points for route computation (0 = no filter)",
+    )
+    parser.add_argument(
+        "--route_check_timestep",
+        type=int,
+        default=0,
+        help="Timestep at which agent must be valid for route computation",
+    )
 
     args = parser.parse_args()
 
@@ -127,6 +204,8 @@ def main():
                 max_segment_length=args.max_segment_length,
                 polyline_reduction_threshold=args.polyline_reduction_threshold,
                 dist_threshold=args.dist_threshold,
+                min_route_valid_points=args.min_route_valid_points,
+                route_check_timestep=args.route_check_timestep,
             )
             for i, scenario in tqdm(enumerate(scenarios), total=len(scenarios))
         )

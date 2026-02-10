@@ -4,8 +4,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
-from py123d.datatypes.map_objects.map_layer_types import LaneType, MapLayer, RoadEdgeType, RoadLineType
-from py123d.datatypes.map_objects.map_objects import Crosswalk, Lane, RoadEdge, RoadLine
+from py123d.datatypes.map_objects.map_layer_types import LaneType, MapLayer
 from py123d.geometry import Point2D
 
 from src import types
@@ -68,22 +67,22 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     else:
         centroid = _compute_map_centroid_from_road_layers(map_api)
 
-    scenario["map"] = extract_static_map_elements(map_api, centroid)
+    scenario["map"] = extract_map(map_api, centroid)
 
     if scene is not None:
-        scenario["agents"] = extract_dynamic_agents(scene, centroid)
-        scenario["traffic_lights"] = extract_dynamic_map_elements(scene, map_api, centroid)
+        scenario["agents"] = extract_agents(scene, centroid)
+        scenario["traffic_lights"] = extract_traffic_lights(scene, map_api, centroid)
         scenario["scenario_length"] = scene.number_of_iterations
         scenario["timestep_seconds"] = scene.log_metadata.timestep_seconds
 
     return scenario
 
 
-def extract_dynamic_agents(scene: SceneAPI, centroid: np.ndarray) -> tuple[dict[int, dict], int]:
+def extract_agents(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
     """Extract dynamic agents from py123d box detections and ego state.
 
     Returns:
-        Tuple of (agents dict, ego_agent_id).
+        Dict mapping agent_id to agent data dict.
     """
 
     episode_length = scene.number_of_iterations
@@ -175,7 +174,7 @@ def extract_dynamic_agents(scene: SceneAPI, centroid: np.ndarray) -> tuple[dict[
     return agents
 
 
-def extract_dynamic_map_elements(scene: SceneAPI, map_api: MapAPI | None, centroid: np.ndarray) -> dict[int, dict]:
+def extract_traffic_lights(scene: SceneAPI, map_api: MapAPI | None, centroid: np.ndarray) -> dict[int, dict]:
     """Extract dynamic traffic light states from py123d logs."""
 
     episode_length = scene.number_of_iterations
@@ -223,18 +222,18 @@ def _compute_map_centroid_from_road_layers(map_api: MapAPI) -> np.ndarray:
     points: list[np.ndarray] = []
     for layer in [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE]:
         if layer not in map_api._occupancy_maps:
-            continue
+            raise ValueError(f"Map layer {layer} not found in MapAPI")
         ids = map_api._occupancy_maps[layer].ids
         for object_id in ids:
             obj = map_api.get_map_object(object_id, layer)
             if obj is None:
-                continue
+                raise ValueError(f"Map object with ID {object_id} not found in layer {layer}")
             coords = get_object_xy_points(obj)
             if coords is not None and len(coords) > 0:
                 points.append(coords)
 
     if not points:
-        return np.array([0.0, 0.0])
+        raise ValueError("No map geometry found to compute centroid")
 
     return np.vstack(points).mean(axis=0)
 
@@ -244,9 +243,7 @@ _MAP_LAYERS = [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE, MapLayer.C
 
 def _iter_map_objects(map_api, centroid):
     if map_api.dataset == "carla" or map_api.map_is_local:
-        for layer in _MAP_LAYERS:
-            if layer not in map_api._occupancy_maps:
-                continue
+        for layer in map_api.get_available_map_layers():
             for oid in map_api._occupancy_maps[layer].ids:
                 obj = map_api.get_map_object(oid, layer)
                 if obj:
@@ -261,13 +258,13 @@ def _iter_map_objects(map_api, centroid):
             yield from layers.get(layer, [])
 
 
-def extract_static_map_elements(map_api: MapAPI, centroid: np.ndarray) -> dict[int, dict]:
+def extract_map(map_api: MapAPI, centroid: np.ndarray) -> dict[int, dict]:
     """Extract static map elements from a py123d MapAPI."""
     result = {}
     non_lane_objects = []
 
     for obj in _iter_map_objects(map_api, centroid):
-        if isinstance(obj, Lane):
+        if int(obj.layer) == 0: # LANE
             result[obj.object_id] = convert_map_object_to_static_element(obj, centroid)
         else:
             non_lane_objects.append(obj)
@@ -283,7 +280,7 @@ def extract_static_map_elements(map_api: MapAPI, centroid: np.ndarray) -> dict[i
 
 
 def convert_map_object_to_static_element(map_object, centroid):
-    if isinstance(map_object, Lane):
+    if int(map_object.layer) == 0: # LANE
         polyline = centered_array(map_object.centerline.array, centroid)
         speed_limit_kmh = mps_to_kmh(map_object.speed_limit_mps)
         return {
@@ -299,21 +296,21 @@ def convert_map_object_to_static_element(map_object, centroid):
             "right_boundaries": [],
         }
 
-    if isinstance(map_object, RoadLine):
+    if int(map_object.layer) == 9: # ROAD_LINE
         polyline = centered_array(map_object.polyline_3d.array, centroid)
         return {
-            "type": map_object.road_line_type or RoadLineType.UNKNOWN,
+            "type": map_object.road_line_type,
             "polyline": polyline,
         }
 
-    if isinstance(map_object, RoadEdge):
+    if int(map_object.layer) == 8: # ROAD_EDGE
         polyline = centered_array(map_object.polyline_3d.array, centroid)
         return {
-            "type": map_object.road_edge_type or RoadEdgeType.UNKNOWN,
+            "type": map_object.road_edge_type,
             "polyline": polyline,
         }
 
-    if isinstance(map_object, Crosswalk):
+    if int(map_object.layer) == 3: # CROSSWALK
         polygon = centered_array(map_object.outline_3d.array, centroid)
         return {
             "type": types.CROSSWALK,

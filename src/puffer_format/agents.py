@@ -28,7 +28,7 @@ def convert_dynamic_agents(
         route_check_timestep: Timestep at which agent must be valid for route computation (default: 0)
 
     Returns:
-        Tuple of (list of agent dicts, sdc sequential index)
+        List of agent dicts in Puffer format.
     """
     puffer_agents = []
 

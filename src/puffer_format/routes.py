@@ -480,7 +480,7 @@ def _compute_route(
 
             # Skip lanes not in map
             if exit_id not in static_map_elements:
-                continue
+                raise ValueError(f"Exit lane {exit_id} not found in map elements")
 
             # Score candidate route with this exit
             exit_polyline = _lane_polyline(exit_id)
@@ -847,7 +847,7 @@ def _is_offroad_at_init(
 
         polyline = element["polyline"]
         if polyline is None or len(polyline) < 2:
-            continue
+            raise ValueError(f"Invalid polyline for element {element_id} of type {element_type}")
 
         polyline_2d = polyline[:, :2]
 

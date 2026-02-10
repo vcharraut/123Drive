@@ -107,14 +107,13 @@ def convert_road_map_elements(
             continue
 
         if not element_type:
-            logger.warning(f"Skipping map element with unset type: {element_id}")
-            continue
+            raise ValueError(f"Map element {element_id} has unset type")
 
         # Convert element type to int
         element_type_int = _convert_map_element_type_to_int(element_type)
 
         if element_type_int == 0:
-            continue
+            raise ValueError(f"Unknown map element type: {element_type}")
 
         if element_type_int <= 30:
             xyz = element_data["polyline"]
