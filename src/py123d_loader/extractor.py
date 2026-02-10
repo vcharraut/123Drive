@@ -181,7 +181,6 @@ def _split_agents_and_objects(objects: dict[int, dict]) -> tuple[dict[int, dict]
     agents = {}
     non_agents = {}
     for object_id, obj in objects.items():
-        print(f"Object ID {object_id} has type {obj['type']}")
         if obj["type"] in [
             DefaultBoxDetectionLabel.EGO,
             DefaultBoxDetectionLabel.VEHICLE,
