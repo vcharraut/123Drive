@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -55,17 +54,3 @@ def get_lane_position(map_api: MapAPI | None, lane_id: int, center: np.ndarray) 
     return [x, y, z]
 
 
-def resolve_py123d_data_root(dataset_path: str | None) -> Path:
-    """Resolve py123d data root path.
-
-    Args:
-        dataset_path: Optional override for the dataset root.
-
-    Returns:
-        Path to py123d_data root.
-    """
-    if dataset_path:
-        return Path(dataset_path)
-
-    repo_root = Path(__file__).resolve().parents[3]
-    return repo_root / "py123d_data"

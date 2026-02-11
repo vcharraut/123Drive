@@ -54,21 +54,9 @@ def convert_road_map_elements(
             speed_limit_kmh = element_data["speed_limit_kmh"]
             puffer_element["speed_limit"] = speed_limit_kmh / 3.6  # m/s
 
-            # Convert lane connectivity (entry/exit/neighbors)
-            # left_neighbor = element_data["left_neighbor"] # TODO: Add left/right neighbor handling when we have more types in the data
-            # right_neighbor = element_data["right_neighbor"]
-
-            # Use int IDs directly
             puffer_element["entry_lanes"] = element_data["entry_lanes"]
             puffer_element["exit_lanes"] = element_data["exit_lanes"]
-
-            # Combine left and right neighbors
-            neighbors = []
-            # if left_neighbor:
-            #     neighbors.extend(left_neighbor)
-            # if right_neighbor:
-            #     neighbors.extend(right_neighbor)
-            puffer_element["neighbors"] = neighbors
+            puffer_element["neighbors"] = []
 
         puffer_elements.append(puffer_element)
 

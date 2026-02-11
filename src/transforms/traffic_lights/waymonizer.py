@@ -1,5 +1,5 @@
 from src import types
-from src.processors.traffic_lights.utils import (
+from src.transforms.traffic_lights.utils import (
     UnionFind,
     distance_between_points,
     find_polyline_nearest_point,
@@ -7,7 +7,7 @@ from src.processors.traffic_lights.utils import (
     real_neighbor_type,
     two_lines_parallel,
 )
-from src.processors.traffic_lights.utils.waymo import Boundary, LaneCenter, Neighbor, Pt, WaymonicTLS
+from src.transforms.traffic_lights.utils.waymo import Boundary, LaneCenter, Neighbor, Pt, WaymonicTLS
 
 
 def from_traffic_light_state_to_int(traffic_light_state):

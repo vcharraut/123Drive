@@ -1,6 +1,6 @@
 from enum import Enum
 
-from src.processors.traffic_lights.utils.generic import TLS, Pt
+from src.transforms.traffic_lights.utils.generic import TLS, Pt
 
 
 class LaneType(Enum):

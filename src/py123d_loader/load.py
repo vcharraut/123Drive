@@ -1,18 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any
 
 from py123d.api.map.arrow_map_api import ArrowMapAPI
 from py123d.api.scene.arrow.arrow_scene_builder import ArrowSceneBuilder
 from py123d.api.scene.scene_filter import SceneFilter
 from py123d.common.multithreading.worker_sequential import Sequential
-
-from src.py123d_loader.utils import resolve_py123d_data_root
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -51,7 +46,7 @@ def get_py123d_scenarios(
     Returns:
         List of ArrowSceneAPI or MapOnlyScenario.
     """
-    data_root = resolve_py123d_data_root(dataset_path)
+    data_root = Path(dataset_path)
 
     if map_only:
         return _load_map_only_scenarios(data_root)

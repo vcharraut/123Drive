@@ -23,20 +23,6 @@ if TYPE_CHECKING:
     from py123d.api.scene.scene_api import SceneAPI
 
 
-def create_intermediate_scenario(scenario_id: str, dataset_name: str) -> dict:
-    return {
-        "id": scenario_id,
-        "agents": {},
-        "map": {},
-        "traffic_lights": {},
-        "objects": {},
-        "dataset_name": dataset_name,
-        "scenario_length": 0,
-        "sdc_index": 0,
-        "timestep_seconds": 0.0,
-    }
-
-
 def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     """Convert py123d SceneAPI or MapOnlyScenario to intermediate format.
 
@@ -58,7 +44,17 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
         scenario_id = f"{scene.log_name}"  # scene.scene_uuid
         dataset_name = scene.dataset
 
-    scenario = create_intermediate_scenario(scenario_id=scenario_id, dataset_name=dataset_name)
+    scenario = {
+        "id": scenario_id,
+        "agents": {},
+        "map": {},
+        "traffic_lights": {},
+        "objects": {},
+        "dataset_name": dataset_name,
+        "scenario_length": 0,
+        "sdc_index": 0,
+        "timestep_seconds": 0.0,
+    }
 
     if map_api is None:
         raise ValueError("Map API is required to convert scenario")

@@ -3,7 +3,7 @@ from typing import Any
 
 import numpy as np
 
-from src.processors.traffic_lights.utils import TLS, ApproachingLane, Direction, UnionFind
+from src.transforms.traffic_lights.utils import TLS, ApproachingLane, Direction, UnionFind
 
 
 class TLSGenerator:

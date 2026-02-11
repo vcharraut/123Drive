@@ -7,16 +7,16 @@ Provides:
 - Processor wrapper: Pipeline integration
 
 Usage:
-    from src.processors.validation import soft_validate, strict_validate
+    from src.transforms.validation import soft_validate, strict_validate
     is_valid, errors, warnings = soft_validate(puffer_dict)
     is_valid, errors, warnings = strict_validate(puffer_dict, validation_level=2)
 
-    from src.processors.validation import validate_puffer_scenario
+    from src.transforms.validation import validate_puffer_scenario
     puffer_dict = validate_puffer_scenario(puffer_dict, strict=True)
 """
 
-from src.processors.validation.processor import validate_puffer_scenario
-from src.processors.validation.validate_puffer import soft_validate, strict_validate
+from src.transforms.validation.processor import validate_puffer_scenario
+from src.transforms.validation.validate_puffer import soft_validate, strict_validate
 
 
 __all__ = [

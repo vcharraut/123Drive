@@ -1,4 +1,4 @@
-from src.processors.traffic_lights.utils.generic import (
+from src.transforms.traffic_lights.utils.generic import (
     TLS,
     Direction,
     Pt,
@@ -9,7 +9,7 @@ from src.processors.traffic_lights.utils.generic import (
     load_veh_states_assignment,
     save_veh_states_assignment,
 )
-from src.processors.traffic_lights.utils.geometry import (
+from src.transforms.traffic_lights.utils.geometry import (
     angle_of_two_vectors,
     angle_of_twoheadings,
     calculate_turning_angle,
@@ -23,7 +23,7 @@ from src.processors.traffic_lights.utils.geometry import (
     two_lines_parallel,
     vector_heading,
 )
-from src.processors.traffic_lights.utils.intersection import (
+from src.transforms.traffic_lights.utils.intersection import (
     ApproachingLane,
     InJunctionLane,
     VehicleState,

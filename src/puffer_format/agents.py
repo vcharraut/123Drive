@@ -70,12 +70,12 @@ def convert_agents(
         )
 
         if should_compute_routes:
-            agent_routes = _compute_routes(
-                (agent_id, position, heading, valid, agent_length, width),
-                road_map_elements,
-                lane_data,
-                min_route_valid_points,
-                route_check_timestep,
+            agent_routes = routes.compute_agent_route(
+                agent_data=(agent_id, position, heading, valid, agent_length, width),
+                static_map_elements=road_map_elements,
+                lane_data=lane_data,
+                min_route_valid_points=min_route_valid_points,
+                route_check_timestep=route_check_timestep,
             )
         else:
             agent_routes = []
@@ -110,42 +110,3 @@ def _convert_agent_type_to_int(agent_type) -> int:
     return type_map.get(agent_type, 4)
 
 
-def _compute_routes(
-    agent_data: tuple,
-    road_map_elements: dict,
-    lane_data: tuple,
-    min_route_valid_points: int = 0,
-    route_check_timestep: int = 0,
-) -> list:
-    """
-    Compute route an agent follows based on ground truth trajectory.
-
-    Route is a list of lane center IDs that covers the ground truth trajectory
-    and extends beyond using greedy lane selection.
-
-    Args:
-        agent_data: Tuple of (agent_id, position, heading, valid, length, width)
-        road_map_elements: Dict of static map elements (for reference)
-        lane_data: Tuple of (lane_ids, lane_polylines, lane_metadata, lane_lengths)
-        min_route_valid_points: Minimum valid trajectory points required (0 = no filtering)
-        route_check_timestep: Timestep to check if agent is offroad (default: 0)
-
-    Returns:
-        List containing single route, where route is a list of lane IDs
-    """
-    # Compute single route using greedy algorithm
-    # Returns list with one route: [[lane1, lane2, ...]]
-    route_paths = routes.compute_agent_route(
-        agent_data=agent_data,
-        static_map_elements=road_map_elements,
-        lane_data=lane_data,
-        min_route_valid_points=min_route_valid_points,
-        route_check_timestep=route_check_timestep,
-    )
-
-    # Return list of route paths
-    if not route_paths:
-        return []
-
-    # Lane IDs are already integers, return directly
-    return route_paths

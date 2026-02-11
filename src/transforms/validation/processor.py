@@ -5,7 +5,7 @@ Validation is read-only - puffer_dict is returned unchanged.
 """
 
 from src import logger_utils
-from src.processors.validation import validate_puffer
+from src.transforms.validation import validate_puffer
 
 
 logger = logger_utils.get_logger(__name__)

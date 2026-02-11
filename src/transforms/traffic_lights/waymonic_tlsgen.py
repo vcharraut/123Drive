@@ -5,8 +5,8 @@ from typing import Any
 import numpy as np
 
 from src import types
-from src.processors.traffic_lights.tlsgenerator import TLSGenerator
-from src.processors.traffic_lights.utils import (
+from src.transforms.traffic_lights.tlsgenerator import TLSGenerator
+from src.transforms.traffic_lights.utils import (
     TLS,
     Direction,
     assign_veh_states_to_lane,
@@ -16,8 +16,8 @@ from src.processors.traffic_lights.utils import (
     points_to_vector,
     save_veh_states_assignment,
 )
-from src.processors.traffic_lights.utils.intersection import ApproachingLane, InJunctionLane, VehicleState
-from src.processors.traffic_lights.utils.waymo import (
+from src.transforms.traffic_lights.utils.intersection import ApproachingLane, InJunctionLane, VehicleState
+from src.transforms.traffic_lights.utils.waymo import (
     LaneCenter,
     WaymonicTLS,
 )

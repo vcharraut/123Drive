@@ -1,7 +1,7 @@
 from typing import Any
 
-from src.processors.traffic_lights.waymonic_tlsgen import WaymonicTLSGenerator
-from src.processors.traffic_lights.waymonizer import Waymonizer
+from src.transforms.traffic_lights.waymonic_tlsgen import WaymonicTLSGenerator
+from src.transforms.traffic_lights.waymonizer import Waymonizer
 
 
 class ScenarioProcessor(Waymonizer, WaymonicTLSGenerator):
