@@ -4,6 +4,7 @@ import numpy as np
 
 from src import logger_utils
 from src.puffer_format import agents, roadgraph, traffic_controls
+from src.puffer_format import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)
@@ -142,7 +143,7 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:  # noqa:
             for j in range(segment_length):
                 buffer.extend(struct.pack("f", float(xyz[j, i])))
 
-        if road_type <= 10:
+        if puffer_types.is_road_lane(road_type):
             entry_lanes = road["entry_lanes"]
             exit_lanes = road["exit_lanes"]
 

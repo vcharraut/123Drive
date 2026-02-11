@@ -7,6 +7,7 @@ from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDe
 
 from src import logger_utils
 from src.puffer_format import routes
+from src.puffer_format import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)
@@ -63,7 +64,7 @@ def convert_agents(
         # 3. Agents with sufficient valid trajectory points (configurable, default: 0)
         # 4. Agents not offroad (bbox crosses road edge OR >5m from lane) - checked inside compute_agent_route()
         should_compute_routes = (
-            agent_type_int == 1
+            agent_type_int == puffer_types.VEHICLE
             and route_check_timestep < len(valid)
             and valid[route_check_timestep]
             and np.sum(valid) >= min_route_valid_points
@@ -102,11 +103,11 @@ def convert_agents(
 
 def _convert_agent_type_to_int(agent_type) -> int:
     type_map = {
-        DefaultBoxDetectionLabel.EGO: 1,
-        DefaultBoxDetectionLabel.VEHICLE: 1,
-        DefaultBoxDetectionLabel.PERSON: 2,
-        DefaultBoxDetectionLabel.BICYCLE: 3,
+        DefaultBoxDetectionLabel.EGO: puffer_types.VEHICLE,
+        DefaultBoxDetectionLabel.VEHICLE: puffer_types.VEHICLE,
+        DefaultBoxDetectionLabel.PERSON: puffer_types.PEDESTRIAN,
+        DefaultBoxDetectionLabel.BICYCLE: puffer_types.CYCLIST,
     }
-    return type_map.get(agent_type, 4)
+    return type_map.get(agent_type, puffer_types.OTHER)
 
 

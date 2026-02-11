@@ -7,6 +7,7 @@ from py123d.datatypes.detections.traffic_light_detections import TrafficLightSta
 from py123d.datatypes.map_objects.map_layer_types import StopZoneType
 
 from src import logger_utils, types
+from src.puffer_format import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)
@@ -96,12 +97,12 @@ def _convert_traffic_control_type_to_int(element_type: str) -> int:
     """
     # Map traffic light states to types
     type_map = {
-        types.TRAFFIC_LIGHT: 1,
-        types.STOP_SIGN: 2,
-        types.YIELD_SIGN: 3,
-        types.TRAFFIC_CONE: 4,
-        types.TRAFFIC_BARRIER: 5,
-        types.GUARDRAIL: 6,
+        types.TRAFFIC_LIGHT: puffer_types.TRAFFIC_LIGHT,
+        types.STOP_SIGN: puffer_types.STOP_SIGN,
+        types.YIELD_SIGN: puffer_types.YIELD_SIGN,
+        types.TRAFFIC_CONE: puffer_types.TRAFFIC_CONE,
+        types.TRAFFIC_BARRIER: puffer_types.TRAFFIC_BARRIER,
+        types.GUARDRAIL: puffer_types.GUARDRAIL,
     }
     return type_map.get(element_type, 0)
 

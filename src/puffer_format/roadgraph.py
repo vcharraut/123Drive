@@ -6,6 +6,7 @@ import numpy as np
 from py123d.datatypes.map_objects.map_layer_types import LaneType, RoadEdgeType, RoadLineType, SerialIntEnum
 
 from src import logger_utils, types
+from src.puffer_format import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)
@@ -64,52 +65,51 @@ def convert_road_map_elements(
 
 
 def _convert_map_element_type_to_int(element_type: SerialIntEnum) -> int:
-    # Lane types (1-3)
+    # Lane types (0-9 range)
     lane_type_map = {
         LaneType.UNDEFINED: 0,
-        LaneType.FREEWAY: 1,
-        LaneType.SURFACE_STREET: 2,
-        LaneType.BIKE_LANE: 3,
+        LaneType.FREEWAY: puffer_types.LANE_FREEWAY,
+        LaneType.SURFACE_STREET: puffer_types.LANE_SURFACE_STREET,
+        LaneType.BIKE_LANE: puffer_types.LANE_BIKE_LANE,
     }
     if isinstance(element_type, LaneType):
         return lane_type_map.get(element_type, 0)
 
-    # Road line types (11-18)
+    # Road line types (10-19 range)
     road_line_type_map = {
-        RoadLineType.UNKNOWN: 0,
-        RoadLineType.DASHED_WHITE: 11,
-        RoadLineType.SOLID_WHITE: 12,
-        RoadLineType.DOUBLE_SOLID_WHITE: 13,
-        RoadLineType.DASHED_YELLOW: 14,
-        RoadLineType.DOUBLE_DASH_YELLOW: 15,
-        RoadLineType.SOLID_YELLOW: 16,
-        RoadLineType.DOUBLE_SOLID_YELLOW: 17,
-        RoadLineType.DASH_SOLID_YELLOW: 18,
-        RoadLineType.SOLID_DASH_YELLOW: 18,
+        RoadLineType.UNKNOWN: puffer_types.ROAD_LINE_UNKNOWN,
+        RoadLineType.DASHED_WHITE: puffer_types.ROAD_LINE_BROKEN_SINGLE_WHITE,
+        RoadLineType.SOLID_WHITE: puffer_types.ROAD_LINE_SOLID_SINGLE_WHITE,
+        RoadLineType.DOUBLE_SOLID_WHITE: puffer_types.ROAD_LINE_SOLID_DOUBLE_WHITE,
+        RoadLineType.DASHED_YELLOW: puffer_types.ROAD_LINE_BROKEN_SINGLE_YELLOW,
+        RoadLineType.DOUBLE_DASH_YELLOW: puffer_types.ROAD_LINE_BROKEN_DOUBLE_YELLOW,
+        RoadLineType.SOLID_YELLOW: puffer_types.ROAD_LINE_SOLID_SINGLE_YELLOW,
+        RoadLineType.DOUBLE_SOLID_YELLOW: puffer_types.ROAD_LINE_SOLID_DOUBLE_YELLOW,
+        RoadLineType.DASH_SOLID_YELLOW: puffer_types.ROAD_LINE_PASSING_DOUBLE_YELLOW,
+        RoadLineType.SOLID_DASH_YELLOW: puffer_types.ROAD_LINE_PASSING_DOUBLE_YELLOW,
         # Collapsed types
-        RoadLineType.DOUBLE_DASH_WHITE: 11,
-        RoadLineType.DASH_SOLID_WHITE: 12,
-        RoadLineType.SOLID_DASH_WHITE: 12,
-        RoadLineType.SOLID_BLUE: 12,
+        RoadLineType.DOUBLE_DASH_WHITE: puffer_types.ROAD_LINE_BROKEN_SINGLE_WHITE,
+        RoadLineType.DASH_SOLID_WHITE: puffer_types.ROAD_LINE_SOLID_SINGLE_WHITE,
+        RoadLineType.SOLID_DASH_WHITE: puffer_types.ROAD_LINE_SOLID_SINGLE_WHITE,
+        RoadLineType.SOLID_BLUE: puffer_types.ROAD_LINE_SOLID_SINGLE_WHITE,
     }
     if isinstance(element_type, RoadLineType):
-        return road_line_type_map.get(element_type, 0)
+        return road_line_type_map.get(element_type, puffer_types.ROAD_LINE_UNKNOWN)
 
-    # Road edge types (21-22)
+    # Road edge types (20-29 range)
     road_edge_type_map = {
-        RoadEdgeType.UNKNOWN: 0,
-        RoadEdgeType.ROAD_EDGE_BOUNDARY: 21,
-        RoadEdgeType.ROAD_EDGE_MEDIAN: 22,
+        RoadEdgeType.UNKNOWN: puffer_types.ROAD_EDGE_UNKNOWN,
+        RoadEdgeType.ROAD_EDGE_BOUNDARY: puffer_types.ROAD_EDGE_BOUNDARY,
+        RoadEdgeType.ROAD_EDGE_MEDIAN: puffer_types.ROAD_EDGE_MEDIAN,
     }
     if isinstance(element_type, RoadEdgeType):
-        return road_edge_type_map.get(element_type, 0)
+        return road_edge_type_map.get(element_type, puffer_types.ROAD_EDGE_UNKNOWN)
 
-    # String map feature types (31+)
+    # String map feature types (30+ range)
     other_type_map = {
-        types.CROSSWALK: 31,
-        types.SPEED_BUMP: 32,
-        types.STOP_SIGN: 33,
-        types.DRIVEWAY: 34,
+        types.CROSSWALK: puffer_types.CROSSWALK,
+        types.SPEED_BUMP: puffer_types.SPEED_BUMP,
+        types.DRIVEWAY: puffer_types.DRIVEWAY,
     }
     if element_type in other_type_map:
         return other_type_map[element_type]
