@@ -67,7 +67,7 @@ def process_one_scenario(
 
         if not is_valid:
             raise ValueError(
-                f"Validation failed for map_{map_id} with {len(errors)} errors and {len(warnings)} warnings"
+                f"Validation failed for map_{map_id} with {len(errors)} errors and {len(warnings)} warnings",
             )
 
         # 5. Convert Puffer Dict -> Binary

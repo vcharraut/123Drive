@@ -338,7 +338,7 @@ def convert_map_object_to_static_element(map_object, centroid):
             "polygon": polygon,
         }
 
-    if int(map_object.layer) == 7: # STOP_ZONE
+    if int(map_object.layer) == 7:  # STOP_ZONE
         polygon = centered_array(map_object.outline_3d.array, centroid)
         return {
             "type": map_object.stop_zone_type,
