@@ -11,7 +11,7 @@ from src.py123d_loader.extractor import convert_py123d_scenario
 from src.py123d_loader.load import get_py123d_scenarios
 from src.transforms.polyline import process_polylines
 from src.transforms.traffic_lights.processor import add_traffic_lights_to_scenario
-from src.transforms.validation.validate_puffer import soft_validate, strict_validate
+from src.transforms.validation import soft_validate, strict_validate
 
 
 logger = logger_utils.get_logger(__name__)
