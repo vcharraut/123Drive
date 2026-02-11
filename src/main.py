@@ -10,7 +10,6 @@ from src.puffer_format.pufferdrive import convert_to_puffer_dict, puffer_dict_to
 from src.py123d_loader.extractor import convert_py123d_scenario
 from src.py123d_loader.load import get_py123d_scenarios
 from src.transforms.polyline import process_polylines
-from src.transforms.traffic_lights.processor import add_traffic_lights_to_scenario
 from src.transforms.validation import soft_validate, strict_validate
 
 
@@ -21,7 +20,6 @@ def process_one_scenario(
     raw_scenario,
     map_id,
     output_dir,
-    traffic_lights=False,
     validate_level=0,
     max_segment_length=2.0,
     area_threshold=0.1,
@@ -40,9 +38,6 @@ def process_one_scenario(
             area_threshold=area_threshold,
             dist_threshold=dist_threshold,
         )
-
-        if traffic_lights:
-            scenario = add_traffic_lights_to_scenario(scenario)
 
         # 3. Convert Intermediate -> Puffer Dict
         puffer_dict = convert_to_puffer_dict(
@@ -137,11 +132,6 @@ def main():
 
     # Processor flags
     parser.add_argument(
-        "--traffic_lights",
-        action="store_true",
-        help="Generate synthetic traffic lights",
-    )
-    parser.add_argument(
         "--validate_level",
         type=int,
         default=1,
@@ -207,7 +197,6 @@ def main():
                 raw_scenario=scenario,
                 map_id=i,
                 output_dir=args.output_dir,
-                traffic_lights=args.traffic_lights,
                 validate_level=args.validate_level,
                 max_segment_length=args.max_segment_length,
                 area_threshold=args.area_threshold,
