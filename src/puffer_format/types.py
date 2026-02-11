@@ -44,12 +44,15 @@ TRAFFIC_CONE = 5
 TRAFFIC_BARRIER = 6
 GUARDRAIL = 7
 
+
 # Range check helpers (mirrors C predicates)
 def is_road_lane(t):
     return 0 <= t <= 9
 
+
 def is_road_line(t):
     return 10 <= t <= 19
+
 
 def is_road_edge(t):
     return 20 <= t <= 29

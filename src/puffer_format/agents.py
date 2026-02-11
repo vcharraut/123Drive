@@ -109,5 +109,3 @@ def _convert_agent_type_to_int(agent_type) -> int:
         DefaultBoxDetectionLabel.BICYCLE: puffer_types.CYCLIST,
     }
     return type_map.get(agent_type, puffer_types.OTHER)
-
-

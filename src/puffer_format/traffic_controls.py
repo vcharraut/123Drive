@@ -4,7 +4,6 @@ Convert traffic control elements from intermediate format to Puffer format.
 
 import numpy as np
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightStatus
-from py123d.datatypes.map_objects.map_layer_types import StopZoneType
 
 from src import logger_utils, types
 from src.puffer_format import types as puffer_types
@@ -60,27 +59,6 @@ def convert_traffic_control_elements(traffic_lights: dict, _objects: dict, map: 
         }
 
         puffer_elements.append(puffer_element)
-
-    for element_id, element_data in map.items():
-        if isinstance(element_data["type"], StopZoneType):
-            element_type_int = int(element_data["type"])
-            lanes = element_data["controlled_lanes"]
-
-            if element_type_int == 1:  # TRAFFIC_LIGHT
-                # For stop zones, we don't have a single position, so we can use the position of the first lane as a proxy
-                for lane_id in lanes:
-                    lane_data = map[lane_id]
-                    position = lane_data["polyline"][0]
-
-                    puffer_element = {
-                        "id": int(element_id) + lane_id,
-                        "type": element_type_int,
-                        "xyz": position,
-                        "states": [],
-                        "controlled_lanes": [lane_id],
-                    }
-
-                puffer_elements.append(puffer_element)
 
     return puffer_elements
 
