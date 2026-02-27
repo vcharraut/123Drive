@@ -13,6 +13,12 @@ from src.puffer_format import types as puffer_types
 logger = logger_utils.get_logger(__name__)
 
 
+
+def _position_to_group_key(position, decimals=1):
+    rounded = np.round(np.asarray(position, dtype=np.float64), decimals=decimals)
+    return tuple(rounded.tolist())
+
+
 def convert_traffic_control_elements(traffic_lights: dict, _objects: dict, map: dict) -> list[dict]:
     """
     Convert dynamic map elements to Puffer traffic_control_elements.
@@ -67,8 +73,18 @@ def convert_traffic_control_elements(traffic_lights: dict, _objects: dict, map: 
             lanes = element_data["controlled_lanes"]
 
             if element_type_int == 1:  # TRAFFIC_LIGHT
-                # For stop zones, we don't have a single position, so we can use the position of the first lane as a proxy
-                for lane_id in lanes:
+                lanes_id_to_position = {lane_id: map[lane_id]["polyline"][0] for lane_id in lanes}
+
+                # Merge lanes ids with same position into one traffic control element
+                position_to_lanes = {}
+                for lane_id, position in lanes_id_to_position.items():
+                    position_tuple = _position_to_group_key(position)
+                    if position_tuple not in position_to_lanes:
+                        position_to_lanes[position_tuple] = []
+                    position_to_lanes[position_tuple].append(lane_id)
+
+                for _, lanes in position_to_lanes.items():
+                    lane_id = lanes[0]
                     lane_data = map[lane_id]
                     position = lane_data["polyline"][0]
 
@@ -77,10 +93,10 @@ def convert_traffic_control_elements(traffic_lights: dict, _objects: dict, map: 
                         "type": element_type_int,
                         "xyz": position,
                         "states": [],
-                        "controlled_lanes": [lane_id],
+                        "controlled_lanes": lanes,
                     }
 
-                puffer_elements.append(puffer_element)
+                    puffer_elements.append(puffer_element)
 
     return puffer_elements
 

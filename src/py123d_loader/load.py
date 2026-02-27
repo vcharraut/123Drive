@@ -7,7 +7,7 @@ from typing import Any
 from py123d.api.map.arrow_map_api import ArrowMapAPI
 from py123d.api.scene.arrow.arrow_scene_builder import ArrowSceneBuilder
 from py123d.api.scene.scene_filter import SceneFilter
-from py123d.common.multithreading.worker_sequential import Sequential
+from py123d.common.execution.sequential_executor import SequentialExecutor
 
 
 @dataclass(frozen=True)
@@ -66,8 +66,7 @@ def get_py123d_scenarios(
     )
 
     builder = ArrowSceneBuilder(logs_root=logs_root, maps_root=maps_root)
-    worker = Sequential()
-    return builder.get_scenes(filter_cfg, worker)
+    return builder.get_scenes(filter_cfg, SequentialExecutor())
 
 
 def _load_map_only_scenarios(data_root: Path) -> list[MapOnlyScenario]:
