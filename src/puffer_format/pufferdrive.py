@@ -18,7 +18,7 @@ def convert_to_puffer_dict(
     if not isinstance(scenario, dict):
         raise TypeError(f"Expected dict, got {type(scenario).__name__}")
 
-    required_fields = ["id", "agents", "map", "traffic_lights"]
+    required_fields = ["id", "agents", "map", "traffic_lights", "objects"]
     missing = [f for f in required_fields if f not in scenario]
     if missing:
         raise ValueError(f"scenario missing required fields: {missing}")
@@ -30,7 +30,7 @@ def convert_to_puffer_dict(
         route_check_timestep=route_check_timestep,
     )
 
-    road_map_elements = roadgraph.convert_road_map_elements(scenario["map"])
+    road_map_elements = roadgraph.convert_road_map_elements(scenario["map"], scenario.get("dataset_name", ""))
 
     traffic_control_elements = traffic_controls.convert_traffic_control_elements(
         scenario["traffic_lights"],

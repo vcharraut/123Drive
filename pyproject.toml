@@ -28,4 +28,4 @@ where = ["."]
 include = ["src", "src.*", "puffer_viz", "puffer_viz.*"]
 
 [tool.uv.sources]
-py123d = { git = "https://github.com/autonomousvision/py123d.git", branch = "dev_v0.0.9" }
+py123d = { git = "https://github.com/autonomousvision/py123d.git", branch = "main" }

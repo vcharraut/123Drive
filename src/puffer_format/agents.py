@@ -40,6 +40,7 @@ def convert_agents(
     for idx, (agent_id, agent_data) in enumerate(dynamic_agents.items()):
         # Get position data (x, y, z)
         position = agent_data["position"]
+
         if position.shape[1] == 2:
             # Add z=0 if only x,y provided
             position = np.column_stack([position, np.zeros(len(position))])

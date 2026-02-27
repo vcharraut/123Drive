@@ -68,27 +68,6 @@ AGENT_TYPE_NAMES = {
     4: "other",
 }
 
-# Puffer road map element type mapping (from roadgraph.py)
-ROAD_ELEMENT_TYPES = {
-    0: "unknown",
-    1: "lane_freeway",
-    2: "lane_surface_street",
-    3: "lane_bike",
-    6: "road_line_broken_white",
-    7: "road_line_solid_white",
-    8: "road_line_double_white",
-    9: "road_line_broken_yellow",
-    10: "road_line_double_yellow",
-    11: "road_line_solid_yellow",
-    12: "road_line_double_yellow",
-    13: "road_line_passing_yellow",
-    15: "road_edge_boundary",
-    16: "road_edge_median",
-    17: "stop_sign",
-    18: "crosswalk",
-    19: "speed_bump",
-}
-
 # Traffic light state mapping
 TRAFFIC_LIGHT_STATES = {
     0: "unknown",
@@ -389,11 +368,11 @@ def _render_routes(ax: plt.Axes, puffer_scenario: dict) -> None:
         agent_id = agent.get("id", -1)
         routes = agent.get("routes", [])
 
-        initial_pos_x = agent["states"]["xyz"][0, 0]
-        initial_pos_y = agent["states"]["xyz"][0, 1]
-
         if not routes:
             continue
+
+        initial_pos_x = agent["states"]["xyz"][0, 0]
+        initial_pos_y = agent["states"]["xyz"][0, 1]
 
         for route in routes[:1]:
             # Get agent color
@@ -445,7 +424,7 @@ def _render_traffic_lights(ax: plt.Axes, puffer_scenario: dict, timestep: int) -
     for element in traffic_elements:
         xyz = element.get("xyz", np.array([]))
         if len(xyz) < 3:
-            raise ValueError(f"Traffic control element {element.get('id', 'unknown')} has invalid geometry")
+            continue
 
         x, y = xyz[0], xyz[1]
 
@@ -507,7 +486,6 @@ def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_futu
 
         # Determine color based on agent ID (consistent with routes)
         is_ego = agent_id == ego_id
-        # color = get_agent_color(agent_id, is_ego) if len(agent.get("routes")) > 0 else "#4B4B4BFF"
         color = get_agent_color(agent_id, is_ego)
 
         edge_color = "red" if agent_id in idx_agents_to_predict else "black"

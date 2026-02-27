@@ -11,11 +11,16 @@ from src.puffer_format import types as puffer_types
 
 logger = logger_utils.get_logger(__name__)
 
+# TODO: Add right type mapping when we have more types in the data
 FILTERED_TYPES = []
+
+# Datasets with reversed road edge types
+REVERGE_ROAD_EDGE_DATASETS = ["av2", "nuplan", "carla"]
 
 
 def convert_road_map_elements(
     static_map_elements: dict,
+    dataset_name: str = "",
 ) -> list[dict]:
     """Convert static map elements from intermediate format to Puffer road_map_elements."""
     puffer_elements = []
@@ -23,7 +28,7 @@ def convert_road_map_elements(
     for element_id, element_data in static_map_elements.items():
         element_type = element_data["type"]
 
-        if element_type in FILTERED_TYPES:  # TODO: Add right type mapping when we have more types in the data
+        if element_type in FILTERED_TYPES:
             continue
 
         if not element_type:
@@ -37,9 +42,15 @@ def convert_road_map_elements(
 
         if element_type_int <= 30:
             xyz = element_data["polyline"]
+
             # Ensure polyline has 3D coordinates
             if xyz.shape[1] == 2:
                 xyz = np.column_stack([xyz, np.zeros(len(xyz))])
+
+            # Reverse xyz order for road edges in certain datasets
+            if dataset_name.split("-")[0] in REVERGE_ROAD_EDGE_DATASETS and isinstance(element_type, RoadEdgeType):
+                xyz = xyz[::-1]
+
         else:
             xyz = element_data["polygon"]
 
@@ -53,8 +64,7 @@ def convert_road_map_elements(
         if isinstance(element_type, LaneType):
             # Convert speed limit from km/h to m/s
             speed_limit_kmh = element_data["speed_limit_kmh"]
-            puffer_element["speed_limit"] = speed_limit_kmh / 3.6  # m/s
-
+            puffer_element["speed_limit"] = speed_limit_kmh / 3.6 # m/s
             puffer_element["entry_lanes"] = element_data["entry_lanes"]
             puffer_element["exit_lanes"] = element_data["exit_lanes"]
             puffer_element["neighbors"] = []

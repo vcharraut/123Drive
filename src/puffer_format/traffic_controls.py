@@ -34,13 +34,11 @@ def convert_traffic_control_elements(traffic_lights: dict, _objects: dict, map: 
     puffer_elements = []
 
     for element_id, element_data in traffic_lights.items():
-        element_type = 1  # TODO: Add right type mapping when we have more types in the data
         position = element_data["position"]
         states = element_data["states"]
         controlled_lane = element_data["controlled_lane"]
 
-        # Convert traffic light type to int
-        element_type_int = _convert_traffic_control_type_to_int(element_type)
+        element_type_int = puffer_types.TRAFFIC_LIGHT
 
         # Convert states to int array
         # States might be a list or numpy array

@@ -37,12 +37,14 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     if isinstance(raw, MapOnlyScenario):
         map_api = raw.map_api
         scenario_id = raw.scenario_id
-        dataset_name = "py123d"
+        dataset_name = map_api.dataset
+        map_only = True
     else:
         scene = raw
         map_api = scene.map_api
         scenario_id = f"{scene.log_name}"  # scene.scene_uuid
         dataset_name = scene.dataset
+        map_only = False
 
     scenario = {
         "id": scenario_id,
@@ -64,7 +66,7 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     else:
         centroid = _compute_map_centroid_from_road_layers(map_api)
 
-    scenario["map"] = extract_map(map_api, centroid)
+    scenario["map"] = extract_map(map_api, centroid, map_only)
 
     if scene is not None:
         objects = extract_objects(scene, centroid)
@@ -255,10 +257,10 @@ def _compute_map_centroid_from_road_layers(map_api: MapAPI) -> np.ndarray:
     return np.vstack(points).mean(axis=0)
 
 
-def _iter_map_objects(map_api, centroid):
+def _iter_map_objects(map_api, centroid, map_only: bool = False):
     all_map_layers = map_api.get_available_map_layers()
 
-    if map_api.dataset == "carla" or map_api.map_is_local:
+    if map_only or map_api.map_is_local:
         for layer in all_map_layers:
             for oid in map_api._occupancy_maps[layer].ids:
                 obj = map_api.get_map_object(oid, layer)
@@ -274,12 +276,12 @@ def _iter_map_objects(map_api, centroid):
             yield from layers.get(layer, [])
 
 
-def extract_map(map_api: MapAPI, centroid: np.ndarray) -> dict[int, dict]:
+def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -> dict[int, dict]:
     """Extract static map elements from a py123d MapAPI."""
     result = {}
     non_lane_objects = []
 
-    for obj in _iter_map_objects(map_api, centroid):
+    for obj in _iter_map_objects(map_api, centroid, map_only):
         if int(obj.layer) == 0:  # LANE
             result[obj.object_id] = convert_map_object_to_static_element(obj, centroid)
         else:
