@@ -14,12 +14,13 @@ AGENT_TYPE_NAMES = {
 
 # Road map element type mapping (from src/encoder/roadgraph.py)
 ROAD_ELEMENT_TYPES = {
-    0: "unknown",
-    # Lanes (1-10)
+    0: "lane_unknown",
+    # Lanes (1-9)
     1: "lane_freeway",
     2: "lane_surface_street",
     3: "lane_bike",
-    # Road lines (11-20)
+    # Road lines (10-19)
+    10: "road_line_unknown",
     11: "road_line_broken_white",
     12: "road_line_solid_white",
     13: "road_line_double_white",
@@ -28,7 +29,8 @@ ROAD_ELEMENT_TYPES = {
     16: "road_line_solid_yellow",
     17: "road_line_solid_double_yellow",
     18: "road_line_passing_yellow",
-    # Road edges (21-23)
+    # Road edges (20-29)
+    20: "road_edge_unknown",
     21: "road_edge_boundary",
     22: "road_edge_median",
     23: "road_edge_sidewalk",
@@ -89,9 +91,12 @@ VEHICLE_COLORS = [
 # Road element styling
 ROAD_COLORS = {
     "lane": "#E0E0E0",
+    "lane_unknown": "#00BFFF",
     "road_line_white": "#AAAAAA",
     "road_line_yellow": "#D4AA00",
+    "road_line_unknown": "#FF00FF",
     "road_edge": "#333333",
+    "road_edge_unknown": "#00FFFF",
     "crosswalk": "#FFD700",
     "stop_sign": "#FF0000",
     "speed_bump": "#FF69B4",
@@ -122,15 +127,27 @@ def get_traffic_state_color(state_id):
 
 
 def is_lane(road_type):
-    return 1 <= road_type <= 10
+    return 0 <= road_type <= 9
 
 
 def is_road_line(road_type):
-    return 11 <= road_type <= 20
+    return 10 <= road_type <= 19
 
 
 def is_road_edge(road_type):
-    return 21 <= road_type <= 23
+    return 20 <= road_type <= 29
+
+
+def is_unknown_lane(road_type):
+    return road_type == 0
+
+
+def is_unknown_road_line(road_type):
+    return road_type == 10
+
+
+def is_unknown_road_edge(road_type):
+    return road_type == 20
 
 
 def is_yellow_line(road_type):
@@ -144,12 +161,18 @@ def is_broken_line(road_type):
 def get_road_styling(road_type):
     """Get color and dash style for road element."""
     if is_lane(road_type):
+        if is_unknown_lane(road_type):
+            return ROAD_COLORS["lane_unknown"], None, 2.0
         return ROAD_COLORS["lane"], None, 1.5
     elif is_road_line(road_type):
+        if is_unknown_road_line(road_type):
+            return ROAD_COLORS["road_line_unknown"], "dash", 2.0
         color = ROAD_COLORS["road_line_yellow"] if is_yellow_line(road_type) else ROAD_COLORS["road_line_white"]
         dash = "dot" if is_broken_line(road_type) else "solid"
         return color, dash, 1.5
     elif is_road_edge(road_type):
+        if is_unknown_road_edge(road_type):
+            return ROAD_COLORS["road_edge_unknown"], "solid", 3.0
         return ROAD_COLORS["road_edge"], "solid", 2.5
     elif road_type == 31:
         return ROAD_COLORS["crosswalk"], "solid", 3
@@ -186,6 +209,33 @@ def get_heading_arrow(x, y, heading, length):
     return x + arrow_len * np.cos(heading), y + arrow_len * np.sin(heading)
 
 
+def rdp_simplify(pts: np.ndarray, epsilon: float = 0.5) -> np.ndarray:
+    """Iterative Ramer-Douglas-Peucker polyline simplification."""
+    if len(pts) < 3:
+        return pts
+    keep = np.zeros(len(pts), dtype=bool)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(pts) - 1)]
+    while stack:
+        i, j = stack.pop()
+        if j - i < 2:
+            continue
+        seg = pts[j, :2] - pts[i, :2]
+        norm = np.linalg.norm(seg)
+        if norm < 1e-10:
+            dists = np.linalg.norm(pts[i:j+1, :2] - pts[i, :2], axis=1)
+        else:
+            t = np.dot(pts[i:j+1, :2] - pts[i, :2], seg) / (norm * norm)
+            proj = pts[i, :2] + np.outer(np.clip(t, 0, 1), seg)
+            dists = np.linalg.norm(pts[i:j+1, :2] - proj, axis=1)
+        k = int(np.argmax(dists)) + i
+        if dists[k - i] > epsilon:
+            keep[k] = True
+            stack.append((i, k))
+            stack.append((k, j))
+    return pts[keep]
+
+
 def build_lane_map(road_elements):
     """Build dict mapping lane ID to xyz array."""
     lane_map = {}
@@ -195,27 +245,36 @@ def build_lane_map(road_elements):
     return lane_map
 
 
-def compute_route_polyline(route_lane_ids, lane_map, start_pos=None):
-    """Build route polyline from lane IDs."""
-    points = []
+def compute_route_polyline(route_lane_ids, lane_map, start_pos=None, max_jump_m=30.0):
+    """Build route polyline from lane IDs, dropping inter-lane jumps > max_jump_m."""
+    segments = []
     for lane_id in route_lane_ids:
         if lane_id in lane_map:
             xyz = lane_map[lane_id]
             if len(xyz) > 0:
-                points.extend(xyz.tolist())
+                segments.append(xyz)
 
+    if not segments:
+        return None
+
+    # Chain segments, dropping connector if the gap is too large
+    kept = [segments[0]]
+    for seg in segments[1:]:
+        gap = np.linalg.norm(kept[-1][-1, :2] - seg[0, :2])
+        if gap <= max_jump_m:
+            kept.append(seg)
+
+    points = np.vstack(kept)
     if len(points) < 2:
         return None
 
-    points = np.array(points)
-
-    # Crop route to start near agent's initial position
+    # Crop to start near agent's initial position
     if start_pos is not None:
         dists = np.linalg.norm(points[:, :2] - np.array(start_pos[:2]), axis=1)
         start_idx = np.argmin(dists)
         points = points[start_idx:]
 
-    return points
+    return points if len(points) >= 2 else None
 
 
 def format_velocity(vx, vy):

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Puffer Viz</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/deck.gl@9.0.0/dist.min.js"></script>
+</head>
+<body>
+
+<div id="header">
+  <h1>Puffer Viz</h1>
+  <div id="header-sep"></div>
+  <span id="scenario-title">No scenario loaded</span>
+  <button class="hbtn" id="btn-fit">⊡ Fit All</button>
+  <button class="hbtn" id="btn-follow">◎ Follow Ego</button>
+  <select id="follow-radius">
+    <option value="50">50 m</option>
+    <option value="100" selected>100 m</option>
+    <option value="200">200 m</option>
+    <option value="500">500 m</option>
+  </select>
+  <button class="hbtn" id="btn-3d">2D / 3D</button>
+</div>
+
+<div id="main">
+
+  <!-- Left: scenario list + layer toggles -->
+  <div id="left-sidebar">
+    <div id="scenario-filter">
+      <input id="scenario-search" type="text" placeholder="Filter scenarios…">
+    </div>
+    <div id="scenario-list"></div>
+    <div id="layer-toggles">
+      <h3>Layers</h3>
+      <label class="layer-toggle"><input type="checkbox" data-layer="lanes" checked><label>Lanes</label></label>
+      <label class="layer-toggle"><input type="checkbox" data-layer="road_lines"><label>Road Lines</label></label>
+      <label class="layer-toggle"><input type="checkbox" data-layer="road_edges" checked><label>Road Edges</label></label>
+      <label class="layer-toggle"><input type="checkbox" data-layer="crosswalks" checked><label>Crosswalks</label></label>
+      <label class="layer-toggle"><input type="checkbox" data-layer="agents" checked><label>Agents</label></label>
+      <label class="layer-toggle"><input type="checkbox" data-layer="routes"><label>Routes</label></label>
+      <label class="layer-toggle"><input type="checkbox" data-layer="unknowns"><label>Unknown elements</label></label>
+      <label class="layer-toggle"><input type="checkbox" data-layer="trajectories" checked><label>Trajectories</label></label>
+      <label class="layer-toggle"><input type="checkbox" data-layer="traffic_lights" checked><label>Traffic Lights</label></label>
+      <label class="layer-toggle"><input type="checkbox" data-layer="agent_ids" checked><label>Agent IDs</label></label>
+    </div>
+  </div>
+
+  <!-- Center: map canvas -->
+  <div id="canvas-container">
+    <div id="deckgl-canvas"></div>
+  </div>
+
+  <!-- Right: info panels -->
+  <div id="right-sidebar">
+    <div class="sidebar-section" id="scenario-info">
+      <h3>Scenario</h3>
+      <div id="scenario-meta"><span class="empty-state">No scenario loaded.</span></div>
+    </div>
+    <div class="sidebar-section" id="search-panel">
+      <h3>Search</h3>
+      <input id="search-id" type="text" placeholder="Element ID">
+      <select id="search-type">
+        <option value="agent">Agent</option>
+        <option value="road">Road</option>
+        <option value="traffic_light">Traffic Light</option>
+      </select>
+      <div class="btn-row">
+        <button class="sbtn" id="btn-search-go">Go</button>
+        <button class="sbtn" id="btn-search-clear">Clear</button>
+      </div>
+    </div>
+    <div id="element-info">
+      <h3>Selected Element</h3>
+      <div id="element-detail"><span class="empty-state">Click an element to inspect.</span></div>
+    </div>
+  </div>
+
+</div>
+
+<div id="playback-bar">
+  <button class="pbtn" id="btn-prev-first" title="First">⏮</button>
+  <button class="pbtn" id="btn-prev" title="Previous">‹</button>
+  <button class="pbtn" id="btn-play" title="Play/Pause">▶</button>
+  <button class="pbtn" id="btn-next" title="Next">›</button>
+  <button class="pbtn" id="btn-next-last" title="Last">⏭</button>
+  <input id="timeline" type="range" min="0" max="90" value="0" step="1">
+  <select id="speed-select">
+    <option value="0.5">0.5×</option>
+    <option value="1" selected>1×</option>
+    <option value="2">2×</option>
+    <option value="4">4×</option>
+  </select>
+  <span id="timestep-display">0 / 0</span>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
