@@ -1,0 +1,11 @@
+"""
+Traffic lights enhancement for ScenarioMax.
+
+This module integrates the WOMD-Traffic-Signal-Data-Improvement work to enhance
+traffic light states in scenarios.
+"""
+
+from src.bin_factory.transforms.traffic_lights.processor import add_traffic_lights_to_scenario
+
+
+__all__ = ["add_traffic_lights_to_scenario"]

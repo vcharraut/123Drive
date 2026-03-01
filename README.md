@@ -2,6 +2,18 @@
 
 Converts [py123d](https://github.com/autonomousvision/py123d) data to [PufferDrive](https://github.com/Emerge-Lab/PufferDrive) binary format.
 
+## Pipeline
+
+Three tools, run in order:
+
+```
+Raw dataset  →  [py123d-docker]  →  py123d Arrow files  →  [convert]  →  .bin  →  [viz]
+```
+
+1. **`py123d-docker`** — Docker wrapper that runs py123d's extraction pipeline, producing Arrow files per dataset/split.
+2. **`convert`** — Reads Arrow files, applies transforms (interpolation, traffic lights, validation), outputs `.bin` scenarios.
+3. **`viz`** — FastAPI server for inspecting `.bin` files in a browser.
+
 ## Usage
 
 ```bash
@@ -24,6 +36,15 @@ uv run convert --dataset_path /path/to/data --output_dir ./output --num_workers 
 | `--validate` | Validate output before binary encoding |
 | `--max_scenarios N` | Limit number of scenarios to process |
 | `--map_only` | Load map-only scenarios (no logs) |
+
+## Visualize output
+
+```bash
+uv pip install -e ".[viz]"
+viz --dir ./output --port 8080
+```
+
+Open http://localhost:8080 to inspect generated `.bin` scenarios.
 
 ## Data
 
@@ -151,9 +172,10 @@ From `TrafficLightDetection`:
 | TRAFFIC_LIGHT | 1 | [X] |
 | STOP_SIGN | 2 | [ ] |
 | YIELD_SIGN | 3 | [ ] |
-| TRAFFIC_CONE | 4 | [ ] |
-| TRAFFIC_BARRIER | 5 | [ ] |
-| GUARDRAIL | 6 | [ ] |
+| SPEED_LIMIT_SIGN | 4 | [ ] |
+| TRAFFIC_CONE | 5 | [ ] |
+| TRAFFIC_BARRIER | 6 | [ ] |
+| GUARDRAIL | 7 | [ ] |
 
 ### Others
 
@@ -164,6 +186,7 @@ From `TrafficLightDetection`:
 | Traffic cones | Detected as agents (type 4), not as static map objects |
 | Barriers | Detected as agents (type 4), not as static map objects |
 | Traffic signs | Detected as agents (type 4), not as static map objects |
-| Stop signs | Type defined in puffer format (33) but not populated from source |
-| Speed bumps | Type defined in puffer format (32) but not populated from source |
+| Stop signs | Type 2 in traffic_controls, not populated from source |
+| Speed bumps | Type 32 in road_map_elements, not populated from source |
+| Driveways | Type 33 in road_map_elements, not populated from source |
 
