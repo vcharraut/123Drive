@@ -6,8 +6,8 @@ import numpy as np
 from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
 
 from src.bin_factory import logger_utils
-from src.bin_factory.puffer_format import routes
-from src.bin_factory.puffer_format import types as puffer_types
+from src.bin_factory.convert import routes
+from src.bin_factory.convert import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)

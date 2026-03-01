@@ -8,8 +8,8 @@ from py123d.datatypes.map_objects.map_layer_types import LaneType, MapLayer
 from py123d.geometry import Point2D
 
 from src.bin_factory import types
-from src.bin_factory.py123d_loader.load import MapOnlyScenario
-from src.bin_factory.py123d_loader.utils import (
+from src.bin_factory.loader.load import MapOnlyScenario
+from src.bin_factory.loader.utils import (
     centered_array,
     get_lane_position,
     get_object_xy_points,

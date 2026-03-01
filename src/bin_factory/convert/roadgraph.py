@@ -6,7 +6,7 @@ import numpy as np
 from py123d.datatypes.map_objects.map_layer_types import LaneType, RoadEdgeType, RoadLineType, SerialIntEnum
 
 from src.bin_factory import logger_utils, types
-from src.bin_factory.puffer_format import types as puffer_types
+from src.bin_factory.convert import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)
