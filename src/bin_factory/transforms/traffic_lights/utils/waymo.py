@@ -53,7 +53,7 @@ class WaymonicTLS(Enum):
 class WaymoLane:
     def __init__(
         self,
-        speed_limit_mph,
+        speed_limit_mps,
         type,
         polyline,
         entry_lanes,
@@ -63,14 +63,14 @@ class WaymoLane:
         left_boundaries,
         right_boundaries,
     ) -> None:
-        self.speed_limit_mph: float = speed_limit_mph
+        self.speed_limit_mps: float = speed_limit_mps
         self.type: int = type
         """
         0 :undefined, 1: highway, 2: surface street (urban), 3: bikelane
         """
         self.polyline: list[Pt] = [Pt(point[0], point[1], point[2]) for point in polyline]
-        self.entry_lanes: list[int] = [lane for lane in entry_lanes]
-        self.exit_lanes: list[int] = [lane for lane in exit_lanes]
+        self.entry_lanes: list[int] = list(entry_lanes)
+        self.exit_lanes: list[int] = list(exit_lanes)
         self.left_neighbors: list[Neighbor] = [
             Neighbor(
                 neighbor,
@@ -151,12 +151,12 @@ class LaneCenter:
         id,
         lane,
         needs_stop: bool = False,
-        tl_state_record: list[WaymonicTLS] = [],
+        tl_state_record: list[WaymonicTLS] = None,
         length: int = 0,
     ) -> None:
         self.id: int = id
         self.lane: WaymoLane = WaymoLane(
-            lane["speed_limit_mph"],
+            lane["speed_limit_mps"],
             lane["type"],
             lane["polyline"],
             lane["entry_lanes"],
@@ -172,7 +172,7 @@ class LaneCenter:
         self.to_SUMO_edge: int = None
         self.to_SUMO_lane: int = None
 
-        if len(tl_state_record) == 0:
+        if not tl_state_record:
             tl_state_record = [WaymonicTLS.ABSENT for _ in range(length)]
 
         self.record_tls: list[WaymonicTLS] = tl_state_record[:]  # -1 when there is no associated tl

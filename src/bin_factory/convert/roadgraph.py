@@ -62,9 +62,7 @@ def convert_road_map_elements(
 
         # Add lane-specific attributes if this is a lane
         if isinstance(element_type, LaneType):
-            # Convert speed limit from km/h to m/s
-            speed_limit_kmh = element_data["speed_limit_kmh"]
-            puffer_element["speed_limit"] = speed_limit_kmh / 3.6 # m/s
+            puffer_element["speed_limit"] = element_data["speed_limit_mps"]
             puffer_element["entry_lanes"] = element_data["entry_lanes"]
             puffer_element["exit_lanes"] = element_data["exit_lanes"]
             puffer_element["neighbors"] = []

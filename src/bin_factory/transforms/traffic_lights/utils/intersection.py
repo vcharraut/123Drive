@@ -14,8 +14,8 @@ class InJunctionLane:
     def __init__(
         self,
         shape: list[Pt],
-        record_tls: list = [],
-        record_vehs: list[dict[int, VehicleState]] = [{}],
+        record_tls: list = None,
+        record_vehs: list[dict[int, VehicleState]] = None,
         id=None,
         length: int = 0,
     ) -> None:
@@ -23,10 +23,10 @@ class InJunctionLane:
         self.shape: list[Pt] = shape[:]
         self.direction: Direction = classify_direction([(pt.x, pt.y) for pt in shape])
 
-        if len(record_vehs) == 0:
+        if not record_vehs:
             record_vehs = [{} for _ in range(length)]
 
-        if len(record_tls) == 0:
+        if not record_tls:
             record_tls = [-1 for _ in range(length)]
 
         self.record_vehs: list[dict[int, VehicleState]] = record_vehs[:]
@@ -41,16 +41,16 @@ class ApproachingLane:
     def __init__(
         self,
         shape: list[Pt],
-        record_vehs: list[dict[int, VehicleState]] = [{}],
-        injunction_lanes: list[InJunctionLane] = [],
+        record_vehs: list[dict[int, VehicleState]] = None,
+        injunction_lanes: list[InJunctionLane] = None,
         id=None,
         length: int = 0,
     ) -> None:
         self.id = id
         self.shape: list[Pt] = shape[:]
 
-        if len(record_vehs) == 0:
+        if not record_vehs:
             record_vehs = [{} for _ in range(length)]
 
         self.record_vehs: list[dict[int, VehicleState]] = record_vehs[:]
-        self.injunction_lanes: list[InJunctionLane] = injunction_lanes[:]
+        self.injunction_lanes: list[InJunctionLane] = injunction_lanes[:] if injunction_lanes else []

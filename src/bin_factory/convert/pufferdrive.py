@@ -71,37 +71,30 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:  # noqa:
         buffer.extend(struct.pack("ii", agent_id, agent_type))
 
         states = agent["states"]
-        xyz = np.array(states["xyz"])
-        velocity = np.array(states["velocity"])
-        heading = np.array(states["heading"])
-        valid = np.array(states["valid"])
-        width = np.array(states["width"])
-        length = np.array(states["length"])
-        height = np.array(states["height"])
+        xyz = np.asarray(states["xyz"], dtype=np.float32)
+        velocity = np.asarray(states["velocity"], dtype=np.float32)
+        heading = np.asarray(states["heading"], dtype=np.float32)
+        valid = np.asarray(states["valid"], dtype=np.int32)
+        width = np.asarray(states["width"], dtype=np.float32)
+        length = np.asarray(states["length"], dtype=np.float32)
+        height = np.asarray(states["height"], dtype=np.float32)
 
         trajectory_length = len(xyz)
         buffer.extend(struct.pack("i", trajectory_length))
 
+        # xyz: 3 channels x T (column-major order)
         for i in range(3):
-            for j in range(trajectory_length):
-                buffer.extend(struct.pack("f", float(xyz[j, i])))
+            buffer.extend(xyz[:, i].tobytes())
 
-        for j in range(trajectory_length):
-            buffer.extend(struct.pack("f", float(heading[j])))
+        buffer.extend(heading.tobytes())
 
         for i in range(2):
-            for j in range(trajectory_length):
-                buffer.extend(struct.pack("f", float(velocity[j, i])))
+            buffer.extend(velocity[:, i].tobytes())
 
-        for j in range(trajectory_length):
-            buffer.extend(struct.pack("f", float(length[j])))
-        for j in range(trajectory_length):
-            buffer.extend(struct.pack("f", float(width[j])))
-        for j in range(trajectory_length):
-            buffer.extend(struct.pack("f", float(height[j])))
-
-        for j in range(trajectory_length):
-            buffer.extend(struct.pack("i", int(valid[j])))
+        buffer.extend(length.tobytes())
+        buffer.extend(width.tobytes())
+        buffer.extend(height.tobytes())
+        buffer.extend(valid.tobytes())
 
         routes = agent["routes"]
         if routes:
@@ -135,13 +128,12 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:  # noqa:
         road_type = int(road["type"])
         buffer.extend(struct.pack("ii", road_id, road_type))
 
-        xyz = np.array(road["xyz"])
+        xyz = np.asarray(road["xyz"], dtype=np.float32)
         segment_length = len(xyz)
         buffer.extend(struct.pack("i", segment_length))
 
         for i in range(3):
-            for j in range(segment_length):
-                buffer.extend(struct.pack("f", float(xyz[j, i])))
+            buffer.extend(xyz[:, i].tobytes())
 
         if puffer_types.is_road_lane(road_type):
             entry_lanes = road["entry_lanes"]

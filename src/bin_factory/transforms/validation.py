@@ -302,10 +302,10 @@ def _validate_trajectory_coherence(
     if "xyz" not in states or "valid" not in states:
         return
 
-    xyz = np.array(states["xyz"])
-    valid = np.array(states["valid"])
-    velocity = np.array(states.get("velocity")) if "velocity" in states else None
-    heading = np.array(states.get("heading")) if "heading" in states else None
+    xyz = np.asarray(states["xyz"])
+    valid = np.asarray(states["valid"])
+    velocity = np.asarray(states["velocity"]) if "velocity" in states else None
+    heading = np.asarray(states["heading"]) if "heading" in states else None
 
     # Check for teleportation
     for i in range(len(xyz) - 1):
@@ -390,8 +390,8 @@ def _validate_physical_constraints(
 
     # Velocity limits
     if "velocity" in states and "valid" in states:
-        velocity = np.array(states["velocity"])
-        valid = np.array(states["valid"])
+        velocity = np.asarray(states["velocity"])
+        valid = np.asarray(states["valid"])
         max_speed = {1: 60.0, 2: 5.0, 3: 15.0}.get(agent_type, 60.0)
 
         for i in range(len(velocity)):
@@ -427,8 +427,8 @@ def _validate_temporal_consistency(agent_id, states: dict, expected_length: int,
 
     # Check for appearing with NaN or at origin
     if "valid" in states and "xyz" in states:
-        valid = np.array(states["valid"])
-        xyz = np.array(states["xyz"])
+        valid = np.asarray(states["valid"])
+        xyz = np.asarray(states["xyz"])
         for i in range(1, len(valid)):
             if not valid[i - 1] and valid[i]:
                 if np.any(np.isnan(xyz[i])):
@@ -446,7 +446,7 @@ def _validate_strict_roads(roads: list, validation_level: int, errors: list, war
         road_type = road.get("type", 0)
 
         if "xyz" in road:
-            xyz = np.array(road["xyz"])
+            xyz = np.asarray(road["xyz"])
             if len(xyz) >= 2:
                 # Check for duplicate points
                 dists = []

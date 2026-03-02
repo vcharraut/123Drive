@@ -33,7 +33,7 @@ def process_one_scenario(
         # 1. Convert Raw -> Intermediate
         scenario = convert_py123d_scenario(raw_scenario)
 
-        # 2. Apply Processors
+        # 2. Apply transforms to Intermediate representation
         scenario = process_polylines(
             scenario,
             max_segment_length=max_segment_length,

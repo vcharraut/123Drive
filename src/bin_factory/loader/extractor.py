@@ -13,8 +13,6 @@ from src.bin_factory.loader.utils import (
     centered_array,
     get_lane_position,
     get_object_xy_points,
-    kmh_to_mph,
-    mps_to_kmh,
 )
 
 
@@ -78,6 +76,19 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     return scenario
 
 
+def _make_empty_agent(episode_length, agent_type):
+    return {
+        "type": agent_type,
+        "position": np.zeros((episode_length, 3), dtype=np.float32),
+        "heading": np.zeros((episode_length,), dtype=np.float32),
+        "velocity": np.zeros((episode_length, 2), dtype=np.float32),
+        "valid": np.zeros((episode_length,), dtype=np.bool_),
+        "length": np.zeros((episode_length,), dtype=np.float32),
+        "width": np.zeros((episode_length,), dtype=np.float32),
+        "height": np.zeros((episode_length,), dtype=np.float32),
+    }
+
+
 def extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
     """Extract dynamic objects from py123d box detections and ego state.
 
@@ -91,16 +102,7 @@ def extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
     tokens_to_object_id: dict[str, int] = {}
 
     # Extract ego vehicle
-    objects[object_id] = {
-        "type": DefaultBoxDetectionLabel.EGO,
-        "position": np.zeros((episode_length, 3), dtype=np.float32),
-        "heading": np.zeros((episode_length,), dtype=np.float32),
-        "velocity": np.zeros((episode_length, 2), dtype=np.float32),
-        "valid": np.zeros((episode_length,), dtype=np.bool_),
-        "length": np.zeros((episode_length,), dtype=np.float32),
-        "width": np.zeros((episode_length,), dtype=np.float32),
-        "height": np.zeros((episode_length,), dtype=np.float32),
-    }
+    objects[object_id] = _make_empty_agent(episode_length, DefaultBoxDetectionLabel.EGO)
 
     for frame_idx in range(episode_length):
         ego_state = scene.get_ego_state_at_iteration(frame_idx)
@@ -138,16 +140,7 @@ def extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
                 tokens_to_object_id[track_token] = object_id
 
             if object_id not in objects:
-                objects[object_id] = {
-                    "type": detection.metadata.default_label,
-                    "position": np.zeros((episode_length, 3), dtype=np.float32),
-                    "heading": np.zeros((episode_length,), dtype=np.float32),
-                    "velocity": np.zeros((episode_length, 2), dtype=np.float32),
-                    "valid": np.zeros((episode_length,), dtype=np.bool_),
-                    "length": np.zeros((episode_length,), dtype=np.float32),
-                    "width": np.zeros((episode_length,), dtype=np.float32),
-                    "height": np.zeros((episode_length,), dtype=np.float32),
-                }
+                objects[object_id] = _make_empty_agent(episode_length, detection.metadata.default_label)
 
             bbox = detection.bounding_box_se3  # type: ignore[attr-defined]
             center_se3 = bbox.center_se3
@@ -281,8 +274,11 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
     result = {}
     non_lane_objects = []
 
+    # Layers handled directly by convert_map_object_to_static_element:
+    # LANE(0), CROSSWALK(3), STOP_ZONE(7), ROAD_EDGE(8), ROAD_LINE(9)
+    _SKIPPED_LAYERS = {1, 2, 4, 5, 6}
     for obj in _iter_map_objects(map_api, centroid, map_only):
-        if int(obj.layer) == 0:  # LANE
+        if obj.layer == MapLayer.LANE:
             result[obj.object_id] = convert_map_object_to_static_element(obj, centroid)
         else:
             non_lane_objects.append(obj)
@@ -291,7 +287,7 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
     # (object_id namespaces overlap across map layers)
     next_id = max(result.keys(), default=-1) + 1
     for obj in non_lane_objects:
-        if int(obj.layer) not in [1, 2, 4, 5, 6]:
+        if int(obj.layer) not in _SKIPPED_LAYERS:
             element = convert_map_object_to_static_element(obj, centroid)
             if element is None:
                 continue
@@ -302,14 +298,14 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
 
 
 def convert_map_object_to_static_element(map_object, centroid):
-    if int(map_object.layer) == 0:  # LANE
+    layer = int(map_object.layer)
+    if layer == MapLayer.LANE:
         polyline = centered_array(map_object.centerline.array, centroid)
-        speed_limit_kmh = mps_to_kmh(map_object.speed_limit_mps)
+        speed_limit_mps = float(map_object.speed_limit_mps) if map_object.speed_limit_mps is not None else -1.0
         return {
             "type": LaneType.SURFACE_STREET,  # TODO: map lane types properly
             "polyline": polyline,
-            "speed_limit_mph": kmh_to_mph(speed_limit_kmh) if speed_limit_kmh >= 0 else -1,
-            "speed_limit_kmh": speed_limit_kmh,
+            "speed_limit_mps": speed_limit_mps,
             "entry_lanes": map_object.predecessor_ids,
             "exit_lanes": map_object.successor_ids,
             "left_neighbor": [map_object.left_lane_id],
@@ -318,28 +314,28 @@ def convert_map_object_to_static_element(map_object, centroid):
             "right_boundaries": [],
         }
 
-    if int(map_object.layer) == 9:  # ROAD_LINE
+    if layer == MapLayer.ROAD_LINE:
         polyline = centered_array(map_object.polyline_3d.array, centroid)
         return {
             "type": map_object.road_line_type,
             "polyline": polyline,
         }
 
-    if int(map_object.layer) == 8:  # ROAD_EDGE
+    if layer == MapLayer.ROAD_EDGE:
         polyline = centered_array(map_object.polyline_3d.array, centroid)
         return {
             "type": map_object.road_edge_type,
             "polyline": polyline,
         }
 
-    if int(map_object.layer) == 3:  # CROSSWALK
+    if layer == MapLayer.CROSSWALK:
         polygon = centered_array(map_object.outline_3d.array, centroid)
         return {
             "type": types.CROSSWALK,
             "polygon": polygon,
         }
 
-    if int(map_object.layer) == 7:  # STOP_ZONE
+    if layer == MapLayer.STOP_ZONE:
         polygon = centered_array(map_object.outline_3d.array, centroid)
         return {
             "type": map_object.stop_zone_type,
