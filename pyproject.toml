@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "123Drive"
 version = "0.1.0"
 description = "Format data from 123d format to PufferDrive"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 dependencies = [
   "numpy",
   "joblib",
@@ -17,15 +17,17 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["ruff"]
-viz = ["dash>=2.14", "plotly>=5.18", "dash-bootstrap-components>=1.5"]
-all = ["ruff", "dash>=2.14", "plotly>=5.18", "dash-bootstrap-components>=1.5"]
+viz = ["fastapi", "uvicorn[standard]", "orjson"]
+all = ["ruff", "fastapi", "uvicorn[standard]", "orjson"]
 
 [project.scripts]
-convert = "src.main:main"
+convert = "src.bin_factory.main:main"
+py123d-docker = "py123d_docker.cli:main"
+viz = "src.viz.server:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src", "src.*", "puffer_viz", "puffer_viz.*"]
+include = ["src", "src.*", "py123d_docker", "py123d_docker.*"]
 
 [tool.uv.sources]
-py123d = { git = "https://github.com/autonomousvision/py123d.git", branch = "dev_v0.0.9" }
+py123d = { git = "https://github.com/autonomousvision/py123d.git", branch = "main" }
