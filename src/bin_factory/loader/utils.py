@@ -22,16 +22,16 @@ def kmh_to_mph(speed_kmh: float) -> float:
 
 def get_object_xy_points(map_object: object) -> np.ndarray | None:
     if hasattr(map_object, "centerline"):
-        return map_object.centerline.array[:, :2]
+        return map_object.centerline.array[:, :2].astype(np.float64)
     if hasattr(map_object, "polyline_3d"):
-        return map_object.polyline_3d.array[:, :2]
+        return map_object.polyline_3d.array[:, :2].astype(np.float64)
     if hasattr(map_object, "outline_3d"):
-        return map_object.outline_3d.array[:, :2]
+        return map_object.outline_3d.array[:, :2].astype(np.float64)
     return None
 
 
 def centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
-    centered = array.astype(np.float32, copy=True)
+    centered = array.astype(np.float64, copy=True)
     if centered.shape[1] >= 2:
         centered[:, 0] -= center[0]
         centered[:, 1] -= center[1]

@@ -45,7 +45,7 @@ def convert_road_map_elements(
 
             # Ensure polyline has 3D coordinates
             if xyz.shape[1] == 2:
-                xyz = np.column_stack([xyz, np.zeros(len(xyz))])
+                xyz = np.column_stack([xyz, np.zeros(len(xyz), dtype=np.float64)])
 
             # Reverse xyz order for road edges in certain datasets
             if dataset_name.split("-")[0] in REVERGE_ROAD_EDGE_DATASETS and isinstance(element_type, RoadEdgeType):

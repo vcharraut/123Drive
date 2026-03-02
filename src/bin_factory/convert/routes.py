@@ -212,8 +212,8 @@ def extract_lane_centers(static_map_elements: dict) -> tuple[list, np.ndarray, d
 
     # Second pass: create padded array
     n_lanes = len(lane_ids)
-    lane_polylines = np.zeros((n_lanes, max_points, 2), dtype=np.float32)
-    lane_lengths = np.array(lane_lengths_list, dtype=np.int32)
+    lane_polylines = np.zeros((n_lanes, max_points, 2), dtype=np.float64)
+    lane_lengths = np.array(lane_lengths_list, dtype=np.int64)
 
     for i, polyline_2d in enumerate(lane_polylines_list):
         lane_polylines[i, : len(polyline_2d), :] = polyline_2d
@@ -248,7 +248,7 @@ def _build_route_polyline(route_path: list, lane_data: tuple) -> np.ndarray:
             route_polyline_segments.append(polyline_valid)
 
     if not route_polyline_segments:
-        return np.array([]).reshape(0, 2)
+        return np.zeros((0, 2), dtype=np.float64)
 
     # Concatenate all segments into single polyline
     route_polyline = np.vstack(route_polyline_segments)
@@ -291,7 +291,7 @@ def _check_route_heading_alignment(
 
     # Reshape route polyline for distance calculation
     route_polyline_batch = route_polyline[np.newaxis, :, :]  # (1, N_points, 2)
-    route_lengths = np.array([len(route_polyline)], dtype=np.int32)
+    route_lengths = np.array([len(route_polyline)], dtype=np.int64)
 
     # Find closest route segment for each sample
     _, closest_indices = _points_to_polylines_distance(
@@ -367,7 +367,7 @@ def _score_route_polyline(
 
     # Reshape route polyline for distance calculation
     route_polyline_batch = route_polyline[np.newaxis, :, :]  # (1, N_points, 2)
-    route_lengths = np.array([len(route_polyline)], dtype=np.int32)
+    route_lengths = np.array([len(route_polyline)], dtype=np.int64)
 
     # Compute distances from all trajectory points to route polyline
     min_distances = _points_to_polylines_distance(
@@ -437,7 +437,7 @@ def _compute_route(
     def _lane_polyline(lane_id: int | str) -> np.ndarray:
         idx = lane_id_to_idx.get(lane_id)
         if idx is None:
-            return np.zeros((0, 2), dtype=np.float32)
+            return np.zeros((0, 2), dtype=np.float64)
         length = lane_lengths[idx]
         return lane_polylines[idx, :length, :]
 
@@ -654,8 +654,8 @@ def _points_to_polylines_distance(
     max_segments = polylines.shape[1] - 1
 
     if n_points == 0 or n_lanes == 0 or max_segments <= 0:
-        empty_distances = np.zeros((n_points, n_lanes), dtype=np.float32)
-        empty_indices = np.zeros((n_points, n_lanes), dtype=np.int32)
+        empty_distances = np.zeros((n_points, n_lanes), dtype=np.float64)
+        empty_indices = np.zeros((n_points, n_lanes), dtype=np.int64)
         return (empty_distances, empty_indices) if return_indices else empty_distances
 
     # Extract segment endpoints: (N_lanes, max_segments, 2)
@@ -663,7 +663,7 @@ def _points_to_polylines_distance(
     seg_ends = polylines[:, 1:, :]
 
     if polyline_lengths is not None:
-        polyline_lengths = np.asarray(polyline_lengths, dtype=np.int32)
+        polyline_lengths = np.asarray(polyline_lengths, dtype=np.int64)
         if len(polyline_lengths) != n_lanes:
             raise ValueError("polyline_lengths must match number of polylines")
         seg_counts = np.clip(polyline_lengths - 1, 0, max_segments)
@@ -713,7 +713,7 @@ def _points_to_polylines_distance(
 
     # Find minimum distance and optionally closest segment index
     if return_indices:
-        closest_indices = np.argmin(distances_sq, axis=2).astype(np.int32)  # (N_points, N_lanes)
+        closest_indices = np.argmin(distances_sq, axis=2).astype(np.int64)  # (N_points, N_lanes)
         min_distances_sq = np.min(distances_sq, axis=2)  # (N_points, N_lanes)
         min_distances = np.sqrt(min_distances_sq)
         return min_distances, closest_indices

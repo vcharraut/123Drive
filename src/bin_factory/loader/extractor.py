@@ -79,13 +79,13 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
 def _make_empty_agent(episode_length, agent_type):
     return {
         "type": agent_type,
-        "position": np.zeros((episode_length, 3), dtype=np.float32),
-        "heading": np.zeros((episode_length,), dtype=np.float32),
-        "velocity": np.zeros((episode_length, 2), dtype=np.float32),
+        "position": np.zeros((episode_length, 3), dtype=np.float64),
+        "heading": np.zeros((episode_length,), dtype=np.float64),
+        "velocity": np.zeros((episode_length, 2), dtype=np.float64),
         "valid": np.zeros((episode_length,), dtype=np.bool_),
-        "length": np.zeros((episode_length,), dtype=np.float32),
-        "width": np.zeros((episode_length,), dtype=np.float32),
-        "height": np.zeros((episode_length,), dtype=np.float32),
+        "length": np.zeros((episode_length,), dtype=np.float64),
+        "width": np.zeros((episode_length,), dtype=np.float64),
+        "height": np.zeros((episode_length,), dtype=np.float64),
     }
 
 
@@ -202,7 +202,7 @@ def extract_traffic_lights(scene: SceneAPI, map_api: MapAPI | None, centroid: np
             if lane_id not in elements:
                 position = get_lane_position(map_api, lane_id, centroid)
                 elements[lane_id] = {
-                    "position": np.array(position, dtype=np.float32),
+                    "position": np.array(position, dtype=np.float64),
                     "states": [None] * episode_length,
                     "controlled_lane": lane_id,
                 }
@@ -215,7 +215,7 @@ def extract_traffic_lights(scene: SceneAPI, map_api: MapAPI | None, centroid: np
 def _compute_map_centroid_from_ego_positions(scene: SceneAPI) -> np.ndarray:
     """Compute map centroid using ego vehicle position from py123d SceneAPI."""
     episode_length = scene.number_of_iterations
-    positions = np.array([[0.0, 0.0]] * episode_length, dtype=np.float32)
+    positions = np.array([[0.0, 0.0]] * episode_length, dtype=np.float64)
 
     for frame_idx in range(episode_length):
         ego_state = scene.get_ego_state_at_iteration(frame_idx)

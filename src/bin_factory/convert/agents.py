@@ -43,7 +43,7 @@ def convert_agents(
 
         if position.shape[1] == 2:
             # Add z=0 if only x,y provided
-            position = np.column_stack([position, np.zeros(len(position))])
+            position = np.column_stack([position, np.zeros(len(position), dtype=np.float64)])
 
         # Get heading, velocity, dimensions
         heading = agent_data["heading"]

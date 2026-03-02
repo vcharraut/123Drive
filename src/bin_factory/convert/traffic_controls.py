@@ -45,7 +45,7 @@ def convert_traffic_control_elements(traffic_lights: dict, _objects: dict, map: 
         states_list = states.tolist() if isinstance(states, np.ndarray) else states
 
         states_int = [_convert_traffic_light_state_to_int(s) for s in states_list]
-        states_int = np.array(states_int, dtype=np.int32)
+        states_int = np.array(states_int, dtype=np.int64)
 
         # Normalize controlled_lane to list (PufferDrive expects list)
         if isinstance(controlled_lane, int):
