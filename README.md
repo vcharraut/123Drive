@@ -7,11 +7,11 @@ Converts [py123d](https://github.com/autonomousvision/py123d) data to [PufferDri
 Three tools, run in order:
 
 ```
-Raw dataset  →  [py123d-docker]  →  py123d Arrow files  →  [convert]  →  .bin  →  [viz]
+Raw dataset  →  [py123d-docker]  →  py123d Arrow files  →  [bin_factory]  →  .bin  →  [viz]
 ```
 
 1. **`py123d-docker`** — Docker wrapper that runs py123d's extraction pipeline, producing Arrow files per dataset/split.
-2. **`convert`** — Reads Arrow files, applies transforms (interpolation, traffic lights, validation), outputs `.bin` scenarios.
+2. **`bin_factory`** — Reads Arrow files, applies transforms (interpolation, traffic lights, validation), outputs `.bin` scenarios.
 3. **`viz`** — FastAPI server for inspecting `.bin` files in a browser.
 
 ## Usage
@@ -20,22 +20,47 @@ Raw dataset  →  [py123d-docker]  →  py123d Arrow files  →  [convert]  → 
 # Basic conversion
 uv run convert --dataset_path /path/to/data --output_dir ./output
 
-# With processors
-uv run convert --dataset_path /path/to/data --output_dir ./output --interpolate --traffic_lights --validate
+# With traffic lights and strict validation
+uv run convert --dataset_path /path/to/data --output_dir ./output --traffic_lights --validate_level 2
 
-# Parallel processing
-uv run convert --dataset_path /path/to/data --output_dir ./output --num_workers 8 --batch_size 10
+# Parallel processing with dataset filtering
+uv run convert --dataset_path /path/to/data --output_dir ./output --num_workers 8 --datasets nuplan --max_scenarios 100
 ```
 
 ## Options
 
-| Flag | Description |
-|------|-------------|
-| `--interpolate` | Densify road geometry polylines |
-| `--traffic_lights` | Generate synthetic traffic light sequences |
-| `--validate` | Validate output before binary encoding |
-| `--max_scenarios N` | Limit number of scenarios to process |
-| `--map_only` | Load map-only scenarios (no logs) |
+**Core:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--dataset_path` | required | Path to py123d dataset (logs/ and maps/) |
+| `--output_dir` | `./output` | Directory to save binary files |
+| `--num_workers` | `1` | Number of parallel workers |
+
+**Dataset filtering:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--max_scenarios N` | all | Limit number of scenarios |
+| `--datasets` | all | Dataset names to include (e.g. `nuplan wod-motion`) |
+| `--split_types` | all | Split types (e.g. `train val test`) |
+| `--split_names` | all | Split names (e.g. `nuplan-mini_val`) |
+| `--log_names` | all | Specific log names |
+| `--duration_s` | `0` | Scenario duration in seconds (0 = full) |
+| `--history_s` | `0` | History duration in seconds |
+| `--map_only` | off | Load map-only scenarios (no logs) |
+
+**Transforms & validation:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--traffic_lights` | off | Generate synthetic traffic light sequences |
+| `--validate_level` | `1` | 0 = none, 1 = soft (structure), 2+ = strict (physics) |
+| `--max_segment_length` | `2.0` | Max segment length for polyline interpolation (m) |
+| `--area_threshold` | `0.1` | Visvalingam-Whyatt simplification threshold (0 = disabled) |
+| `--dist_threshold` | `10.0` | Distance threshold for road graph |
+| `--min_route_valid_points` | `0` | Min valid trajectory points for route computation (0 = no filter) |
+| `--route_check_timestep` | `0` | Timestep at which agent must be valid for route computation |
 
 ## Visualize output
 
@@ -112,7 +137,7 @@ Features available in py123d and their extraction status. [X] = extracted, [ ] =
 | Feature | Extracted | Notes |
 |---------|-----------|-------|
 | Centerline polyline (3D) | [X] | |
-| Speed limit | [X] | Converted mps -> kmh -> mph |
+| Speed limit | [X] | Stored as m/s |
 | Predecessor lanes | [X] | Connectivity |
 | Successor lanes | [X] | Connectivity |
 | Left/right lane IDs | [X] | Stored in intermediate, not output to binary yet |
@@ -151,7 +176,7 @@ Features available in py123d and their extraction status. [X] = extracted, [ ] =
 | WALKWAY | [ ] | Pedestrian walkway surfaces |
 | CARPARK | [ ] | Parking area surfaces |
 | GENERIC_DRIVABLE | [ ] | Generic drivable area surfaces |
-| STOP_ZONE | [ ] | Stop zone surfaces (placeholder in py123d) |
+| STOP_ZONE | [X] | Stop zone polygon + controlled lane IDs |
 
 ### Traffic Lights
 
@@ -190,3 +215,8 @@ From `TrafficLightDetection`:
 | Speed bumps | Type 32 in road_map_elements, not populated from source |
 | Driveways | Type 33 in road_map_elements, not populated from source |
 
+
+## Acknowledgements
+
+- [py123d](https://github.com/autonomousvision/py123d)
+- [Improving Traffic Signal Data Quality for the Waymo Open Motion Dataset](https://arxiv.org/abs/2506.07150) for the traffic lights improvement on WOMD
