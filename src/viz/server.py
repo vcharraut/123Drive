@@ -49,7 +49,7 @@ def serialize_scenario(data: dict) -> dict:
         agents.append({
             "id": agent["id"],
             "type": agent["type"],
-            "xyz": _arr(states.get("xyz")),
+            "xyz": _arr(xyz),
             "heading": _arr(states.get("heading")),
             "velocity": _arr(states.get("velocity")),
             "length": _arr(states.get("length")),

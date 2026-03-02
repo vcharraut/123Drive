@@ -29,7 +29,7 @@
     el.classList.add(cls);
   }
 
-  function getRoadChevrons(xyz, spacingM = 18, sizeM = 2.5) {
+  function getRoadChevrons(xyz, spacingM = 3, sizeM = 0.4) {
     const arrows = [];
     let dist = 0;
     let nextArrow = spacingM * 0.4;

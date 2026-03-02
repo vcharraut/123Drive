@@ -274,9 +274,13 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
     result = {}
     non_lane_objects = []
 
-    # Layers handled directly by convert_map_object_to_static_element:
-    # LANE(0), CROSSWALK(3), STOP_ZONE(7), ROAD_EDGE(8), ROAD_LINE(9)
-    _SKIPPED_LAYERS = {1, 2, 4, 5, 6}
+    _SKIPPED_LAYERS = {
+        MapLayer.LANE_GROUP,
+        MapLayer.INTERSECTION,
+        MapLayer.WALKWAY,
+        MapLayer.CARPARK,
+        MapLayer.GENERIC_DRIVABLE,
+    }
     for obj in _iter_map_objects(map_api, centroid, map_only):
         if obj.layer == MapLayer.LANE:
             result[obj.object_id] = convert_map_object_to_static_element(obj, centroid)
@@ -287,7 +291,7 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
     # (object_id namespaces overlap across map layers)
     next_id = max(result.keys(), default=-1) + 1
     for obj in non_lane_objects:
-        if int(obj.layer) not in _SKIPPED_LAYERS:
+        if obj.layer not in _SKIPPED_LAYERS:
             element = convert_map_object_to_static_element(obj, centroid)
             if element is None:
                 continue
@@ -298,8 +302,7 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
 
 
 def convert_map_object_to_static_element(map_object, centroid):
-    layer = int(map_object.layer)
-    if layer == MapLayer.LANE:
+    if map_object.layer == MapLayer.LANE:
         polyline = centered_array(map_object.centerline.array, centroid)
         speed_limit_mps = float(map_object.speed_limit_mps) if map_object.speed_limit_mps is not None else -1.0
         return {
@@ -314,28 +317,28 @@ def convert_map_object_to_static_element(map_object, centroid):
             "right_boundaries": [],
         }
 
-    if layer == MapLayer.ROAD_LINE:
+    if map_object.layer == MapLayer.ROAD_LINE:
         polyline = centered_array(map_object.polyline_3d.array, centroid)
         return {
             "type": map_object.road_line_type,
             "polyline": polyline,
         }
 
-    if layer == MapLayer.ROAD_EDGE:
+    if map_object.layer == MapLayer.ROAD_EDGE:
         polyline = centered_array(map_object.polyline_3d.array, centroid)
         return {
             "type": map_object.road_edge_type,
             "polyline": polyline,
         }
 
-    if layer == MapLayer.CROSSWALK:
+    if map_object.layer == MapLayer.CROSSWALK:
         polygon = centered_array(map_object.outline_3d.array, centroid)
         return {
             "type": types.CROSSWALK,
             "polygon": polygon,
         }
 
-    if layer == MapLayer.STOP_ZONE:
+    if map_object.layer == MapLayer.STOP_ZONE:
         polygon = centered_array(map_object.outline_3d.array, centroid)
         return {
             "type": map_object.stop_zone_type,
