@@ -13,7 +13,6 @@ from src.bin_factory.convert import types as puffer_types
 logger = logger_utils.get_logger(__name__)
 
 
-
 def _position_to_group_key(position, decimals=1):
     rounded = np.round(np.asarray(position, dtype=np.float64), decimals=decimals)
     return tuple(rounded.tolist())
@@ -99,7 +98,6 @@ def convert_traffic_control_elements(traffic_lights: dict, _objects: dict, map: 
                     next_id += 1
 
     return puffer_elements
-
 
 
 def _convert_traffic_light_state_to_int(state) -> int:

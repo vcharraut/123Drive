@@ -58,41 +58,47 @@ def serialize_scenario(data: dict) -> dict:
             if pts is not None:
                 route_polyline = pts.tolist()
 
-        agents.append({
-            "id": agent["id"],
-            "type": agent["type"],
-            "xyz": _arr(xyz),
-            "heading": _arr(states.get("heading")),
-            "velocity": _arr(states.get("velocity")),
-            "length": _arr(states.get("length")),
-            "width": _arr(states.get("width")),
-            "height": _arr(states.get("height")),
-            "valid": _arr(states.get("valid")),
-            "routes": agent.get("routes", []),
-            "route_polyline": route_polyline,
-        })
+        agents.append(
+            {
+                "id": agent["id"],
+                "type": agent["type"],
+                "xyz": _arr(xyz),
+                "heading": _arr(states.get("heading")),
+                "velocity": _arr(states.get("velocity")),
+                "length": _arr(states.get("length")),
+                "width": _arr(states.get("width")),
+                "height": _arr(states.get("height")),
+                "valid": _arr(states.get("valid")),
+                "routes": agent.get("routes", []),
+                "route_polyline": route_polyline,
+            }
+        )
 
     roads = []
     for elem in road_elements:
         xyz = elem.get("xyz")
-        roads.append({
-            "id": elem["id"],
-            "type": elem["type"],
-            "xyz": _arr(xyz),
-            "entry_lanes": elem.get("entry_lanes", []),
-            "exit_lanes": elem.get("exit_lanes", []),
-            "speed_limit": elem.get("speed_limit", 0.0),
-        })
+        roads.append(
+            {
+                "id": elem["id"],
+                "type": elem["type"],
+                "xyz": _arr(xyz),
+                "entry_lanes": elem.get("entry_lanes", []),
+                "exit_lanes": elem.get("exit_lanes", []),
+                "speed_limit": elem.get("speed_limit", 0.0),
+            }
+        )
 
     traffic = []
     for elem in data.get("traffic_control_elements", []):
-        traffic.append({
-            "id": elem["id"],
-            "type": elem["type"],
-            "xyz": _arr(elem.get("xyz")),
-            "states": elem.get("states", []),
-            "controlled_lanes": elem.get("controlled_lanes", []),
-        })
+        traffic.append(
+            {
+                "id": elem["id"],
+                "type": elem["type"],
+                "xyz": _arr(elem.get("xyz")),
+                "states": elem.get("states", []),
+                "controlled_lanes": elem.get("controlled_lanes", []),
+            }
+        )
 
     return {
         "scenario_id": data.get("scenario_id", ""),

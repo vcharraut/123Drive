@@ -52,5 +52,3 @@ def get_lane_position(map_api: MapAPI | None, lane_id: int, center: np.ndarray) 
     z = float(point[2]) if len(point) > 2 else 0.0
 
     return [x, y, z]
-
-
