@@ -1,7 +1,10 @@
 /* Puffer Viz — deck.gl client-side renderer */
 'use strict';
 
-const {DeckGL, OrthographicView, OrbitView, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer, PathStyleExtension, LinearInterpolator} = window.deck;
+const {DeckGL, OrthographicView, OrbitView, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer, PathStyleExtension, LinearInterpolator, COORDINATE_SYSTEM} = window.deck;
+
+// Flip Y axis: data uses Y-up (north) but OrthographicView uses Y-down (screen)
+const FLIP_Y = [1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const {
   escapeHtml,
   safeIdList,
@@ -482,7 +485,10 @@ function render() {
   const t = state.timestep;
   const staticL = getStaticLayers(s, state.layers);
   const dynL = getDynamicLayers(s, t, state.layers, state.selected);
-  deckgl.setProps({layers: [...staticL, ...dynL]});
+  const allLayers = [...staticL, ...dynL].map(
+    l => l.clone({modelMatrix: FLIP_Y})
+  );
+  deckgl.setProps({layers: allLayers});
 
   if (state.followEgo) {
     const ego = getEgoState(s, t);

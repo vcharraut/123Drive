@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.viz.binary_loader import load_puffer_binary
 from src.viz.web.utils import build_lane_map, compute_route_polyline
@@ -17,6 +18,17 @@ from src.viz.web.utils import build_lane_map, compute_route_polyline
 
 app = FastAPI()
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if request.url.path.endswith((".js", ".css", ".html")):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return response
+
+
+app.add_middleware(NoCacheStaticMiddleware)
 
 SCENARIO_DIR: Path = None
 _SCENARIO_CACHE: dict[str, tuple[int, int, bytes]] = {}
