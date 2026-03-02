@@ -55,7 +55,7 @@ def convert_to_puffer_dict(
     }
 
 
-def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:  # noqa: C901
+def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:
     agents = puffer_dict["agents"]
     road_map_elements = puffer_dict["road_map_elements"]
     traffic_control_elements = puffer_dict["traffic_control_elements"]

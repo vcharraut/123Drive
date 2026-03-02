@@ -177,7 +177,7 @@ def has_unprotected_left_turns(tls_state: list[dict[tuple, TLS]]) -> bool:
 def assign_veh_states_to_lane(
     tracks: dict,
     lane_center_matrix: np.ndarray,
-    row_to_lane_id: dict = None,
+    row_to_lane_id: dict | None = None,
     start_step: int = 0,
     end_step: int = 91,
     DISTANCE_CRITERIA: float = 4,

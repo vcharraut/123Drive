@@ -25,11 +25,17 @@ def build_hydra_args(dataset, output, config, splits, workers, extra_overrides):
 
 def build_docker_run_cmd(dataset, data_root, output, hydra_args, shm_size, ipc_host, network_host):
     cmd = [
-        "docker", "run", "--rm",
-        "-e", "HYDRA_FULL_ERROR=1",
-        "-e", "CUDA_VISIBLE_DEVICES=",
-        "-e", "TF_CPP_MIN_LOG_LEVEL=3",
-        "--ulimit", "nofile=65536:65536",
+        "docker",
+        "run",
+        "--rm",
+        "-e",
+        "HYDRA_FULL_ERROR=1",
+        "-e",
+        "CUDA_VISIBLE_DEVICES=",
+        "-e",
+        "TF_CPP_MIN_LOG_LEVEL=3",
+        "--ulimit",
+        "nofile=65536:65536",
     ]
     cmd += ["--ipc=host"] if ipc_host else [f"--shm-size={shm_size}"]
     if network_host:
@@ -108,7 +114,11 @@ def main():
     )
     parser.add_argument("--no_network_host", dest="network_host", action="store_false")
     parser.add_argument(
-        "--extra", nargs="+", default=[], metavar="OVERRIDE", help="Extra Hydra overrides (appended last)"
+        "--extra",
+        nargs="+",
+        default=[],
+        metavar="OVERRIDE",
+        help="Extra Hydra overrides (appended last)",
     )
     parser.add_argument("--dry_run", action="store_true", help="Print commands without running")
     parser.add_argument("--build_only", action="store_true", help="Build Docker image only")
@@ -153,7 +163,13 @@ def main():
     )
     run_cmd(
         build_docker_run_cmd(
-            args.dataset, data_root, output, hydra_args, args.shm_size, args.ipc_host, args.network_host
+            args.dataset,
+            data_root,
+            output,
+            hydra_args,
+            args.shm_size,
+            args.ipc_host,
+            args.network_host,
         ),
         args.dry_run,
         label="docker run",

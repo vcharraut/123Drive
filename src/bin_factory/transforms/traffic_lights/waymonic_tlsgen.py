@@ -91,7 +91,7 @@ class WaymonicTLSGenerator:
         if len(self.signalized_intersections):
             # only do this if there is any signalized intersections. since this step is time consuming
             if not veh_states_file or not os.path.exists(Path(veh_states_file)):
-                lane_center_matrix, lc_id_to_row, row_to_lc_id = self._form_waymonic_lanecenter_matrix()
+                lane_center_matrix, _lc_id_to_row, row_to_lc_id = self._form_waymonic_lanecenter_matrix()
                 veh_assignment = assign_veh_states_to_lane(
                     self.scenario["agents"],
                     lane_center_matrix,

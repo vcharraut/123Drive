@@ -151,7 +151,7 @@ class LaneCenter:
         id,
         lane,
         needs_stop: bool = False,
-        tl_state_record: list[WaymonicTLS] = None,
+        tl_state_record: list[WaymonicTLS] | None = None,
         length: int = 0,
     ) -> None:
         self.id: int = id

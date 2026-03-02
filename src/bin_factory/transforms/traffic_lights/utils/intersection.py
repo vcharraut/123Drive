@@ -3,7 +3,7 @@ from .geometry import classify_direction
 
 
 class VehicleState:
-    def __init__(self, object_id: int, lane_pos_idx: int, speed: float, acceleration: float = None):
+    def __init__(self, object_id: int, lane_pos_idx: int, speed: float, acceleration: float | None = None):
         self.object_id: int = object_id
         self.lane_pos_idx: int = lane_pos_idx
         self.speed: float = speed  # m/s
@@ -14,8 +14,8 @@ class InJunctionLane:
     def __init__(
         self,
         shape: list[Pt],
-        record_tls: list = None,
-        record_vehs: list[dict[int, VehicleState]] = None,
+        record_tls: list | None = None,
+        record_vehs: list[dict[int, VehicleState]] | None = None,
         id=None,
         length: int = 0,
     ) -> None:
@@ -41,8 +41,8 @@ class ApproachingLane:
     def __init__(
         self,
         shape: list[Pt],
-        record_vehs: list[dict[int, VehicleState]] = None,
-        injunction_lanes: list[InJunctionLane] = None,
+        record_vehs: list[dict[int, VehicleState]] | None = None,
+        injunction_lanes: list[InJunctionLane] | None = None,
         id=None,
         length: int = 0,
     ) -> None:

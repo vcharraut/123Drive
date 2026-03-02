@@ -22,7 +22,7 @@ Each candidate route is scored by:
 2. Computing distance from each GT trajectory point to the route polyline
 3. Calculating coverage (% of trajectory within LANE_WIDTH_THRESHOLD)
 4. Calculating distance_score (1 / (1 + avg_distance) for covered points)
-5. Final score = coverage × distance_score
+5. Final score = coverage * distance_score
 
 Routes with heading misalignment (agent traveling wrong direction) are rejected.
 """
@@ -56,7 +56,7 @@ ROOT_LANE_MIN_SCORE = 0.3  # Minimum score for root lane candidate to be conside
 ALIGNMENT_WEIGHT = 0.7  # Weight for directional alignment (heading match)
 DISTANCE_WEIGHT = 0.3  # Weight for spatial proximity
 # Combined weights sum to 1.0 for interpretable normalized scoring
-# Note: Route scoring uses geometric distance (coverage × distance_score), not these weights
+# Note: Route scoring uses geometric distance (coverage * distance_score), not these weights
 
 # Controllable vehicle filtering constants
 OFFROAD_DISTANCE_THRESHOLD = 5.0  # Meters - max distance from closest lane to be considered on-road
@@ -330,7 +330,7 @@ def _score_route_geometric(
     """
     Score route using geometric distance from trajectory to full route polyline.
 
-    Uses multiplicative scoring: coverage × distance_score, where:
+    Uses multiplicative scoring: coverage * distance_score, where:
     - coverage: Percentage of trajectory points within LANE_WIDTH_THRESHOLD of route
     - distance_score: 1 / (1 + avg_distance) for covered points
 
@@ -398,7 +398,7 @@ def _score_route_polyline(
 
     distance_score = 1.0 / (1.0 + avg_distance)
 
-    # Multiplicative score: coverage × distance_score
+    # Multiplicative score
     final_score = coverage_ratio * distance_score
 
     return final_score
@@ -734,7 +734,7 @@ def _get_lane_directions_at_indices_batch(polylines: np.ndarray, indices: np.nda
     Returns:
         Array of normalized direction vectors (N_points, N_lanes, 2)
     """
-    n_points, n_lanes = indices.shape
+    n_lanes = indices.shape[1]
     max_points = polylines.shape[1]
 
     # Create meshgrid for lane indices (point_idx not needed due to numpy broadcasting)
