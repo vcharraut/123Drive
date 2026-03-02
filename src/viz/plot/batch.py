@@ -12,7 +12,9 @@ def main():
 
     parser.add_argument("input_dir", help="Input directory with Puffer files (.json or .bin)")
     parser.add_argument("output_dir", help="Output directory for visualizations")
-    parser.add_argument("--format", choices=["png", "video", "both"], default="png", help="Output format (default: png)")
+    parser.add_argument(
+        "--format", choices=["png", "video", "both"], default="png", help="Output format (default: png)"
+    )
     parser.add_argument("--timestep", type=int, default=0, help="Timestep for PNG export (default: 0)")
     parser.add_argument("--fps", type=int, default=10, help="FPS for video export (default: 10)")
     parser.add_argument("--max-scenarios", type=int, help="Maximum number of scenarios to process")
@@ -26,7 +28,7 @@ def main():
     input_path = Path(args.input_dir)
     all_files = sorted(input_path.glob("*.bin")) + sorted(input_path.glob("*.json"))
     if args.max_scenarios:
-        all_files = all_files[:args.max_scenarios]
+        all_files = all_files[: args.max_scenarios]
 
     if not all_files:
         print(f"No Puffer files found in {args.input_dir}", file=sys.stderr)

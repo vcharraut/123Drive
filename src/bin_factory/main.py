@@ -10,7 +10,6 @@ from src.bin_factory.convert.pufferdrive import convert_to_puffer_dict, puffer_d
 from src.bin_factory.loader.extractor import convert_py123d_scenario
 from src.bin_factory.loader.load import get_py123d_scenarios
 from src.bin_factory.transforms.polyline import process_polylines
-from src.bin_factory.transforms.traffic_lights.processor import add_traffic_lights_to_scenario
 from src.bin_factory.transforms.validation import soft_validate, strict_validate
 
 

@@ -44,6 +44,7 @@ TRAFFIC_CONE = 5
 TRAFFIC_BARRIER = 6
 GUARDRAIL = 7
 
+
 # Range check helpers
 def is_road_lane(t):
     return 0 <= t <= 9

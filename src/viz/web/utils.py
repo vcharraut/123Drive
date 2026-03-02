@@ -223,11 +223,11 @@ def rdp_simplify(pts: np.ndarray, epsilon: float = 0.5) -> np.ndarray:
         seg = pts[j, :2] - pts[i, :2]
         norm = np.linalg.norm(seg)
         if norm < 1e-10:
-            dists = np.linalg.norm(pts[i:j+1, :2] - pts[i, :2], axis=1)
+            dists = np.linalg.norm(pts[i : j + 1, :2] - pts[i, :2], axis=1)
         else:
-            t = np.dot(pts[i:j+1, :2] - pts[i, :2], seg) / (norm * norm)
+            t = np.dot(pts[i : j + 1, :2] - pts[i, :2], seg) / (norm * norm)
             proj = pts[i, :2] + np.outer(np.clip(t, 0, 1), seg)
-            dists = np.linalg.norm(pts[i:j+1, :2] - proj, axis=1)
+            dists = np.linalg.norm(pts[i : j + 1, :2] - proj, axis=1)
         k = int(np.argmax(dists)) + i
         if dists[k - i] > epsilon:
             keep[k] = True

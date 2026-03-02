@@ -4,13 +4,13 @@ Convert traffic control elements from intermediate format to Puffer format.
 
 import numpy as np
 from py123d.datatypes.detections.traffic_light_detections import TrafficLightStatus
+from py123d.datatypes.map_objects.map_layer_types import StopZoneType
 
 from src.bin_factory import logger_utils
 from src.bin_factory.convert import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)
-
 
 
 def _position_to_group_key(position, decimals=1):
@@ -98,7 +98,6 @@ def convert_traffic_control_elements(traffic_lights: dict, _objects: dict, map: 
                     next_id += 1
 
     return puffer_elements
-
 
 
 def _convert_traffic_light_state_to_int(state) -> int:
