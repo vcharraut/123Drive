@@ -3,8 +3,10 @@
 
 const {DeckGL, OrthographicView, OrbitView, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer, PathStyleExtension, LinearInterpolator, COORDINATE_SYSTEM} = window.deck;
 
-// Flip Y axis: data uses Y-up (north) but OrthographicView uses Y-down (screen)
+// Flip Y axis: data uses Y-up (north) but OrthographicView uses Y-down (screen).
+// Only applied in 2D; 3D uses identity to preserve chirality (driving side).
 const FLIP_Y = [1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const {
   escapeHtml,
   safeIdList,
@@ -103,7 +105,11 @@ const deckgl = new DeckGL({
   layers: [],
   parameters: { clearColor: [1, 1, 1, 1] },
   onViewStateChange: ({viewState}) => {
-    if (!state.followEgo) {
+    if (state.followEgo) {
+      // Allow zoom changes only
+      state.viewState = {...state.viewState, zoom: viewState.zoom};
+      deckgl.setProps({viewState: state.viewState});
+    } else {
       state.viewState = viewState;
       deckgl.setProps({viewState});
     }
@@ -485,8 +491,9 @@ function render() {
   const t = state.timestep;
   const staticL = getStaticLayers(s, state.layers);
   const dynL = getDynamicLayers(s, t, state.layers, state.selected);
+  const mm = state.viewMode === '2d' ? FLIP_Y : IDENTITY;
   const allLayers = [...staticL, ...dynL].map(
-    l => l.clone({modelMatrix: FLIP_Y})
+    l => l.clone({modelMatrix: mm})
   );
   deckgl.setProps({layers: allLayers});
 
@@ -498,16 +505,16 @@ function render() {
       const zoom = Math.log2(size / (2 * r));
       let vs;
       if (state.viewMode === '2d') {
-        vs = {target: [ego.x, ego.y, 0], zoom, transitionDuration: 80};
+        const curZoom = state.viewState.zoom ?? zoom;
+        vs = {target: [ego.x, -ego.y, 0], zoom: curZoom, transitionDuration: 80};
       } else {
-        // TPS: camera behind + slightly above ego.
-        // OrbitView azimuth 0 = camera in -Y (north). heading 0 = east (+X).
-        // Camera-behind = opposite of heading direction → rotationOrbit = -headingDeg - 90.
+        // TPS: camera behind + slightly above ego (no FLIP_Y in 3D).
+        // OrbitView azimuth 0 = -Y direction. +180 to place camera behind ego.
         const headingDeg = ego.heading * 180 / Math.PI;
         vs = {
           target: [ego.x, ego.y, 0],
-          zoom: zoom - 1,
-          rotationOrbit: -headingDeg - 90,
+          zoom: state.viewState.zoom ?? zoom,
+          rotationOrbit: -headingDeg + 90,
           rotationX: 20,
           transitionDuration: 60,
         };
@@ -589,6 +596,9 @@ async function loadScenario(filename) {
     setAppStatus(`Loaded ${filename}`, 'ok');
 
     fitView();
+    // Center on SDC if available
+    const ego = getEgoState(data, 0);
+    if (ego) setViewState({...state.viewState, target: [ego.x, -ego.y, 0]});
     render();
   } catch (err) {
     state.lastError = String(err?.message || err);
@@ -628,8 +638,11 @@ function fitView() {
   const w = b.xmax - b.xmin, h = b.ymax - b.ymin;
   const cw = deckContainer.clientWidth, ch = deckContainer.clientHeight;
   const zoom = Math.log2(Math.min(cw / (w * 1.1), ch / (h * 1.1)));
+  const rotation = state.viewMode === '3d'
+    ? {rotationX: state.viewState.rotationX || 30, rotationOrbit: state.viewState.rotationOrbit || 0}
+    : {};
   setViewState({
-    target: [b.cx, b.cy, 0], zoom,
+    target: [b.cx, state.viewMode === '2d' ? -b.cy : b.cy, 0], zoom, ...rotation,
     transitionDuration: 600,
     transitionInterpolator: LinearInterpolator && new LinearInterpolator(['target', 'zoom']),
   });
@@ -743,7 +756,18 @@ document.getElementById('btn-3d').addEventListener('click', () => {
   document.getElementById('btn-3d').textContent = state.viewMode === '3d' ? '3D' : '2D';
   state.staticLayerCacheKey = null;
   if (state.viewMode === '3d') {
-    state.viewState = { ...state.viewState, rotationX: 30, rotationOrbit: 0 };
+    const ego = state.scenario ? getEgoState(state.scenario, state.timestep) : null;
+    if (ego) {
+      const headingDeg = ego.heading * 180 / Math.PI;
+      state.viewState = {
+        ...state.viewState,
+        target: [ego.x, ego.y, 0],
+        rotationOrbit: -headingDeg + 90,
+        rotationX: 20,
+      };
+    } else {
+      state.viewState = { ...state.viewState, rotationX: 30, rotationOrbit: 0 };
+    }
     deckgl.setProps({views: [new OrbitView({id:'main', fov:50})], viewState: state.viewState});
   } else {
     state.viewState = { ...state.viewState, rotationX: 0, rotationOrbit: 0 };
