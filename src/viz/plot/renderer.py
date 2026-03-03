@@ -457,6 +457,33 @@ def _render_traffic_lights(ax: plt.Axes, puffer_scenario: dict, timestep: int) -
             ),
         )
 
+        # Draw stop line if geometry is present
+        stop_line = element.get("stop_line")
+        if stop_line is not None:
+            sl = np.asarray(stop_line)
+            ax.plot(
+                [sl[0, 0], sl[1, 0]],
+                [sl[0, 1], sl[1, 1]],
+                color="red",
+                linewidth=1.5,
+                zorder=16,
+                solid_capstyle="round",
+            )
+
+            # Draw orientation arrow from the traffic light xyz position
+            orientation = element.get("orientation")
+            if orientation is not None:
+                orient = np.asarray(orientation)
+                arrow_len = 3.0
+                ax.quiver(
+                    x, y,
+                    orient[0] * arrow_len, orient[1] * arrow_len,
+                    angles="xy", scale_units="xy", scale=1,
+                    color="red", width=0.008,
+                    headwidth=4, headlength=5, headaxislength=4,
+                    zorder=17,
+                )
+
 
 def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_future: bool) -> None:
     """Render dynamic agents (vehicles, pedestrians, cyclists) at the given timestep."""

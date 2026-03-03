@@ -97,6 +97,8 @@ def serialize_scenario(data: dict) -> dict:
                 "xyz": _arr(elem.get("xyz")),
                 "states": elem.get("states", []),
                 "controlled_lanes": elem.get("controlled_lanes", []),
+                "stop_line": _arr(elem.get("stop_line")),
+                "orientation": _arr(elem.get("orientation")),
             }
         )
 

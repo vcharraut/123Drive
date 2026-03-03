@@ -269,10 +269,25 @@ def _read_traffic_control_element(f) -> dict:
     if num_controlled_lanes > 0:
         controlled_lanes = list(struct.unpack(f"{num_controlled_lanes}i", f.read(4 * num_controlled_lanes)))
 
-    return {
+    # Read stop-line geometry (count = 0 or 2) + optional orientation
+    stop_line = None
+    orientation = None
+    sl_count = struct.unpack("i", f.read(4))[0]
+    if sl_count == 2:
+        sl_data = np.frombuffer(f.read(2 * 3 * 4), dtype=np.float32).reshape(2, 3)
+        stop_line = sl_data.astype(np.float64)
+        ox, oy = struct.unpack("ff", f.read(8))
+        orientation = np.array([ox, oy], dtype=np.float64)
+
+    result = {
         "id": traffic_id,
         "type": traffic_type,
         "xyz": np.array([x, y, z]),
         "states": states,
         "controlled_lanes": controlled_lanes,
     }
+    if stop_line is not None:
+        result["stop_line"] = stop_line
+    if orientation is not None:
+        result["orientation"] = orientation
+    return result

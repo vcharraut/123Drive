@@ -174,6 +174,17 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:
         for lane in controlled_lanes:
             buffer.extend(struct.pack("i", int(lane)))
 
+        sl = element.get("stop_line")
+        if sl is not None:
+            sl_arr = np.asarray(sl, dtype=np.float32)
+            buffer.extend(struct.pack("i", 2))          # count = 2 points
+            buffer.extend(sl_arr.tobytes())             # 2 × 3 × 4 bytes
+            orient = element.get("orientation")
+            ox, oy = (float(orient[0]), float(orient[1])) if orient is not None else (0.0, 0.0)
+            buffer.extend(struct.pack("ff", ox, oy))    # orientation unit vector xy
+        else:
+            buffer.extend(struct.pack("i", 0))          # no stop line
+
     # Metadata
     scenario_id = puffer_dict["scenario_id"][:128]
     buffer.extend(scenario_id.encode("utf-8").ljust(128, b"\0"))

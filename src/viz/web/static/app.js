@@ -393,6 +393,53 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       stroked: true, lineWidthUnits: 'pixels', getLineWidth: 1,
       pickable: true, onClick: ({object}) => selectElement('traffic_light', object.tl),
     }));
+
+    // Stop lines
+    const stopLineData = scenario.traffic_control_elements
+      .filter(tl => tl.stop_line != null)
+      .map(tl => ({ path: [[tl.stop_line[0][0], tl.stop_line[0][1]], [tl.stop_line[1][0], tl.stop_line[1][1]]] }));
+    if (stopLineData.length) layers.push(new PathLayer({
+      id: 'stop-lines', data: stopLineData,
+      getPath: d => d.path,
+      getColor: [220, 38, 38],
+      getWidth: 2, widthUnits: 'pixels',
+      capRounded: true,
+    }));
+
+    // Stop-line orientation arrows (shaft + filled arrowhead triangle)
+    const SHAFT_LEN = 4.0, HEAD_LEN = 2.5, HEAD_HALF_W = 1.2;
+    const orientElements = scenario.traffic_control_elements
+      .filter(tl => tl.stop_line != null && tl.orientation != null);
+    if (orientElements.length) {
+      const shaftData = orientElements.map(tl => {
+        const ox = tl.orientation[0], oy = tl.orientation[1];
+        const sx = tl.xyz[0], sy = tl.xyz[1];
+        return { path: [[sx, sy], [sx + ox * SHAFT_LEN, sy + oy * SHAFT_LEN]] };
+      });
+      layers.push(new PathLayer({
+        id: 'stop-line-orient-shafts', data: shaftData,
+        getPath: d => d.path,
+        getColor: [220, 38, 38],
+        getWidth: 2, widthUnits: 'pixels',
+      }));
+      const headData = orientElements.map(tl => {
+        const ox = tl.orientation[0], oy = tl.orientation[1];
+        const sx = tl.xyz[0], sy = tl.xyz[1];
+        // tip of arrowhead
+        const tx = sx + ox * (SHAFT_LEN + HEAD_LEN), ty = sy + oy * (SHAFT_LEN + HEAD_LEN);
+        // base centre of arrowhead
+        const bx = sx + ox * SHAFT_LEN, by = sy + oy * SHAFT_LEN;
+        // perpendicular
+        const px = -oy * HEAD_HALF_W, py = ox * HEAD_HALF_W;
+        return { polygon: [[tx, ty], [bx + px, by + py], [bx - px, by - py]] };
+      });
+      layers.push(new PolygonLayer({
+        id: 'stop-line-orient-heads', data: headData,
+        getPolygon: d => d.polygon,
+        getFillColor: [220, 38, 38],
+        stroked: false, filled: true,
+      }));
+    }
   }
 
   // ── Selection highlights ──────────────────────────────────────────────────
