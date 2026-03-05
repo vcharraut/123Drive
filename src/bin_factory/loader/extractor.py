@@ -298,6 +298,14 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
             result[next_id] = element
             next_id += 1
 
+    # Filter dangling lane topology references
+    lane_ids = set(result.keys())
+    for element in result.values():
+        if "entry_lanes" in element:
+            element["entry_lanes"] = [lid for lid in element["entry_lanes"] if lid in lane_ids]
+        if "exit_lanes" in element:
+            element["exit_lanes"] = [lid for lid in element["exit_lanes"] if lid in lane_ids]
+
     return result
 
 
