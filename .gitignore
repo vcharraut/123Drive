@@ -6,5 +6,6 @@
 *.arrow
 *.log
 *.json
+*.pdf
 
 .vscode/
