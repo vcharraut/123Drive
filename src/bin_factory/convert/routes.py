@@ -100,9 +100,6 @@ def compute_agent_route(
     valid_trajectory = agent_trajectory[agent_valid]
     valid_heading = agent_heading[agent_valid]
 
-    if len(valid_trajectory) == 0:
-        return []
-
     # Format agent identifier for logging
     agent_str = f"Agent {agent_id}" if agent_id is not None else "Agent"
 
@@ -120,9 +117,8 @@ def compute_agent_route(
         return []
 
     # Check if agent is offroad at check timestep (bbox crosses road edge OR >5m from lane)
-    offroad_agent_data = (agent_id, agent_trajectory, agent_heading, agent_valid, agent_length, agent_width)
     if _is_offroad_at_init(
-        offroad_agent_data,
+        agent_data,
         static_map_elements,
         lane_polylines,
         lane_lengths,
@@ -848,7 +844,6 @@ def _is_offroad_at_init(
         polyline = element["polyline"]
         if polyline is None or len(polyline) < 2:
             continue
-            # raise ValueError(f"Invalid polyline for element {element_id} of type {element_type}")
 
         polyline_2d = polyline[:, :2]
 

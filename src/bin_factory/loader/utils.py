@@ -10,16 +10,6 @@ if TYPE_CHECKING:
     from py123d.api.map.map_api import MapAPI
 
 
-def mps_to_kmh(speed_mps: float | None) -> float:
-    if speed_mps is None:
-        return -1
-    return float(speed_mps) * 3.6
-
-
-def kmh_to_mph(speed_kmh: float) -> float:
-    return speed_kmh / 1.609344
-
-
 def get_object_xy_points(map_object: object) -> np.ndarray | None:
     if hasattr(map_object, "centerline"):
         return map_object.centerline.array[:, :2].astype(np.float64)

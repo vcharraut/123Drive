@@ -40,7 +40,7 @@ def convert_road_map_elements(
         if element_type_int == 0:
             continue
 
-        if element_type_int <= 30:
+        if element_type_int < 30:  # polyline-based types (lanes, road lines, road edges)
             xyz = element_data["polyline"]
 
             # Ensure polyline has 3D coordinates

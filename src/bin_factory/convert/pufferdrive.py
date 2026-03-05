@@ -55,6 +55,13 @@ def convert_to_puffer_dict(
     }
 
 
+def _pack_int_list(buffer, items):
+    n = len(items)
+    buffer.extend(struct.pack("i", n))
+    if n > 0:
+        buffer.extend(struct.pack(f"{n}i", *[int(x) for x in items]))
+
+
 def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:
     agents = puffer_dict["agents"]
     road_map_elements = puffer_dict["road_map_elements"]
@@ -97,17 +104,7 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:
         buffer.extend(valid.tobytes())
 
         routes = agent["routes"]
-        if routes:
-            first_route = routes[0]
-            flattened = first_route
-            total_route_ints = len(first_route)
-        else:
-            flattened = []
-            total_route_ints = 0
-
-        buffer.extend(struct.pack("i", total_route_ints))
-        for route_int in flattened:
-            buffer.extend(struct.pack("i", int(route_int)))
+        _pack_int_list(buffer, routes[0] if routes else [])
 
         goal_x = goal_y = goal_z = 0.0
         if len(valid) > 0:
@@ -119,7 +116,7 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:
                 goal_z = float(xyz[last_valid_idx, 2])
 
         buffer.extend(struct.pack("fff", goal_x, goal_y, goal_z))
-        mark_as_expert = 0 if (routes and len(routes) > 0) else 1
+        mark_as_expert = 0 if routes else 1
         buffer.extend(struct.pack("i", mark_as_expert))
 
     # Road Map Elements
@@ -136,16 +133,8 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:
             buffer.extend(xyz[:, i].tobytes())
 
         if puffer_types.is_road_lane(road_type):
-            entry_lanes = road["entry_lanes"]
-            exit_lanes = road["exit_lanes"]
-
-            buffer.extend(struct.pack("i", len(entry_lanes)))
-            for lane_id in entry_lanes:
-                buffer.extend(struct.pack("i", int(lane_id)))
-
-            buffer.extend(struct.pack("i", len(exit_lanes)))
-            for lane_id in exit_lanes:
-                buffer.extend(struct.pack("i", int(lane_id)))
+            _pack_int_list(buffer, road["entry_lanes"])
+            _pack_int_list(buffer, road["exit_lanes"])
 
             buffer.extend(struct.pack("f", road["speed_limit"]))
 
@@ -164,15 +153,8 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:
         z = float(xyz[2]) if len(xyz) > 2 else 0.0
         buffer.extend(struct.pack("fff", x, y, z))
 
-        states = element["states"]
-        buffer.extend(struct.pack("i", len(states)))
-        for state in states:
-            buffer.extend(struct.pack("i", int(state)))
-
-        controlled_lanes = element["controlled_lanes"]
-        buffer.extend(struct.pack("i", len(controlled_lanes)))
-        for lane in controlled_lanes:
-            buffer.extend(struct.pack("i", int(lane)))
+        _pack_int_list(buffer, element["states"])
+        _pack_int_list(buffer, element["controlled_lanes"])
 
     # Metadata
     scenario_id = puffer_dict["scenario_id"][:128]
@@ -186,14 +168,7 @@ def puffer_dict_to_binary(puffer_dict: dict, map_id: int = 0) -> bytes:
     buffer.extend(struct.pack("i", int(metadata["scenario_length"])))
     buffer.extend(struct.pack("i", int(metadata["sdc_index"])))
 
-    objects_of_interest = metadata["objects_of_interests"]
-    buffer.extend(struct.pack("i", len(objects_of_interest)))
-    for oi in objects_of_interest:
-        buffer.extend(struct.pack("i", int(oi)))
-
-    tracks_to_predict = metadata["tracks_to_predict"]
-    buffer.extend(struct.pack("i", len(tracks_to_predict)))
-    for ttp in tracks_to_predict:
-        buffer.extend(struct.pack("i", int(ttp)))
+    _pack_int_list(buffer, metadata["objects_of_interests"])
+    _pack_int_list(buffer, metadata["tracks_to_predict"])
 
     return bytes(buffer)

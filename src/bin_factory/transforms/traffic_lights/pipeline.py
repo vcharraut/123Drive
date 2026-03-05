@@ -41,7 +41,7 @@ def generate_tl_states(scenario, lane_data, signalized):
     if not signalized:
         return dynamic_map_states
 
-    lane_center_matrix, _lc_id_to_row, row_to_lc_id = _form_lanecenter_matrix(lane_data)
+    lane_center_matrix, row_to_lc_id = _form_lanecenter_matrix(lane_data)
     veh_assignment = assign_veh_states_to_lane(
         scenario["agents"],
         lane_center_matrix,
@@ -70,14 +70,13 @@ def _form_lanecenter_matrix(lane_data):
         dtype=np.float64,
     )
 
-    lc_id_to_idx = {f_id: i for i, f_id in enumerate(lane_data.keys())}
-    idx_to_lc_id = {i: f_id for i, f_id in enumerate(lane_data.keys())}
-
-    for id, lane in lane_data.items():
+    idx_to_lc_id = {}
+    for i, (f_id, lane) in enumerate(lane_data.items()):
+        idx_to_lc_id[i] = f_id
         polyline = lane["polyline"]
-        lane_center_matrix[lc_id_to_idx[id], : len(polyline)] = polyline
+        lane_center_matrix[i, : len(polyline)] = polyline
 
-    return lane_center_matrix, lc_id_to_idx, idx_to_lc_id
+    return lane_center_matrix, idx_to_lc_id
 
 
 def _form_intersection(lane_data, injunction_ids, veh_assignment, scenario_length):

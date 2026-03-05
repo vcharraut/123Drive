@@ -13,17 +13,13 @@ import numpy as np
 AGENT_TYPE_MAP = {1: "VEHICLE", 2: "PEDESTRIAN", 3: "CYCLIST", 4: "OTHER"}
 VALID_AGENT_TYPES = set(AGENT_TYPE_MAP.keys())
 
-# Road types: 1-10 = lanes, 11-18 = road lines, 21-23 = road edges, 31+ = other
-LANE_TYPES = set(range(1, 11))
-ROAD_LINE_TYPES = set(range(11, 19))
-ROAD_EDGE_TYPES = set(range(21, 24))
+# Road types: 1-9 = lanes, 10-18 = road lines, 20-29 = road edges, 31+ = other
+LANE_TYPES = set(range(1, 10))
+ROAD_LINE_TYPES = set(range(10, 19))
+ROAD_EDGE_TYPES = set(range(20, 30))
 
-# Traffic light state encodings
-TL_STATE_UNKNOWN = 0
-TL_STATE_RED = 1
-TL_STATE_YELLOW = 2
-TL_STATE_GREEN = 3
-VALID_TL_STATES = {TL_STATE_UNKNOWN, TL_STATE_RED, TL_STATE_YELLOW, TL_STATE_GREEN}
+# Traffic light state encodings (matches src/bin_factory/types.py)
+VALID_TL_STATES = set(range(9))  # 0=unknown, 1-3=arrow, 4-6=solid, 7-8=flashing
 
 # Expected keys
 _REQUIRED_TOP_LEVEL_KEYS = {
@@ -449,12 +445,7 @@ def _validate_strict_roads(roads: list, validation_level: int, errors: list, war
             xyz = np.asarray(road["xyz"])
             if len(xyz) >= 2:
                 # Check for duplicate points
-                dists = []
-                for i in range(len(xyz) - 1):
-                    d = np.linalg.norm(xyz[i + 1] - xyz[i])
-                    dists.append(d)
-                    # if d < 1e-6:
-                    #     errors.append(f"Road {road_id} has duplicate points at index {i}")
+                dists = [np.linalg.norm(xyz[i + 1] - xyz[i]) for i in range(len(xyz) - 1)]
 
                 # Total length check
                 total_length = sum(dists)
@@ -493,14 +484,6 @@ def _validate_strict_roads(roads: list, validation_level: int, errors: list, war
                             errors.append(
                                 f"Lane {road_id} exits to {exit_id}, but {exit_id} doesn't list {road_id} as entry",
                             )
-
-            # # Speed limit validation (m/s)
-            # if "speed_limit" in road:
-            #     speed_mps = road["speed_limit"]
-            #     if speed_mps < 0:
-            #         errors.append(f"Lane {road_id} has negative speed limit - {speed_mps} m/s")
-            #     elif speed_mps > 50:  # ~180 km/h
-            #         warnings.append(f"Lane {road_id} has unusually high speed limit: {speed_mps:.1f} m/s")
 
 
 def _validate_strict_traffic_control(
@@ -549,7 +532,7 @@ def _validate_strict_traffic_control(
             # State transition validation
             if validation_level >= 2 and len(states) > 1:
                 for i in range(len(states) - 1):
-                    if states[i] == TL_STATE_GREEN and states[i + 1] == TL_STATE_RED:
+                    if states[i] in (3, 6) and states[i + 1] in (1, 4):  # GREEN->RED (arrow or solid)
                         warnings.append(f"Traffic control {elem_id} timestep {i}: invalid GREEN->RED transition")
 
                 # Rapid flickering detection
