@@ -29,56 +29,56 @@ def process_one_scenario(
     min_route_valid_points=0,
     route_check_timestep=0,
 ):
-    try:
-        # 1. Convert Raw -> Intermediate
-        scenario = convert_py123d_scenario(raw_scenario)
+    # try:
+    # 1. Convert Raw -> Intermediate
+    scenario = convert_py123d_scenario(raw_scenario)
 
-        # 2. Apply transforms to Intermediate representation
-        scenario = process_polylines(
-            scenario,
-            max_segment_length=max_segment_length,
-            area_threshold=area_threshold,
-            dist_threshold=dist_threshold,
+    # 2. Apply transforms to Intermediate representation
+    scenario = process_polylines(
+        scenario,
+        max_segment_length=max_segment_length,
+        area_threshold=area_threshold,
+        dist_threshold=dist_threshold,
+    )
+
+    if traffic_lights:
+        scenario = add_traffic_lights_to_scenario(scenario)
+
+    # 3. Convert Intermediate -> Puffer Dict
+    puffer_dict = convert_to_puffer_dict(
+        scenario,
+        min_route_valid_points=min_route_valid_points,
+        route_check_timestep=route_check_timestep,
+    )
+
+    # 4. Validate Puffer Dict (optional)
+    is_valid = True
+    if validate_level > 0:
+        if validate_level > 1:
+            validate_func = functools.partial(strict_validate, validation_level=validate_level)
+        else:
+            validate_func = soft_validate
+
+        is_valid, errors, warnings = validate_func(puffer_dict)
+        for warning in warnings:
+            logger.warning(f"map_{map_id}: {warning}")
+        for error in errors:
+            logger.error(f"map_{map_id}: {error}")
+
+    if not is_valid:
+        raise ValueError(
+            f"Validation failed for map_{map_id} with {len(errors)} errors and {len(warnings)} warnings",
         )
 
-        if traffic_lights:
-            scenario = add_traffic_lights_to_scenario(scenario)
+    # 5. Convert Puffer Dict -> Binary
+    binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
 
-        # 3. Convert Intermediate -> Puffer Dict
-        puffer_dict = convert_to_puffer_dict(
-            scenario,
-            min_route_valid_points=min_route_valid_points,
-            route_check_timestep=route_check_timestep,
-        )
-
-        # 4. Validate Puffer Dict (optional)
-        is_valid = True
-        if validate_level > 0:
-            if validate_level > 1:
-                validate_func = functools.partial(strict_validate, validation_level=validate_level)
-            else:
-                validate_func = soft_validate
-
-            is_valid, errors, warnings = validate_func(puffer_dict)
-            for warning in warnings:
-                logger.warning(f"map_{map_id}: {warning}")
-            for error in errors:
-                logger.error(f"map_{map_id}: {error}")
-
-        if not is_valid:
-            raise ValueError(
-                f"Validation failed for map_{map_id} with {len(errors)} errors and {len(warnings)} warnings",
-            )
-
-        # 5. Convert Puffer Dict -> Binary
-        binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
-
-        # 6. Write to file
-        output_path = os.path.join(output_dir, f"map_{map_id:03d}.bin")
-        with open(output_path, "wb") as f:
-            f.write(binary_data)
-    except Exception as e:
-        logger.error(f"Error processing scenario map_{map_id}: {e}")
+    # 6. Write to file
+    output_path = os.path.join(output_dir, f"map_{map_id:03d}.bin")
+    with open(output_path, "wb") as f:
+        f.write(binary_data)
+    # except Exception as e:
+    #     logger.error(f"Error processing scenario map_{map_id}: {e}")
 
 
 def main():
