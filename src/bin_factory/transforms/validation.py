@@ -490,7 +490,7 @@ def _validate_strict_roads(roads: list, validation_level: int, errors: list, war
                     if exit_id in lanes_by_id:
                         exit_entries = lanes_by_id[exit_id].get("entry_lanes", [])
                         if road_id not in exit_entries:
-                            warnings.append(
+                            errors.append(
                                 f"Lane {road_id} exits to {exit_id}, but {exit_id} doesn't list {road_id} as entry",
                             )
 
