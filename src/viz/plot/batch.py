@@ -13,7 +13,10 @@ def main():
     parser.add_argument("input_dir", help="Input directory with Puffer files (.json or .bin)")
     parser.add_argument("output_dir", help="Output directory for visualizations")
     parser.add_argument(
-        "--format", choices=["png", "video", "both"], default="png", help="Output format (default: png)"
+        "--format",
+        choices=["png", "video", "both"],
+        default="png",
+        help="Output format (default: png)",
     )
     parser.add_argument("--timestep", type=int, default=0, help="Timestep for PNG export (default: 0)")
     parser.add_argument("--fps", type=int, default=10, help="FPS for video export (default: 10)")

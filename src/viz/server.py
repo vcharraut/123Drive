@@ -71,7 +71,7 @@ def serialize_scenario(data: dict) -> dict:
                 "valid": _arr(states.get("valid")),
                 "routes": agent.get("routes", []),
                 "route_polyline": route_polyline,
-            }
+            },
         )
 
     roads = []
@@ -85,7 +85,7 @@ def serialize_scenario(data: dict) -> dict:
                 "entry_lanes": elem.get("entry_lanes", []),
                 "exit_lanes": elem.get("exit_lanes", []),
                 "speed_limit": elem.get("speed_limit", 0.0),
-            }
+            },
         )
 
     traffic = []
@@ -97,7 +97,7 @@ def serialize_scenario(data: dict) -> dict:
                 "xyz": _arr(elem.get("xyz")),
                 "states": elem.get("states", []),
                 "controlled_lanes": elem.get("controlled_lanes", []),
-            }
+            },
         )
 
     return {
