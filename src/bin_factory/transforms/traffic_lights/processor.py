@@ -1,18 +1,13 @@
-from typing import Any
+# Based on: Yan, X., Liang, E., Wang, J., Zhu, H., & Liu, H. X. (2025).
+# "Improving Traffic Signal Data Quality for the Waymo Open Motion Dataset."
+# arXiv:2506.07150v1. University of Michigan.
+# https://github.com/michigan-traffic-lab/WOMD-Traffic-Signal-Data-Improvement
 
-from src.bin_factory.transforms.traffic_lights.waymonic_tlsgen import WaymonicTLSGenerator
-from src.bin_factory.transforms.traffic_lights.waymonizer import Waymonizer
-
-
-class ScenarioProcessor(Waymonizer, WaymonicTLSGenerator):
-    def __init__(self, scenario) -> None:
-        self.scenario = scenario
-        Waymonizer.__init__(self, scenario)
-        WaymonicTLSGenerator.__init__(self, scenario, self.lanecenters, self.signalized_intersections)
+from src.bin_factory.transforms.traffic_lights.pipeline import generate_tl_states
+from src.bin_factory.transforms.traffic_lights.topology import build_lane_topology
 
 
-def add_traffic_lights_to_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
-    # Validate required fields
+def add_traffic_lights_to_scenario(scenario):
     if "map" not in scenario:
         raise ValueError("Scenario missing 'map' - cannot generate traffic lights")
     if "scenario_length" not in scenario:
@@ -20,13 +15,6 @@ def add_traffic_lights_to_scenario(scenario: dict[str, Any]) -> dict[str, Any]:
     if "agents" not in scenario:
         raise ValueError("Scenario missing 'agents' - cannot infer traffic light states")
 
-    sp = ScenarioProcessor(scenario)
-
-    dynamic_map_states = sp.generate_waymonic_tls(
-        return_data="dynamic_states",
-        end_step=scenario["scenario_length"],
-    )
-
-    # Replace traffic_lights with generated traffic lights
-    scenario["traffic_lights"] = {**dynamic_map_states}
+    lane_data, signalized = build_lane_topology(scenario)
+    scenario["traffic_lights"] = generate_tl_states(scenario, lane_data, signalized)
     return scenario

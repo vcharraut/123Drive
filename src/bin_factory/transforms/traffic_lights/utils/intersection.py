@@ -1,56 +1,41 @@
-from .generic import TLS, Direction, Pt
+import numpy as np
+
+from .generic import DetailedTLS
 from .geometry import classify_direction
 
 
 class VehicleState:
-    def __init__(self, object_id: int, lane_pos_idx: int, speed: float, acceleration: float | None = None):
-        self.object_id: int = object_id
-        self.lane_pos_idx: int = lane_pos_idx
-        self.speed: float = speed  # m/s
-        self.acceleration: float = acceleration  # m/s^2
+    def __init__(self, object_id, lane_pos_idx, speed, acceleration=None):
+        self.object_id = object_id
+        self.lane_pos_idx = lane_pos_idx
+        self.speed = speed
+        self.acceleration = acceleration
 
 
 class InJunctionLane:
-    def __init__(
-        self,
-        shape: list[Pt],
-        record_tls: list | None = None,
-        record_vehs: list[dict[int, VehicleState]] | None = None,
-        id=None,
-        length: int = 0,
-    ) -> None:
+    def __init__(self, shape, record_tls=None, record_vehs=None, id=None, length=0):
         self.id = id
-        self.shape: list[Pt] = shape[:]
-        self.direction: Direction = classify_direction([(pt.x, pt.y) for pt in shape])
+        self.shape = shape
+        self.direction = classify_direction(np.asarray(shape)[:, :2])
 
         if not record_vehs:
             record_vehs = [{} for _ in range(length)]
 
         if not record_tls:
-            record_tls = [-1 for _ in range(length)]
+            record_tls = [DetailedTLS.ABSENT] * length
 
-        self.record_vehs: list[dict[int, VehicleState]] = record_vehs[:]
-
-        # tls-related
-        self.record_tls_waymonic: list = record_tls[:]
-        self.record_tls: list[TLS] = [tls.generalize() for tls in record_tls]
-        self.new_tls: list[TLS] = [TLS.UNKNOWN for _ in range(length)]
+        self.record_vehs = record_vehs[:]
+        self.record_tls_detailed = record_tls[:]
+        self.record_tls = [tls.generalize() for tls in record_tls]
 
 
 class ApproachingLane:
-    def __init__(
-        self,
-        shape: list[Pt],
-        record_vehs: list[dict[int, VehicleState]] | None = None,
-        injunction_lanes: list[InJunctionLane] | None = None,
-        id=None,
-        length: int = 0,
-    ) -> None:
+    def __init__(self, shape, record_vehs=None, injunction_lanes=None, id=None, length=0):
         self.id = id
-        self.shape: list[Pt] = shape[:]
+        self.shape = shape
 
         if not record_vehs:
             record_vehs = [{} for _ in range(length)]
 
-        self.record_vehs: list[dict[int, VehicleState]] = record_vehs[:]
-        self.injunction_lanes: list[InJunctionLane] = injunction_lanes[:] if injunction_lanes else []
+        self.record_vehs = record_vehs[:]
+        self.injunction_lanes = injunction_lanes[:] if injunction_lanes else []
