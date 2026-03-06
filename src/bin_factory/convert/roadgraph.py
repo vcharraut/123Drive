@@ -18,10 +18,7 @@ FILTERED_TYPES = []
 REVERGE_ROAD_EDGE_DATASETS = ["av2", "nuplan", "carla"]
 
 
-def convert_road_map_elements(
-    static_map_elements: dict,
-    dataset_name: str = "",
-) -> list[dict]:
+def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "") -> list[dict]:
     """Convert static map elements from intermediate format to Puffer road_map_elements."""
     puffer_elements = []
 

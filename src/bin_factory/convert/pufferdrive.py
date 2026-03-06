@@ -10,11 +10,7 @@ from src.bin_factory.convert import types as puffer_types
 logger = logger_utils.get_logger(__name__)
 
 
-def convert_to_puffer_dict(
-    scenario: dict,
-    min_route_valid_points: int = 0,
-    route_check_timestep: int = 0,
-) -> dict:
+def convert_to_puffer_dict(scenario: dict,min_route_valid_points: int = 0,route_check_timestep: int = 0) -> dict:
     if not isinstance(scenario, dict):
         raise TypeError(f"Expected dict, got {type(scenario).__name__}")
 

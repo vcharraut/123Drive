@@ -348,11 +348,7 @@ def _score_route_geometric(
     return _score_route_polyline(route_polyline, trajectory_2d, heading)
 
 
-def _score_route_polyline(
-    route_polyline: np.ndarray,
-    trajectory_2d: np.ndarray,
-    heading: np.ndarray,
-) -> float:
+def _score_route_polyline(route_polyline: np.ndarray,trajectory_2d: np.ndarray,heading: np.ndarray) -> float:
     """Score a pre-built route polyline against a trajectory."""
     if len(route_polyline) < 2 or len(trajectory_2d) == 0:
         return 0.0
