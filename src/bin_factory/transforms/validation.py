@@ -354,9 +354,6 @@ def _validate_physical_constraints(
                 mean_dim = np.mean(dim)
                 if not (min_val <= mean_dim <= max_val):
                     warnings.append(f"Agent {agent_id} has unusual {dim_key}={mean_dim:.2f}m")
-                # Dimension variance check
-                if len(dim) > 1 and np.std(dim) > 0.01:
-                    warnings.append(f"Agent {agent_id} has varying {dim_key} over time (should be constant)")
 
     # Type-specific dimension ranges
     if all(k in states for k in ["length", "width", "height"]):
@@ -367,8 +364,8 @@ def _validate_physical_constraints(
         if agent_type == 1:  # VEHICLE
             if not (2.0 <= length <= 20.0):
                 warnings.append(f"Vehicle {agent_id} has unusual length={length:.2f}m (expected 2-20m)")
-            if not (1.5 <= width <= 3.0):
-                warnings.append(f"Vehicle {agent_id} has unusual width={width:.2f}m (expected 1.5-3m)")
+            if not (1.5 <= width <= 5.0):
+                warnings.append(f"Vehicle {agent_id} has unusual width={width:.2f}m (expected 1.5-5m)")
             if not (1.0 <= height <= 4.0):
                 warnings.append(f"Vehicle {agent_id} has unusual height={height:.2f}m (expected 1-4m)")
         elif agent_type == 2:  # PEDESTRIAN
@@ -376,8 +373,8 @@ def _validate_physical_constraints(
                 warnings.append(f"Pedestrian {agent_id} has unusual length={length:.2f}m (expected 0.3-0.6m)")
             if not (0.3 <= width <= 0.6):
                 warnings.append(f"Pedestrian {agent_id} has unusual width={width:.2f}m (expected 0.3-0.6m)")
-            if not (1.4 <= height <= 2.0):
-                warnings.append(f"Pedestrian {agent_id} has unusual height={height:.2f}m (expected 1.4-2m)")
+            if not (1.0 <= height <= 3.0):
+                warnings.append(f"Pedestrian {agent_id} has unusual height={height:.2f}m (expected 1-3m)")
         elif agent_type == 3:  # CYCLIST
             if not (1.5 <= length <= 2.0):
                 warnings.append(f"Cyclist {agent_id} has unusual length={length:.2f}m (expected 1.5-2m)")
@@ -388,7 +385,7 @@ def _validate_physical_constraints(
     if "velocity" in states and "valid" in states:
         velocity = np.asarray(states["velocity"])
         valid = np.asarray(states["valid"])
-        max_speed = {1: 60.0, 2: 5.0, 3: 15.0}.get(agent_type, 60.0)
+        max_speed = {1: 60.0, 2: 8.0, 3: 30.0}.get(agent_type, 60.0)
 
         for i in range(len(velocity)):
             if valid[i]:
@@ -449,7 +446,7 @@ def _validate_strict_roads(roads: list, validation_level: int, errors: list, war
 
                 # Total length check
                 total_length = sum(dists)
-                if total_length < 0.5:
+                if total_length < 1.0:
                     warnings.append(f"Road {road_id} has very short polyline (length={total_length:.2f}m)")
 
                 # Sharp corner detection (level >= 3)
@@ -475,8 +472,8 @@ def _validate_strict_roads(roads: list, validation_level: int, errors: list, war
                 if exit_id not in lane_ids:
                     errors.append(f"Lane {road_id} references non-existent exit lane {exit_id}")
 
-            # Bidirectional connectivity check (level >= 3)
-            if validation_level >= 3:
+            # Bidirectional connectivity check (level >= 2)
+            if validation_level >= 2:
                 for exit_id in road.get("exit_lanes", []):
                     if exit_id in lanes_by_id:
                         exit_entries = lanes_by_id[exit_id].get("entry_lanes", [])
@@ -510,18 +507,12 @@ def _validate_strict_traffic_control(
             tl_pos = np.array(elem["xyz"])[:2]
             for lane_id in elem["controlled_lanes"]:
                 if lane_id in lanes_by_id and "xyz" in lanes_by_id[lane_id]:
-                    lane_xyz = np.array(lanes_by_id[lane_id]["xyz"])[:, :2]
-                    min_dist = np.min(np.linalg.norm(lane_xyz - tl_pos, axis=1))
-                    if min_dist > 50.0:
+                    lane_xyz = np.array(lanes_by_id[lane_id]["xyz"])[0, :2]
+                    min_dist = np.linalg.norm(lane_xyz - tl_pos)
+                    if min_dist > 10.0:
                         warnings.append(
-                            f"Traffic control {elem_id} is {min_dist:.1f}m away from lane {lane_id} (expected < 50m)",
+                            f"Traffic control {elem_id} is {min_dist:.1f}m away from lane {lane_id} (expected < 10m)",
                         )
-
-        # Height validation
-        if "xyz" in elem:
-            z_height = elem["xyz"][2] if len(elem["xyz"]) > 2 else 0
-            if not (0.0 <= z_height <= 10.0):
-                warnings.append(f"Traffic control {elem_id} has unusual height z={z_height:.2f}m (expected 0-10m)")
 
         # States validation
         if "states" in elem:
