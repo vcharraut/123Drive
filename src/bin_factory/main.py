@@ -1,5 +1,4 @@
 import argparse
-import functools
 import os
 
 from joblib import Parallel, delayed
@@ -11,7 +10,7 @@ from src.bin_factory.loader.extractor import convert_py123d_scenario
 from src.bin_factory.loader.load import get_py123d_scenarios
 from src.bin_factory.transforms.polyline import process_polylines
 from src.bin_factory.transforms.traffic_lights.processor import add_traffic_lights_to_scenario
-from src.bin_factory.transforms.validation import soft_validate, strict_validate
+from src.bin_factory.transforms.validation import validate_puffer_dict
 
 
 logger = logger_utils.get_logger(__name__)
@@ -53,13 +52,10 @@ def process_one_scenario(
 
     # 4. Validate Puffer Dict (optional)
     is_valid = True
+    errors = []
+    warnings = []
     if validate_level > 0:
-        if validate_level > 1:
-            validate_func = functools.partial(strict_validate, validation_level=validate_level)
-        else:
-            validate_func = soft_validate
-
-        is_valid, errors, warnings = validate_func(puffer_dict)
+        is_valid, errors, warnings = validate_puffer_dict(puffer_dict, validation_level=validate_level)
         for warning in warnings:
             logger.warning(f"map_{map_id}: {warning}")
         for error in errors:
@@ -145,7 +141,10 @@ def main():
         "--validate_level",
         type=int,
         default=1,
-        help="Validation level (0 = no validation, 1 = soft validation, >1 = strict validation)",
+        help=(
+            "Validation level "
+            "(0 = off, 1 = mandatory schema, 2 = physics warnings, 3 = reject hard physics, 4 = reject all physics)"
+        ),
     )
 
     # Configuration parameters

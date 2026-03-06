@@ -1,27 +1,23 @@
 """
-Validation functions for PufferDrive dict format.
+Validation helpers for the PufferDrive dict format.
 
-Two validation levels:
-1. Soft validation: Structure checks (keys, types, shapes)
-2. Strict validation: Physics checks (trajectory coherence, constraints)
+Validation levels:
+0. Disabled
+1. Mandatory schema/integrity checks only
+2. Mandatory errors + physical checks as warnings
+3. Mandatory errors + hard physical errors + soft physical warnings
+4. Mandatory errors + all physical checks as errors
 """
 
 import numpy as np
 
 
-# Type mappings
 AGENT_TYPE_MAP = {1: "VEHICLE", 2: "PEDESTRIAN", 3: "CYCLIST", 4: "OTHER"}
 VALID_AGENT_TYPES = set(AGENT_TYPE_MAP.keys())
 
-# Road types: 1-9 = lanes, 10-18 = road lines, 20-29 = road edges, 31+ = other
 LANE_TYPES = set(range(1, 10))
-ROAD_LINE_TYPES = set(range(10, 19))
-ROAD_EDGE_TYPES = set(range(20, 30))
+VALID_TL_STATES = set(range(9))
 
-# Traffic light state encodings (matches src/bin_factory/types.py)
-VALID_TL_STATES = set(range(9))  # 0=unknown, 1-3=arrow, 4-6=solid, 7-8=flashing
-
-# Expected keys
 _REQUIRED_TOP_LEVEL_KEYS = {
     "scenario_id",
     "agents",
@@ -29,34 +25,116 @@ _REQUIRED_TOP_LEVEL_KEYS = {
     "traffic_control_elements",
     "metadata",
 }
-_REQUIRED_METADATA_KEYS = {"dataset_name", "scenario_length", "sdc_index"}
+_REQUIRED_METADATA_KEYS = {
+    "dataset_name",
+    "scenario_length",
+    "sdc_index",
+    "timestep_seconds",
+    "objects_of_interests",
+    "tracks_to_predict",
+}
 _REQUIRED_AGENT_KEYS = {"id", "type", "states", "routes"}
 _REQUIRED_AGENT_STATE_KEYS = {"xyz", "heading", "velocity", "length", "width", "height", "valid"}
 _REQUIRED_ROAD_KEYS = {"id", "type", "xyz"}
 _LANE_EXTRA_KEYS = {"entry_lanes", "exit_lanes", "speed_limit"}
 _REQUIRED_TRAFFIC_CONTROL_KEYS = {"id", "type", "xyz", "states", "controlled_lanes"}
 
+_SOFT = "soft"
+_HARD = "hard"
 
-def soft_validate(puffer_dict: dict) -> tuple[bool, list[str], list[str]]:
-    """
-    Soft validation for puffer_dict structure.
 
-    Returns:
-        (is_valid, errors, warnings)
-    """
-    errors = []
-    warnings = []
+def validate_puffer_dict(
+    puffer_dict: dict,
+    validation_level: int = 1,
+    position_jump_threshold: float = 50.0,
+    velocity_tolerance: float = 2.0,
+    heading_tolerance_deg: float = 30.0,
+) -> tuple[bool, list[str], list[str]]:
+    validation_level = min(max(int(validation_level), 0), 4)
+    if validation_level == 0:
+        return True, [], []
 
-    _validate_top_level(puffer_dict, errors, warnings)
-    _validate_metadata(puffer_dict.get("metadata", {}), errors, warnings)
-    _validate_dynamic_agents(puffer_dict.get("agents", []), errors, warnings)
-    _validate_road_map_elements(puffer_dict.get("road_map_elements", []), errors, warnings)
-    _validate_traffic_control_elements(puffer_dict.get("traffic_control_elements", []), errors, warnings)
+    mandatory_errors, mandatory_warnings = _collect_mandatory_issues(puffer_dict)
+    if validation_level == 1 or mandatory_errors:
+        return len(mandatory_errors) == 0, mandatory_errors, mandatory_warnings
 
+    physical_issues = _collect_physics_issues(
+        puffer_dict,
+        position_jump_threshold=position_jump_threshold,
+        velocity_tolerance=velocity_tolerance,
+        heading_tolerance_deg=heading_tolerance_deg,
+    )
+    physics_errors, physics_warnings = _classify_physics_issues(physical_issues, validation_level)
+
+    errors = mandatory_errors + physics_errors
+    warnings = mandatory_warnings + physics_warnings
     return len(errors) == 0, errors, warnings
 
 
-def _validate_top_level(puffer_dict: dict, errors: list, warnings: list):
+def _collect_mandatory_issues(puffer_dict: dict) -> tuple[list[str], list[str]]:
+    errors = []
+    warnings = []
+
+    if not isinstance(puffer_dict, dict):
+        return [f"Puffer dict must be dict, got {type(puffer_dict).__name__}"], []
+
+    _validate_top_level(puffer_dict, errors)
+
+    metadata = puffer_dict.get("metadata", {})
+    agents = puffer_dict.get("agents", [])
+    roads = puffer_dict.get("road_map_elements", [])
+    controls = puffer_dict.get("traffic_control_elements", [])
+    expected_length = metadata.get("scenario_length", 0) if isinstance(metadata, dict) else 0
+
+    _validate_metadata(metadata, errors)
+    _validate_dynamic_agents(agents, expected_length, errors, warnings)
+    lane_ids = _validate_road_map_elements(roads, errors)
+    _validate_traffic_control_elements(controls, expected_length, lane_ids, errors)
+    _validate_scenario_coherence(metadata, agents, errors, warnings)
+
+    return errors, warnings
+
+
+def _collect_physics_issues(
+    puffer_dict: dict,
+    position_jump_threshold: float,
+    velocity_tolerance: float,
+    heading_tolerance_deg: float,
+) -> list[tuple[str, str]]:
+    metadata = puffer_dict.get("metadata", {})
+    dt = metadata.get("timestep_seconds", 0.1)
+    agents = puffer_dict.get("agents", [])
+    roads = puffer_dict.get("road_map_elements", [])
+    controls = puffer_dict.get("traffic_control_elements", [])
+
+    return [
+        *_collect_agent_physics_issues(
+            agents,
+            dt,
+            position_jump_threshold=position_jump_threshold,
+            velocity_tolerance=velocity_tolerance,
+            heading_tolerance_deg=heading_tolerance_deg,
+        ),
+        *_collect_road_physics_issues(roads),
+        *_collect_traffic_control_physics_issues(controls, roads),
+    ]
+
+
+def _classify_physics_issues(
+    issues: list[tuple[str, str]],
+    validation_level: int,
+) -> tuple[list[str], list[str]]:
+    if validation_level <= 2:
+        return [], [message for _, message in issues]
+    if validation_level == 3:
+        return (
+            [message for severity, message in issues if severity == _HARD],
+            [message for severity, message in issues if severity == _SOFT],
+        )
+    return [message for _, message in issues], []
+
+
+def _validate_top_level(puffer_dict: dict, errors: list[str]):
     for key in _REQUIRED_TOP_LEVEL_KEYS:
         if key not in puffer_dict:
             errors.append(f"Missing required top-level key: '{key}'")
@@ -64,24 +142,63 @@ def _validate_top_level(puffer_dict: dict, errors: list, warnings: list):
     if "scenario_id" in puffer_dict and not isinstance(puffer_dict["scenario_id"], str):
         errors.append(f"'scenario_id' must be string, got {type(puffer_dict['scenario_id']).__name__}")
 
+    for key, expected_type in [
+        ("agents", list),
+        ("road_map_elements", list),
+        ("traffic_control_elements", list),
+        ("metadata", dict),
+    ]:
+        if key in puffer_dict and not isinstance(puffer_dict[key], expected_type):
+            errors.append(f"'{key}' must be {expected_type.__name__}, got {type(puffer_dict[key]).__name__}")
 
-def _validate_metadata(metadata: dict, errors: list, warnings: list):
+
+def _validate_metadata(metadata: dict, errors: list[str]):
+    if not isinstance(metadata, dict):
+        errors.append(f"'metadata' must be dict, got {type(metadata).__name__}")
+        return
+
     for key in _REQUIRED_METADATA_KEYS:
         if key not in metadata:
             errors.append(f"Missing metadata key: '{key}'")
 
-    if "sdc_index" in metadata and not isinstance(metadata["sdc_index"], int):
+    if "dataset_name" in metadata and not isinstance(metadata["dataset_name"], str):
+        errors.append(f"metadata['dataset_name'] must be str, got {type(metadata['dataset_name']).__name__}")
+
+    scenario_length = metadata.get("scenario_length")
+
+    if "scenario_length" in metadata:
+        if not _is_int_like(scenario_length):
+            errors.append(f"metadata['scenario_length'] must be int, got {type(metadata['scenario_length']).__name__}")
+        elif scenario_length < 0:
+            errors.append("metadata['scenario_length'] must be non-negative")
+
+    if "sdc_index" in metadata and not _is_int_like(metadata["sdc_index"]):
         errors.append(f"metadata['sdc_index'] must be int, got {type(metadata['sdc_index']).__name__}")
 
-    if "scenario_length" in metadata and not isinstance(metadata["scenario_length"], int):
-        errors.append(f"metadata['scenario_length'] must be int, got {type(metadata['scenario_length']).__name__}")
+    if "timestep_seconds" in metadata:
+        if not _is_number(metadata["timestep_seconds"]):
+            errors.append(
+                f"metadata['timestep_seconds'] must be numeric, got {type(metadata['timestep_seconds']).__name__}",
+            )
+        elif scenario_length and metadata["timestep_seconds"] <= 0:
+            errors.append("metadata['timestep_seconds'] must be > 0")
+
+    for key in ["objects_of_interests", "tracks_to_predict"]:
+        if key in metadata and not isinstance(metadata[key], list):
+            errors.append(f"metadata['{key}'] must be list, got {type(metadata[key]).__name__}")
 
 
-def _validate_dynamic_agents(agents: list, errors: list, warnings: list):
+def _validate_dynamic_agents(
+    agents: list,
+    expected_length: int,
+    errors: list[str],
+    warnings: list[str],
+):
     if not isinstance(agents, list):
-        errors.append(f"'dynamic_agents' must be list, got {type(agents).__name__}")
+        errors.append(f"'agents' must be list, got {type(agents).__name__}")
         return
 
+    seen_ids = set()
     for i, agent in enumerate(agents):
         if not isinstance(agent, dict):
             errors.append(f"Agent at index {i} must be dict")
@@ -91,62 +208,107 @@ def _validate_dynamic_agents(agents: list, errors: list, warnings: list):
             if key not in agent:
                 errors.append(f"Agent {i} missing key: '{key}'")
 
-        if "id" in agent and agent["id"] != i:
-            warnings.append(f"Agent {i} has id={agent['id']}, expected sequential id={i}")
+        agent_id = agent.get("id", "?")
+        if "id" in agent and not _is_int_like(agent_id):
+            errors.append(f"Agent {i} id must be int, got {type(agent_id).__name__}")
+        elif "id" in agent and agent_id in seen_ids:
+            errors.append(f"Duplicate agent id: {agent_id}")
+        elif "id" in agent:
+            seen_ids.add(agent_id)
+
+        if _is_int_like(agent_id) and agent_id != i:
+            warnings.append(f"Agent {i} has id={agent_id}, expected sequential id={i}")
 
         if "type" in agent:
             agent_type = agent["type"]
-            if not isinstance(agent_type, int):
-                errors.append(f"Agent {i} type must be int, got {type(agent_type).__name__}")
+            if not _is_int_like(agent_type):
+                errors.append(f"Agent {agent_id} type must be int, got {type(agent_type).__name__}")
             elif agent_type not in VALID_AGENT_TYPES:
-                errors.append(f"Agent {i} has invalid type {agent_type}, must be in {VALID_AGENT_TYPES}")
+                errors.append(f"Agent {agent_id} has invalid type {agent_type}, must be in {VALID_AGENT_TYPES}")
 
         if "states" in agent:
-            _validate_agent_states(i, agent["states"], errors, warnings)
+            _validate_agent_states(agent_id, agent["states"], expected_length, errors)
 
         if "routes" in agent:
-            routes = agent["routes"]
-            if not isinstance(routes, list):
-                errors.append(f"Agent {i} routes must be list, got {type(routes).__name__}")
+            _validate_routes(agent_id, agent["routes"], errors)
 
 
-def _validate_agent_states(agent_idx: int, states: dict, errors: list, warnings: list):
+def _validate_agent_states(agent_id, states: dict, expected_length: int, errors: list[str]):
     if not isinstance(states, dict):
-        errors.append(f"Agent {agent_idx} states must be dict, got {type(states).__name__}")
+        errors.append(f"Agent {agent_id} states must be dict, got {type(states).__name__}")
         return
 
     for key in _REQUIRED_AGENT_STATE_KEYS:
         if key not in states:
-            errors.append(f"Agent {agent_idx} states missing key: '{key}'")
+            errors.append(f"Agent {agent_id} states missing key: '{key}'")
+
+    lengths = {}
 
     if "xyz" in states:
         xyz = states["xyz"]
         if not isinstance(xyz, np.ndarray):
-            errors.append(f"Agent {agent_idx} states.xyz must be ndarray, got {type(xyz).__name__}")
+            errors.append(f"Agent {agent_id} states.xyz must be ndarray, got {type(xyz).__name__}")
         elif xyz.ndim != 2 or xyz.shape[1] != 3:
-            errors.append(f"Agent {agent_idx} states.xyz must be shape (T,3), got {xyz.shape}")
-
-    for key in ["heading", "length", "width", "height"]:
-        if key in states:
-            arr = states[key]
-            if isinstance(arr, np.ndarray) and arr.ndim != 1:
-                errors.append(f"Agent {agent_idx} states.{key} must be 1D, got shape {arr.shape}")
+            errors.append(f"Agent {agent_id} states.xyz must be shape (T,3), got {xyz.shape}")
+        else:
+            lengths["xyz"] = xyz.shape[0]
 
     if "velocity" in states:
-        vel = states["velocity"]
-        if isinstance(vel, np.ndarray) and (vel.ndim != 2 or vel.shape[1] != 2):
-            errors.append(f"Agent {agent_idx} states.velocity must be shape (T,2), got {vel.shape}")
+        velocity = states["velocity"]
+        if not isinstance(velocity, np.ndarray):
+            errors.append(f"Agent {agent_id} states.velocity must be ndarray, got {type(velocity).__name__}")
+        elif velocity.ndim != 2 or velocity.shape[1] != 2:
+            errors.append(f"Agent {agent_id} states.velocity must be shape (T,2), got {velocity.shape}")
+        else:
+            lengths["velocity"] = velocity.shape[0]
 
-    if "valid" in states:
-        valid = states["valid"]
-        if not isinstance(valid, np.ndarray):
-            errors.append(f"Agent {agent_idx} states.valid must be ndarray, got {type(valid).__name__}")
+    for key in ["heading", "length", "width", "height", "valid"]:
+        if key not in states:
+            continue
+        arr = states[key]
+        if not isinstance(arr, np.ndarray):
+            errors.append(f"Agent {agent_id} states.{key} must be ndarray, got {type(arr).__name__}")
+            continue
+        if arr.ndim != 1:
+            errors.append(f"Agent {agent_id} states.{key} must be 1D, got shape {arr.shape}")
+            continue
+        lengths[key] = len(arr)
+
+    if lengths:
+        unique_lengths = set(lengths.values())
+        if len(unique_lengths) > 1:
+            errors.append(f"Agent {agent_id} has inconsistent state array lengths: {lengths}")
+        if expected_length > 0:
+            wrong_lengths = {key: length for key, length in lengths.items() if length != expected_length}
+            for key, length in wrong_lengths.items():
+                errors.append(f"Agent {agent_id} state '{key}' has length {length}, expected {expected_length}")
 
 
-def _validate_road_map_elements(roads: list, errors: list, warnings: list):
+def _validate_routes(agent_id, routes, errors: list[str]):
+    if not isinstance(routes, list):
+        errors.append(f"Agent {agent_id} routes must be list, got {type(routes).__name__}")
+        return
+
+    for route_idx, route in enumerate(routes):
+        if isinstance(route, np.ndarray):
+            if route.ndim != 1:
+                errors.append(f"Agent {agent_id} route {route_idx} must be 1D, got shape {route.shape}")
+            continue
+        if not isinstance(route, list):
+            errors.append(f"Agent {agent_id} route {route_idx} must be list or ndarray")
+            continue
+        if not all(_is_int_like(lane_id) for lane_id in route):
+            errors.append(f"Agent {agent_id} route {route_idx} must contain only lane ids")
+
+
+def _validate_road_map_elements(roads: list, errors: list[str]) -> set[int]:
     if not isinstance(roads, list):
         errors.append(f"'road_map_elements' must be list, got {type(roads).__name__}")
-        return
+        return set()
+
+    lane_ids = set()
+    seen_ids = set()
+    lanes = []
 
     for i, road in enumerate(roads):
         if not isinstance(road, dict):
@@ -157,30 +319,65 @@ def _validate_road_map_elements(roads: list, errors: list, warnings: list):
             if key not in road:
                 errors.append(f"Road {i} missing key: '{key}'")
 
-        if "type" in road:
-            road_type = road["type"]
-            if not isinstance(road_type, int):
-                errors.append(f"Road {i} type must be int, got {type(road_type).__name__}")
+        road_id = road.get("id", "?")
+        road_type = road.get("type", 0)
+
+        if "id" in road and not _is_int_like(road_id):
+            errors.append(f"Road {i} id must be int, got {type(road_id).__name__}")
+        elif "id" in road and road_id in seen_ids:
+            errors.append(f"Duplicate road id: {road_id}")
+        elif "id" in road:
+            seen_ids.add(road_id)
+
+        if "type" in road and not _is_int_like(road_type):
+            errors.append(f"Road {road_id} type must be int, got {type(road_type).__name__}")
 
         if "xyz" in road:
             xyz = road["xyz"]
             if not isinstance(xyz, np.ndarray):
-                errors.append(f"Road {i} xyz must be ndarray, got {type(xyz).__name__}")
+                errors.append(f"Road {road_id} xyz must be ndarray, got {type(xyz).__name__}")
             elif xyz.ndim != 2 or xyz.shape[1] != 3:
-                errors.append(f"Road {i} xyz must be shape (N,3), got {xyz.shape}")
+                errors.append(f"Road {road_id} xyz must be shape (N,3), got {xyz.shape}")
+            elif len(xyz) == 0:
+                errors.append(f"Road {road_id} xyz must not be empty")
 
-        # Lane-specific checks
-        if "type" in road and road["type"] in LANE_TYPES:
+        if road_type in LANE_TYPES:
+            lane_ids.add(road_id)
+            lanes.append(road)
             for key in _LANE_EXTRA_KEYS:
                 if key not in road:
-                    errors.append(f"Lane {i} missing key: '{key}'")
+                    errors.append(f"Lane {road_id} missing key: '{key}'")
+
+            for key in ["entry_lanes", "exit_lanes"]:
+                if key in road and not isinstance(road[key], list):
+                    errors.append(f"Lane {road_id} {key} must be list, got {type(road[key]).__name__}")
+
+            if "speed_limit" in road and not _is_number(road["speed_limit"]):
+                errors.append(f"Lane {road_id} speed_limit must be numeric, got {type(road['speed_limit']).__name__}")
+
+    for lane in lanes:
+        lane_id = lane.get("id", "?")
+        for key in ["entry_lanes", "exit_lanes"]:
+            for ref_lane_id in lane.get(key, []):
+                if not _is_int_like(ref_lane_id):
+                    errors.append(f"Lane {lane_id} {key} must contain only lane ids")
+                elif ref_lane_id not in lane_ids:
+                    errors.append(f"Lane {lane_id} references non-existent lane {ref_lane_id} in {key}")
+
+    return lane_ids
 
 
-def _validate_traffic_control_elements(elements: list, errors: list, warnings: list):
+def _validate_traffic_control_elements(
+    elements: list,
+    expected_length: int,
+    lane_ids: set[int],
+    errors: list[str],
+):
     if not isinstance(elements, list):
         errors.append(f"'traffic_control_elements' must be list, got {type(elements).__name__}")
         return
 
+    seen_ids = set()
     for i, elem in enumerate(elements):
         if not isinstance(elem, dict):
             errors.append(f"Traffic control {i} must be dict")
@@ -190,366 +387,335 @@ def _validate_traffic_control_elements(elements: list, errors: list, warnings: l
             if key not in elem:
                 errors.append(f"Traffic control {i} missing key: '{key}'")
 
+        elem_id = elem.get("id", "?")
+        if "id" in elem and not _is_int_like(elem_id):
+            errors.append(f"Traffic control {i} id must be int, got {type(elem_id).__name__}")
+        elif "id" in elem and elem_id in seen_ids:
+            errors.append(f"Duplicate traffic control id: {elem_id}")
+        elif "id" in elem:
+            seen_ids.add(elem_id)
+
+        if "type" in elem and not _is_int_like(elem["type"]):
+            errors.append(f"Traffic control {elem_id} type must be int, got {type(elem['type']).__name__}")
+
+        if "xyz" in elem:
+            xyz = np.asarray(elem["xyz"])
+            if xyz.ndim != 1 or xyz.shape[0] != 3:
+                errors.append(f"Traffic control {elem_id} xyz must be shape (3,), got {xyz.shape}")
+
         if "states" in elem:
-            states = elem["states"]
-            if not isinstance(states, (list, np.ndarray)):
-                errors.append(f"Traffic control {i} states must be list/array, got {type(states).__name__}")
+            states = np.asarray(elem["states"])
+            if states.ndim != 1:
+                errors.append(f"Traffic control {elem_id} states must be 1D, got {states.shape}")
+            elif expected_length > 0 and len(states) != expected_length:
+                errors.append(f"Traffic control {elem_id} has {len(states)} states, expected {expected_length}")
+            elif not np.all(np.isin(states, list(VALID_TL_STATES))):
+                errors.append(f"Traffic control {elem_id} has invalid light states")
+
+        if "controlled_lanes" in elem:
+            lanes = elem["controlled_lanes"]
+            if not isinstance(lanes, list):
+                errors.append(f"Traffic control {elem_id} controlled_lanes must be list, got {type(lanes).__name__}")
+            else:
+                for lane_id in lanes:
+                    if not _is_int_like(lane_id):
+                        errors.append(f"Traffic control {elem_id} controlled_lanes must contain only lane ids")
+                    elif lane_id not in lane_ids:
+                        errors.append(f"Traffic control {elem_id} references non-existent lane {lane_id}")
 
 
-# Strict validation (physics)
+def _validate_scenario_coherence(
+    metadata: dict,
+    agents: list,
+    errors: list[str],
+    warnings: list[str],
+):
+    if not isinstance(metadata, dict) or not isinstance(agents, list) or "sdc_index" not in metadata:
+        return
+
+    sdc_index = metadata["sdc_index"]
+    if agents and not (0 <= sdc_index < len(agents)):
+        errors.append(f"sdc_index {sdc_index} out of range (have {len(agents)} agents)")
+    if not agents and sdc_index != -1:
+        warnings.append(f"Scenario has no agents but sdc_index={sdc_index}")
 
 
-def strict_validate(
-    puffer_dict: dict,
-    validation_level: int = 2,
-    position_jump_threshold: float = 50.0,
-    velocity_tolerance: float = 2.0,
-    heading_tolerance_deg: float = 30.0,
-) -> tuple[bool, list[str], list[str]]:
-    """
-    Strict validation with physics checks.
-
-    Returns:
-        (is_valid, errors, warnings)
-    """
-    errors = []
-    warnings = []
-
-    metadata = puffer_dict.get("metadata", {})
-    dt = metadata.get("timestep_seconds", 0.1)
-    expected_length = metadata.get("scenario_length", 0)
-    agents = puffer_dict.get("agents", [])
-
-    # Skip agent validation for map_only scenarios
-    if agents:
-        _validate_strict_agents(
-            agents,
-            dt,
-            expected_length,
-            position_jump_threshold,
-            velocity_tolerance,
-            heading_tolerance_deg,
-            validation_level,
-            errors,
-            warnings,
-        )
-
-    _validate_strict_roads(
-        puffer_dict.get("road_map_elements", []),
-        validation_level,
-        errors,
-        warnings,
-    )
-
-    _validate_strict_traffic_control(
-        puffer_dict.get("traffic_control_elements", []),
-        puffer_dict.get("road_map_elements", []),
-        expected_length,
-        validation_level,
-        errors,
-        warnings,
-    )
-
-    _validate_scenario_coherence(puffer_dict, validation_level, errors, warnings)
-
-    return len(errors) == 0, errors, warnings
-
-
-def _validate_strict_agents(
+def _collect_agent_physics_issues(
     agents: list,
     dt: float,
-    expected_length: int,
     position_jump_threshold: float,
     velocity_tolerance: float,
     heading_tolerance_deg: float,
-    validation_level: int,
-    errors: list,
-    warnings: list,
-):
+) -> list[tuple[str, str]]:
+    issues = []
+
     for agent in agents:
         agent_id = agent.get("id", "?")
-        agent_type = agent.get("type", 3)
+        agent_type = agent.get("type", 4)
         states = agent.get("states", {})
 
-        _validate_trajectory_coherence(
-            agent_id,
-            states,
-            dt,
-            position_jump_threshold,
-            velocity_tolerance,
-            heading_tolerance_deg,
-            errors,
-            warnings,
+        issues.extend(
+            _collect_trajectory_coherence_issues(
+                agent_id,
+                states,
+                dt,
+                position_jump_threshold=position_jump_threshold,
+                velocity_tolerance=velocity_tolerance,
+                heading_tolerance_deg=heading_tolerance_deg,
+            ),
         )
-        _validate_physical_constraints(agent_id, agent_type, states, dt, validation_level, errors, warnings)
-        _validate_temporal_consistency(agent_id, states, expected_length, errors, warnings)
+        issues.extend(_collect_physical_constraint_issues(agent_id, agent_type, states, dt))
+
+    return issues
 
 
-def _validate_trajectory_coherence(
+def _collect_trajectory_coherence_issues(
     agent_id,
     states: dict,
     dt: float,
     position_jump_threshold: float,
     velocity_tolerance: float,
     heading_tolerance_deg: float,
-    errors: list,
-    warnings: list,
-):
-    if "xyz" not in states or "valid" not in states:
-        return
+) -> list[tuple[str, str]]:
+    if not {"xyz", "valid", "velocity", "heading"}.issubset(states):
+        return []
 
     xyz = np.asarray(states["xyz"])
     valid = np.asarray(states["valid"])
-    velocity = np.asarray(states["velocity"]) if "velocity" in states else None
-    heading = np.asarray(states["heading"]) if "heading" in states else None
+    velocity = np.asarray(states["velocity"])
+    heading = np.asarray(states["heading"])
+    valid_pairs = [(i, i + 1) for i in range(len(xyz) - 1) if valid[i] and valid[i + 1]]
 
-    # Check for teleportation
-    for i in range(len(xyz) - 1):
-        if valid[i] and valid[i + 1]:
-            dist = np.linalg.norm(xyz[i + 1, :2] - xyz[i, :2])
-            if dist > position_jump_threshold and dist > 1.0:
-                errors.append(f"Agent {agent_id} teleports at timestep {i}: moved {dist:.2f}m")
+    teleport_issues = [
+        (_HARD, f"Agent {agent_id} teleports at timestep {i}: moved {dist:.2f}m")
+        for i, j in valid_pairs
+        for dist in [np.linalg.norm(xyz[j, :2] - xyz[i, :2])]
+        if dist > max(position_jump_threshold, 1.0)
+    ]
 
-    # Velocity-position consistency
-    if velocity is not None and dt > 0:
-        for i in range(len(xyz) - 1):
-            if valid[i] and valid[i + 1] and i < len(velocity):
-                computed_vel = (xyz[i + 1, :2] - xyz[i, :2]) / dt
-                stated_vel = velocity[i, :2]
-                vel_error = np.linalg.norm(computed_vel - stated_vel)
-                if vel_error > velocity_tolerance:
-                    warnings.append(f"Agent {agent_id} timestep {i}: velocity mismatch (error={vel_error:.2f} m/s)")
+    velocity_issues = []
+    if dt > 0:
+        velocity_issues = [
+            (_SOFT, f"Agent {agent_id} timestep {i}: velocity mismatch (error={vel_error:.2f} m/s)")
+            for i, j in valid_pairs
+            for computed_vel in [(xyz[j, :2] - xyz[i, :2]) / dt]
+            for vel_error in [np.linalg.norm(computed_vel - velocity[i, :2])]
+            if vel_error > velocity_tolerance
+        ]
 
-    # Heading-velocity consistency
-    if heading is not None and velocity is not None:
-        for i in range(len(heading)):
-            if valid[i] and i < len(velocity):
-                speed = np.linalg.norm(velocity[i, :2])
-                if speed > 0.5:
-                    vel_angle = np.arctan2(velocity[i, 1], velocity[i, 0])
-                    angle_diff = np.abs(vel_angle - heading[i])
-                    angle_diff = min(angle_diff, 2 * np.pi - angle_diff)
-                    if np.degrees(angle_diff) > heading_tolerance_deg:
-                        warnings.append(f"Agent {agent_id} timestep {i}: heading-velocity misalignment")
+    heading_issues = [
+        (_SOFT, f"Agent {agent_id} timestep {i}: heading-velocity misalignment")
+        for i in range(len(heading))
+        if valid[i]
+        for speed in [np.linalg.norm(velocity[i, :2])]
+        if speed > 0.5
+        for vel_angle in [np.arctan2(velocity[i, 1], velocity[i, 0])]
+        for angle_diff in [_wrap_angle(vel_angle - heading[i])]
+        if np.degrees(np.abs(angle_diff)) > heading_tolerance_deg
+    ]
+
+    return teleport_issues + velocity_issues + heading_issues
 
 
-def _validate_physical_constraints(
+def _collect_physical_constraint_issues(agent_id, agent_type, states: dict, dt: float) -> list[tuple[str, str]]:
+    type_name = AGENT_TYPE_MAP.get(agent_type, "OTHER")
+    issues = []
+
+    issues.extend(
+        [
+            (_HARD, f"Agent {agent_id} has non-positive {dim_key}")
+            for dim_key in ["length", "width", "height"]
+            if dim_key in states
+            for dim in [np.asarray(states[dim_key])]
+            if np.any(dim <= 0)
+        ],
+    )
+
+    if all(key in states for key in ["length", "width", "height"]):
+        length = float(np.mean(states["length"]))
+        width = float(np.mean(states["width"]))
+        height = float(np.mean(states["height"]))
+        issues.extend(_collect_dimension_range_issues(agent_id, agent_type, length, width, height))
+
+    if not {"velocity", "valid"}.issubset(states):
+        return issues
+
+    velocity = np.asarray(states["velocity"])
+    valid = np.asarray(states["valid"])
+    max_speed = {1: 60.0, 2: 8.0, 3: 30.0}.get(agent_type, 60.0)
+    max_accel = {1: 10.0, 2: 3.0, 3: 5.0}.get(agent_type, 10.0)
+
+    issues.extend(
+        [
+            (_HARD, f"Agent {agent_id} ({type_name}) timestep {i}: speed={speed:.1f} m/s exceeds {max_speed}")
+            for i in range(len(velocity))
+            if valid[i]
+            for speed in [np.linalg.norm(velocity[i, :2])]
+            if speed > max_speed
+        ],
+    )
+
+    if dt <= 0:
+        return issues
+
+    issues.extend(
+        [
+            (_SOFT, f"Agent {agent_id} timestep {i}: acceleration={accel:.2f} m/s^2 exceeds {max_accel}")
+            for i in range(len(velocity) - 1)
+            if valid[i] and valid[i + 1]
+            for dv in [velocity[i + 1, :2] - velocity[i, :2]]
+            for accel in [np.linalg.norm(dv) / dt]
+            if accel > max_accel
+        ],
+    )
+
+    return issues
+
+
+def _collect_dimension_range_issues(
     agent_id,
     agent_type,
-    states: dict,
-    dt: float,
-    validation_level: int,
-    errors: list,
-    warnings: list,
-):
-    type_name = AGENT_TYPE_MAP.get(agent_type, "OTHER")
-
-    # Dimension validation
-    for dim_key, (min_val, max_val) in [("length", (0.1, 30.0)), ("width", (0.1, 10.0)), ("height", (0.1, 10.0))]:
-        if dim_key in states:
-            dim = states[dim_key]
-            if isinstance(dim, np.ndarray):
-                if np.any(dim < 0):
-                    errors.append(f"Agent {agent_id} has non-positive {dim_key}")
-                mean_dim = np.mean(dim)
-                if not (min_val <= mean_dim <= max_val):
-                    warnings.append(f"Agent {agent_id} has unusual {dim_key}={mean_dim:.2f}m")
-
-    # Type-specific dimension ranges
-    if all(k in states for k in ["length", "width", "height"]):
-        length = np.mean(states["length"])
-        width = np.mean(states["width"])
-        height = np.mean(states["height"])
-
-        if agent_type == 1:  # VEHICLE
-            if not (2.0 <= length <= 20.0):
-                warnings.append(f"Vehicle {agent_id} has unusual length={length:.2f}m (expected 2-20m)")
-            if not (1.5 <= width <= 5.0):
-                warnings.append(f"Vehicle {agent_id} has unusual width={width:.2f}m (expected 1.5-5m)")
-            if not (1.0 <= height <= 4.0):
-                warnings.append(f"Vehicle {agent_id} has unusual height={height:.2f}m (expected 1-4m)")
-        elif agent_type == 2:  # PEDESTRIAN
-            if not (0.3 <= length <= 0.6):
-                warnings.append(f"Pedestrian {agent_id} has unusual length={length:.2f}m (expected 0.3-0.6m)")
-            if not (0.3 <= width <= 0.6):
-                warnings.append(f"Pedestrian {agent_id} has unusual width={width:.2f}m (expected 0.3-0.6m)")
-            if not (1.0 <= height <= 3.0):
-                warnings.append(f"Pedestrian {agent_id} has unusual height={height:.2f}m (expected 1-3m)")
-        elif agent_type == 3:  # CYCLIST
-            if not (1.5 <= length <= 2.0):
-                warnings.append(f"Cyclist {agent_id} has unusual length={length:.2f}m (expected 1.5-2m)")
-            if not (0.5 <= width <= 0.8):
-                warnings.append(f"Cyclist {agent_id} has unusual width={width:.2f}m (expected 0.5-0.8m)")
-
-    # Velocity limits
-    if "velocity" in states and "valid" in states:
-        velocity = np.asarray(states["velocity"])
-        valid = np.asarray(states["valid"])
-        max_speed = {1: 60.0, 2: 8.0, 3: 30.0}.get(agent_type, 60.0)
-
-        for i in range(len(velocity)):
-            if valid[i]:
-                speed = np.linalg.norm(velocity[i, :2])
-                if speed > max_speed:
-                    warnings.append(
-                        f"Agent {agent_id} ({type_name}) timestep {i}: speed={speed:.1f} m/s exceeds {max_speed}",
-                    )
-
-        # Acceleration limits (level >= 2)
-        if validation_level >= 2 and dt > 0:
-            max_accel = {0: 3.0, 2: 5.0}.get(agent_type, 10.0)
-            for i in range(len(velocity) - 1):
-                if valid[i] and valid[i + 1]:
-                    dv = velocity[i + 1, :2] - velocity[i, :2]
-                    accel = np.linalg.norm(dv) / dt
-                    if accel > max_accel:
-                        warnings.append(
-                            f"Agent {agent_id} timestep {i}: acceleration={accel:.2f} m/s² exceeds {max_accel}",
-                        )
+    length: float,
+    width: float,
+    height: float,
+) -> list[tuple[str, str]]:
+    if agent_type == 1:
+        return [
+            *(
+                []
+                if 2.0 <= length <= 20.0
+                else [(_SOFT, f"Vehicle {agent_id} has unusual length={length:.2f}m (expected 2-20m)")]
+            ),
+            *(
+                []
+                if 1.5 <= width <= 5.0
+                else [(_SOFT, f"Vehicle {agent_id} has unusual width={width:.2f}m (expected 1.5-5m)")]
+            ),
+            *(
+                []
+                if 1.0 <= height <= 4.0
+                else [(_SOFT, f"Vehicle {agent_id} has unusual height={height:.2f}m (expected 1-4m)")]
+            ),
+        ]
+    if agent_type == 2:
+        return [
+            *(
+                []
+                if 0.3 <= length <= 0.6
+                else [(_SOFT, f"Pedestrian {agent_id} has unusual length={length:.2f}m (expected 0.3-0.6m)")]
+            ),
+            *(
+                []
+                if 0.3 <= width <= 0.6
+                else [(_SOFT, f"Pedestrian {agent_id} has unusual width={width:.2f}m (expected 0.3-0.6m)")]
+            ),
+            *(
+                []
+                if 1.0 <= height <= 3.0
+                else [(_SOFT, f"Pedestrian {agent_id} has unusual height={height:.2f}m (expected 1-3m)")]
+            ),
+        ]
+    if agent_type == 3:
+        return [
+            *(
+                []
+                if 1.5 <= length <= 2.0
+                else [(_SOFT, f"Cyclist {agent_id} has unusual length={length:.2f}m (expected 1.5-2m)")]
+            ),
+            *(
+                []
+                if 0.5 <= width <= 0.8
+                else [(_SOFT, f"Cyclist {agent_id} has unusual width={width:.2f}m (expected 0.5-0.8m)")]
+            ),
+        ]
+    return []
 
 
-def _validate_temporal_consistency(agent_id, states: dict, expected_length: int, errors: list, warnings: list):
-    lengths = {k: len(v) for k, v in states.items() if isinstance(v, np.ndarray)}
-    if lengths:
-        unique_lengths = set(lengths.values())
-        if len(unique_lengths) > 1:
-            errors.append(f"Agent {agent_id} has inconsistent state array lengths: {lengths}")
-        for key, length in lengths.items():
-            if length != expected_length and expected_length > 0:
-                errors.append(f"Agent {agent_id} state '{key}' has length {length}, expected {expected_length}")
-
-    # Check for appearing with NaN or at origin
-    if "valid" in states and "xyz" in states:
-        valid = np.asarray(states["valid"])
-        xyz = np.asarray(states["xyz"])
-        for i in range(1, len(valid)):
-            if not valid[i - 1] and valid[i]:
-                if np.any(np.isnan(xyz[i])):
-                    warnings.append(f"Agent {agent_id} appears at timestep {i} with NaN position")
-                elif np.linalg.norm(xyz[i, :2]) < 1e-3:
-                    warnings.append(f"Agent {agent_id} appears at timestep {i} at origin (suspicious)")
-
-
-def _validate_strict_roads(roads: list, validation_level: int, errors: list, warnings: list):
-    lane_ids = {r["id"] for r in roads if r.get("type", 0) in LANE_TYPES}
-    lanes_by_id = {r["id"]: r for r in roads if r.get("type", 0) in LANE_TYPES}
+def _collect_road_physics_issues(roads: list) -> list[tuple[str, str]]:
+    issues = []
 
     for road in roads:
         road_id = road.get("id", "?")
-        road_type = road.get("type", 0)
+        xyz = np.asarray(road.get("xyz", []))
+        if len(xyz) < 2:
+            continue
 
-        if "xyz" in road:
-            xyz = np.asarray(road["xyz"])
-            if len(xyz) >= 2:
-                # Check for duplicate points
-                dists = [np.linalg.norm(xyz[i + 1] - xyz[i]) for i in range(len(xyz) - 1)]
+        dists = [np.linalg.norm(xyz[i + 1] - xyz[i]) for i in range(len(xyz) - 1)]
+        total_length = sum(dists)
+        if total_length < 1.0:
+            issues.append((_SOFT, f"Road {road_id} has very short polyline (length={total_length:.2f}m)"))
 
-                # Total length check
-                total_length = sum(dists)
-                if total_length < 1.0:
-                    warnings.append(f"Road {road_id} has very short polyline (length={total_length:.2f}m)")
+        if len(xyz) <= 2:
+            continue
 
-                # Sharp corner detection (level >= 3)
-                if validation_level >= 3 and len(xyz) > 2:
-                    for i in range(1, len(xyz) - 1):
-                        v1 = xyz[i] - xyz[i - 1]
-                        v2 = xyz[i + 1] - xyz[i]
-                        v1_norm, v2_norm = np.linalg.norm(v1), np.linalg.norm(v2)
-                        if v1_norm > 1e-6 and v2_norm > 1e-6:
-                            dot = np.clip(np.dot(v1[:2] / v1_norm, v2[:2] / v2_norm), -1.0, 1.0)
-                            angle_deg = np.degrees(np.arccos(dot))
-                            if angle_deg > 170:
-                                warnings.append(
-                                    f"Road {road_id} has sharp corner at point {i} (angle={angle_deg:.1f}°)",
-                                )
+        issues.extend(
+            [
+                (_SOFT, f"Road {road_id} has sharp corner at point {i} (angle={angle_deg:.1f} deg)")
+                for i in range(1, len(xyz) - 1)
+                for v1 in [xyz[i] - xyz[i - 1]]
+                for v2 in [xyz[i + 1] - xyz[i]]
+                for v1_norm in [np.linalg.norm(v1)]
+                for v2_norm in [np.linalg.norm(v2)]
+                if v1_norm > 1e-6 and v2_norm > 1e-6
+                for dot in [np.clip(np.dot(v1[:2] / v1_norm, v2[:2] / v2_norm), -1.0, 1.0)]
+                for angle_deg in [np.degrees(np.arccos(dot))]
+                if angle_deg > 170
+            ],
+        )
 
-        # Lane connectivity
-        if road_type in LANE_TYPES:
-            for entry_id in road.get("entry_lanes", []):
-                if entry_id not in lane_ids:
-                    errors.append(f"Lane {road_id} references non-existent entry lane {entry_id}")
-            for exit_id in road.get("exit_lanes", []):
-                if exit_id not in lane_ids:
-                    errors.append(f"Lane {road_id} references non-existent exit lane {exit_id}")
-
-            # Bidirectional connectivity check (level >= 2)
-            if validation_level >= 2:
-                for exit_id in road.get("exit_lanes", []):
-                    if exit_id in lanes_by_id:
-                        exit_entries = lanes_by_id[exit_id].get("entry_lanes", [])
-                        if road_id not in exit_entries:
-                            errors.append(
-                                f"Lane {road_id} exits to {exit_id}, but {exit_id} doesn't list {road_id} as entry",
-                            )
+    return issues
 
 
-def _validate_strict_traffic_control(
-    elements: list,
-    roads: list,
-    expected_length: int,
-    validation_level: int,
-    errors: list,
-    warnings: list,
-):
-    lanes_by_id = {r["id"]: r for r in roads if r.get("type", 0) in LANE_TYPES}
-    lane_ids = set(lanes_by_id.keys())
+def _collect_traffic_control_physics_issues(elements: list, roads: list) -> list[tuple[str, str]]:
+    lanes_by_id = {road["id"]: road for road in roads if road.get("type", 0) in LANE_TYPES}
+    issues = []
 
     for elem in elements:
         elem_id = elem.get("id", "?")
+        tl_pos = np.asarray(elem.get("xyz", [0.0, 0.0, 0.0]))[:2]
+        states = np.asarray(elem.get("states", []))
 
-        # Controlled lanes validation
-        for lane_id in elem.get("controlled_lanes", []):
-            if lane_id not in lane_ids:
-                errors.append(f"Traffic control {elem_id} references non-existent lane {lane_id}")
+        issues.extend(
+            [
+                (_SOFT, f"Traffic control {elem_id} is {dist:.1f}m away from lane {lane_id} (expected < 10m)")
+                for lane_id in elem.get("controlled_lanes", [])
+                if lane_id in lanes_by_id
+                for lane_xyz in [np.asarray(lanes_by_id[lane_id]["xyz"])]
+                for dist in [np.linalg.norm(lane_xyz[0, :2] - tl_pos)]
+                if dist > 10.0
+            ],
+        )
 
-        # Position proximity to controlled lane
-        if "xyz" in elem and "controlled_lanes" in elem:
-            tl_pos = np.array(elem["xyz"])[:2]
-            for lane_id in elem["controlled_lanes"]:
-                if lane_id in lanes_by_id and "xyz" in lanes_by_id[lane_id]:
-                    lane_xyz = np.array(lanes_by_id[lane_id]["xyz"])[0, :2]
-                    min_dist = np.linalg.norm(lane_xyz - tl_pos)
-                    if min_dist > 10.0:
-                        warnings.append(
-                            f"Traffic control {elem_id} is {min_dist:.1f}m away from lane {lane_id} (expected < 10m)",
-                        )
+        if len(states) <= 1:
+            continue
 
-        # States validation
-        if "states" in elem:
-            states = elem["states"]
-            if len(states) != expected_length and expected_length > 0:
-                errors.append(f"Traffic control {elem_id} has {len(states)} states, expected {expected_length}")
+        issues.extend(
+            [
+                (_SOFT, f"Traffic control {elem_id} timestep {i}: invalid GREEN->RED transition")
+                for i in range(len(states) - 1)
+                if states[i] in (3, 6) and states[i + 1] in (1, 4)
+            ],
+        )
 
-            # State transition validation
-            if validation_level >= 2 and len(states) > 1:
-                for i in range(len(states) - 1):
-                    if states[i] in (3, 6) and states[i + 1] in (1, 4):  # GREEN->RED (arrow or solid)
-                        warnings.append(f"Traffic control {elem_id} timestep {i}: invalid GREEN->RED transition")
+        state_changes = sum(1 for i in range(len(states) - 1) if states[i] != states[i + 1])
+        if state_changes > len(states) * 0.5:
+            issues.append(
+                (
+                    _SOFT,
+                    f"Traffic control {elem_id} has rapid flickering: {state_changes} state changes in {len(states)} timesteps",
+                ),
+            )
 
-                # Rapid flickering detection
-                state_changes = sum(1 for i in range(len(states) - 1) if states[i] != states[i + 1])
-                if state_changes > len(states) * 0.5:
-                    warnings.append(
-                        f"Traffic control {elem_id} has rapid flickering: {state_changes} state changes in {len(states)} timesteps",
-                    )
+    return issues
 
 
-def _validate_scenario_coherence(puffer_dict: dict, validation_level: int, errors: list, warnings: list):
-    metadata = puffer_dict.get("metadata", {})
-    agents = puffer_dict.get("agents", [])
-    roads = puffer_dict.get("road_map_elements", [])
+def _is_int_like(value) -> bool:
+    return isinstance(value, (int, np.integer)) and not isinstance(value, bool)
 
-    # Skip sdc_index check for map_only scenarios (no agents)
-    if len(agents) > 0:
-        sdc_index = metadata.get("sdc_index", 0)
-        if sdc_index >= len(agents):
-            errors.append(f"sdc_index {sdc_index} out of range (have {len(agents)} agents)")
 
-    if validation_level >= 3:
-        if len(agents) > 500:
-            warnings.append(f"Scenario has {len(agents)} agents (unusually high)")
-        elif len(agents) == 0:
-            warnings.append("Scenario has no agents")
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(value, bool)
 
-        if len(roads) > 1000:
-            warnings.append(f"Scenario has {len(roads)} map elements (unusually high, expected 10-500)")
+
+def _wrap_angle(angle: float) -> float:
+    return (angle + np.pi) % (2 * np.pi) - np.pi
