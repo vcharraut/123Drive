@@ -50,20 +50,20 @@ def process_one_scenario(
         route_check_timestep=route_check_timestep,
     )
 
-    # 4. Validate Puffer Dict (optional)
-    is_valid = True
+    # 4. Validate Puffer Dict
     errors = []
     warnings = []
     if validate_level > 0:
-        is_valid, errors, warnings = validate_puffer_dict(puffer_dict, validation_level=validate_level)
+        errors, warnings = validate_puffer_dict(puffer_dict, validation_level=validate_level)
         for warning in warnings:
             logger.warning(f"map_{map_id}: {warning}")
         for error in errors:
             logger.error(f"map_{map_id}: {error}")
 
-    if not is_valid:
+    if len(errors) > 0:
         raise ValueError(
-            f"Validation failed for map_{map_id} with {len(errors)} errors and {len(warnings)} warnings",
+            f"Validation failed for scenario {puffer_dict.get('scenario_id', 'unknown')}",
+            f" with {len(errors)} errors and {len(warnings)} warnings",
         )
 
     # 5. Convert Puffer Dict -> Binary

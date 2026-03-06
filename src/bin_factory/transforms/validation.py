@@ -56,7 +56,7 @@ def validate_puffer_dict(
 
     mandatory_errors, mandatory_warnings = _collect_mandatory_issues(puffer_dict)
     if validation_level == 1 or mandatory_errors:
-        return len(mandatory_errors) == 0, mandatory_errors, mandatory_warnings
+        return mandatory_errors, mandatory_warnings
 
     physical_issues = _collect_physics_issues(
         puffer_dict,
@@ -68,7 +68,7 @@ def validate_puffer_dict(
 
     errors = mandatory_errors + physics_errors
     warnings = mandatory_warnings + physics_warnings
-    return len(errors) == 0, errors, warnings
+    return errors, warnings
 
 
 def _collect_mandatory_issues(puffer_dict: dict) -> tuple[list[str], list[str]]:
