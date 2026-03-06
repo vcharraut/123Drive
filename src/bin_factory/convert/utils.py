@@ -1,5 +1,5 @@
 import numpy as np
-from py123d.datatypes.map_objects.map_layer_types import LaneType
+from py123d.datatypes.map_objects import LaneType
 
 
 def extract_lane_centers(static_map_elements: dict) -> tuple[list, np.ndarray, dict, np.ndarray]:

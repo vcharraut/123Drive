@@ -3,8 +3,8 @@ Convert traffic control elements from intermediate format to Puffer format.
 """
 
 import numpy as np
-from py123d.datatypes.detections.traffic_light_detections import TrafficLightStatus
-from py123d.datatypes.map_objects.map_layer_types import StopZoneType
+from py123d.datatypes.detections import TrafficLightStatus
+from py123d.datatypes.map_objects import StopZoneType
 
 from src.bin_factory import logger_utils
 from src.bin_factory.convert import types as puffer_types

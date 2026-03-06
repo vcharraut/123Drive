@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-from py123d.datatypes.map_objects.map_layer_types import MapLayer
+from py123d.api import MapAPI
+from py123d.datatypes.map_objects import Lane, MapLayer
 
 
 if TYPE_CHECKING:
@@ -28,9 +29,9 @@ def centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
     return centered
 
 
-def get_lane_position(map_api: MapAPI | None, lane_id: int, center: np.ndarray) -> list[float]:
+def get_lane_position(map_api: MapAPI, lane_id: int, center: np.ndarray) -> list[float]:
     lane = map_api.get_map_object(lane_id, MapLayer.LANE)
-    if lane is None or not hasattr(lane, "centerline"):
+    if lane is None or not isinstance(lane, Lane):
         raise ValueError(f"Lane {lane_id} not found or has no centerline")
 
     if len(lane.centerline.array) == 0:

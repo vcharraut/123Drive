@@ -3,7 +3,7 @@ Convert dynamic agents from intermediate format to Puffer format.
 """
 
 import numpy as np
-from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
+from py123d.datatypes.detections import DefaultBoxDetectionLabel
 
 from src.bin_factory import logger_utils
 from src.bin_factory.convert import routes, utils

@@ -4,16 +4,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from py123d.api.map.arrow_map_api import ArrowMapAPI
-from py123d.api.scene.arrow.arrow_scene_builder import ArrowSceneBuilder
-from py123d.api.scene.scene_filter import SceneFilter
-from py123d.common.execution.sequential_executor import SequentialExecutor
+from py123d.api import MapAPI, SceneFilter, get_filtered_scenes
+from py123d.api.map.arrow.arrow_map_api import ArrowMapAPI
+from py123d.common.execution import SequentialExecutor
 
 
 @dataclass(frozen=True)
 class MapOnlyScenario:
     scenario_id: str
-    map_api: ArrowMapAPI
+    map_api: MapAPI
     split_name: str | None = None
 
 
@@ -51,10 +50,7 @@ def get_py123d_scenarios(
     if map_only:
         return _load_map_only_scenarios(data_root)
 
-    logs_root = data_root / "logs"
-    maps_root = data_root / "maps"
-
-    filter_cfg = SceneFilter(
+    scene_filter = SceneFilter(
         datasets=datasets,
         split_types=split_types,
         split_names=split_names,
@@ -65,8 +61,11 @@ def get_py123d_scenarios(
         max_num_scenes=max_scenarios,
     )
 
-    builder = ArrowSceneBuilder(logs_root=logs_root, maps_root=maps_root)
-    return builder.get_scenes(filter_cfg, SequentialExecutor())
+    return get_filtered_scenes(
+        scene_filter=scene_filter,
+        data_root=data_root,
+        executor=SequentialExecutor(),
+    )
 
 
 def _load_map_only_scenarios(data_root: Path) -> list[MapOnlyScenario]:

@@ -17,8 +17,7 @@ from src.bin_factory.loader.utils import (
 
 
 if TYPE_CHECKING:
-    from py123d.api.map.map_api import MapAPI
-    from py123d.api.scene.scene_api import SceneAPI
+    from py123d.api import MapAPI, SceneAPI
 
 
 def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
@@ -108,6 +107,7 @@ def extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
         ego_state = scene.get_ego_state_at_iteration(frame_idx)
 
         center_se3 = ego_state.center_se3
+        ego_bbox = ego_state.bounding_box_se3
         heading = center_se3.pose_se2.yaw
         x = float(center_se3.x) - float(centroid[0])
         y = float(center_se3.y) - float(centroid[1])
@@ -117,9 +117,9 @@ def extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
         obj["position"][frame_idx] = [x, y, z]
         obj["heading"][frame_idx] = heading
         obj["valid"][frame_idx] = True
-        obj["length"][frame_idx] = float(ego_state.vehicle_parameters.length)
-        obj["width"][frame_idx] = float(ego_state.vehicle_parameters.width)
-        obj["height"][frame_idx] = float(ego_state.vehicle_parameters.height)
+        obj["length"][frame_idx] = float(ego_bbox.length)
+        obj["width"][frame_idx] = float(ego_bbox.width)
+        obj["height"][frame_idx] = float(ego_bbox.height)
 
         if ego_state.dynamic_state_se3 is not None:
             vel = ego_state.dynamic_state_se3.velocity_3d
@@ -127,7 +127,7 @@ def extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
 
     # Extract other objects from box detections
     for frame_idx in range(episode_length):
-        detections = scene.get_box_detections_at_iteration(frame_idx)
+        detections = scene.get_box_detections_se3_at_iteration(frame_idx)
         if not detections:
             continue
 
@@ -186,7 +186,7 @@ def _split_agents_and_objects(objects: dict[int, dict]) -> tuple[dict[int, dict]
     return agents, non_agents
 
 
-def extract_traffic_lights(scene: SceneAPI, map_api: MapAPI | None, centroid: np.ndarray) -> dict[int, dict]:
+def extract_traffic_lights(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarray) -> dict[int, dict]:
     """Extract dynamic traffic light states from py123d logs."""
 
     episode_length = scene.number_of_iterations

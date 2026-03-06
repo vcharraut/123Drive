@@ -1,7 +1,7 @@
 from enum import Enum
 
 import numpy as np
-from py123d.conversion.registry.box_detection_label_registry import DefaultBoxDetectionLabel
+from py123d.datatypes.detections import DefaultBoxDetectionLabel
 
 
 class TLS(Enum):
