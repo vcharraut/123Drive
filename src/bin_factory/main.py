@@ -61,7 +61,11 @@ def process_one_scenario(
             logger.error(f"map_{map_id}: {error}")
 
     if len(errors) > 0:
-        raise ValueError(f"Validation failed for scenario {puffer_dict.get('scenario_id', 'unknown')} with {len(errors)} errors and {len(warnings)} warnings") # noqa: E501
+        scenario_id = puffer_dict.get('scenario_id', 'unknown')
+        raise ValueError(
+            f"Validation failed for scenario {scenario_id} "
+            f"with {len(errors)} errors and {len(warnings)} warnings",
+        )
 
     # 5. Convert Puffer Dict -> Binary
     binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
