@@ -68,30 +68,28 @@ def convert_traffic_control_elements(traffic_lights: dict, _objects: dict, map: 
     for element_id, element_data in map.items():
         if isinstance(element_data["type"], StopZoneType):
             element_type_int = int(element_data["type"])
-            lanes = element_data["controlled_lanes"]
+            controlled = element_data["controlled_lanes"]
 
             if element_type_int == 1:  # TRAFFIC_LIGHT
-                lanes_id_to_position = {lane_id: map[lane_id]["polyline"][0] for lane_id in lanes if lane_id in map}
+                lane_positions = {lid: map[lid]["polyline"][0] for lid in controlled if lid in map}
 
-                # Merge lanes ids with same position into one traffic control element
-                position_to_lanes = {}
-                for lane_id, position in lanes_id_to_position.items():
-                    position_tuple = _position_to_group_key(position)
-                    if position_tuple not in position_to_lanes:
-                        position_to_lanes[position_tuple] = []
-                    position_to_lanes[position_tuple].append(lane_id)
+                # Merge lane ids with same position into one traffic control element
+                pos_to_lanes = {}
+                for lid, pos in lane_positions.items():
+                    pos_key = _position_to_group_key(pos)
+                    if pos_key not in pos_to_lanes:
+                        pos_to_lanes[pos_key] = []
+                    pos_to_lanes[pos_key].append(lid)
 
-                for _, lanes in position_to_lanes.items():
-                    lane_id = lanes[0]
-                    lane_data = map[lane_id]
-                    position = lane_data["polyline"][0]
+                for grouped_lanes in pos_to_lanes.values():
+                    first_lane = map[grouped_lanes[0]]
 
                     puffer_element = {
                         "id": next_id,
                         "type": element_type_int,
-                        "xyz": position,
+                        "xyz": first_lane["polyline"][0],
                         "states": [],
-                        "controlled_lanes": lanes,
+                        "controlled_lanes": grouped_lanes,
                     }
 
                     puffer_elements.append(puffer_element)
