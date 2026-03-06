@@ -28,7 +28,7 @@ Routes with heading misalignment (agent traveling wrong direction) are rejected.
 """
 
 import numpy as np
-from py123d.datatypes.map_objects.map_layer_types import LaneType, RoadEdgeType
+from py123d.datatypes.map_objects.map_layer_types import RoadEdgeType
 
 from src.bin_factory import logger_utils
 
@@ -70,7 +70,6 @@ def compute_agent_route(
     agent_data: tuple,
     static_map_elements: dict,
     lane_data: tuple,
-    min_route_valid_points: int = 0,
     route_check_timestep: int = 0,
 ) -> list[list[int]]:
     """
@@ -85,36 +84,17 @@ def compute_agent_route(
         agent_data: Tuple of (agent_id, position, heading, valid, length, width)
         static_map_elements: Dict of static map elements (lanes, boundaries, etc.)
         lane_data: Tuple of (lane_ids, lane_polylines, lane_metadata, lane_lengths)
-        min_route_valid_points: Minimum valid trajectory points required (0 = no filtering)
         route_check_timestep: Timestep to check if agent is offroad (default: 0)
 
     Returns:
         List containing single best route, where route is a list of lane center IDs
     """
-    agent_id, agent_trajectory, agent_heading, agent_valid, agent_length, agent_width = agent_data
-
-    if len(agent_trajectory) == 0 or not np.any(agent_valid):
-        return []
-
-    # Extract valid trajectory points
-    valid_trajectory = agent_trajectory[agent_valid]
-    valid_heading = agent_heading[agent_valid]
+    agent_id, agent_trajectory, agent_heading = agent_data[:3]
 
     # Format agent identifier for logging
     agent_str = f"Agent {agent_id}" if agent_id is not None else "Agent"
 
-    # Check if trajectory has sufficient valid points
-    if min_route_valid_points > 0 and len(valid_trajectory) < min_route_valid_points:
-        logger.debug(
-            f"{agent_str}: Insufficient valid points ({len(valid_trajectory)} < {min_route_valid_points})",
-        )
-        return []
-
-    lane_ids, lane_polylines, _, lane_lengths = lane_data
-
-    if len(lane_ids) == 0:
-        logger.debug(f"{agent_str}: No lane centers found in map")
-        return []
+    _, lane_polylines, _, lane_lengths = lane_data
 
     # Check if agent is offroad at check timestep (bbox crosses road edge OR >5m from lane)
     if _is_offroad_at_init(
@@ -128,7 +108,7 @@ def compute_agent_route(
         return []
 
     # Step 1: Find 1-3 root lane candidates
-    root_candidates = _find_root_lane_candidates(valid_trajectory, valid_heading, lane_data)
+    root_candidates = _find_root_lane_candidates(agent_trajectory, agent_heading, lane_data)
 
     if not root_candidates:
         logger.debug(f"{agent_str}: No current lane found")
@@ -144,8 +124,8 @@ def compute_agent_route(
             root_lane,
             static_map_elements,
             lane_data,
-            valid_trajectory,
-            valid_heading,
+            agent_trajectory,
+            agent_heading,
         )
 
         # Update best if this is better
@@ -159,97 +139,6 @@ def compute_agent_route(
         return []
 
     return [best_route]
-
-
-def extract_lane_centers(static_map_elements: dict) -> tuple[list, np.ndarray, dict, np.ndarray]:
-    """
-    Extract lane center information as numpy arrays for vectorized operations.
-
-    Args:
-        static_map_elements: Dict of static map elements
-
-    Returns:
-        Tuple of:
-        - lane_ids: List of lane IDs (strings)
-        - lane_polylines: Array of lane polylines, padded to max length (N_lanes, max_points, 2)
-        - lane_metadata: Dict mapping lane_id to connectivity info
-        - lane_lengths: Array of actual polyline lengths (N_lanes,) for each lane
-    """
-    lane_ids = []
-    lane_polylines_list = []
-    lane_lengths_list = []
-    lane_metadata = {}
-    max_points = 0
-
-    # First pass: collect lanes and find max polyline length
-    for element_id, element_data in static_map_elements.items():
-        element_type = element_data["type"]
-
-        # Only process lane centers
-        if element_type in (LaneType.SURFACE_STREET, LaneType.FREEWAY):
-            polyline = element_data["polyline"]
-
-            if len(polyline) > 0:
-                # Convert to 2D if needed
-                polyline_2d = polyline[:, :2] if polyline.shape[1] == 3 else polyline
-
-                lane_ids.append(element_id)
-                lane_polylines_list.append(polyline_2d)
-                lane_lengths_list.append(len(polyline_2d))
-                max_points = max(max_points, len(polyline_2d))
-
-                lane_metadata[element_id] = {
-                    "entry_lanes": element_data["entry_lanes"],
-                    "exit_lanes": element_data["exit_lanes"],
-                }
-
-    if not lane_ids:
-        return [], np.array([]), {}, np.array([])
-
-    # Second pass: create padded array
-    n_lanes = len(lane_ids)
-    lane_polylines = np.zeros((n_lanes, max_points, 2), dtype=np.float64)
-    lane_lengths = np.array(lane_lengths_list, dtype=np.int64)
-
-    for i, polyline_2d in enumerate(lane_polylines_list):
-        lane_polylines[i, : len(polyline_2d), :] = polyline_2d
-
-    return lane_ids, lane_polylines, lane_metadata, lane_lengths
-
-
-def _build_route_polyline(route_path: list, lane_data: tuple) -> np.ndarray:
-    """
-    Build a single continuous polyline from a route path by concatenating lane polylines.
-
-    Args:
-        route_path: List of lane IDs forming the route
-        lane_data: Tuple of (lane_ids, lane_polylines, lane_metadata, lane_lengths)
-
-    Returns:
-        Concatenated polyline array (N_points, 2) representing the full route
-    """
-    lane_ids, lane_polylines, _, lane_lengths = lane_data
-    lane_id_to_idx = {lane_id: idx for idx, lane_id in enumerate(lane_ids)}
-
-    route_polyline_segments = []
-    for lane_id in route_path:
-        if lane_id not in lane_id_to_idx:
-            continue
-
-        idx = lane_id_to_idx[lane_id]
-        length = lane_lengths[idx]
-        polyline_valid = lane_polylines[idx, :length, :]  # (length, 2)
-
-        if length > 0:
-            route_polyline_segments.append(polyline_valid)
-
-    if not route_polyline_segments:
-        return np.zeros((0, 2), dtype=np.float64)
-
-    # Concatenate all segments into single polyline
-    route_polyline = np.vstack(route_polyline_segments)
-
-    return route_polyline
 
 
 def _check_route_heading_alignment(
@@ -317,38 +206,7 @@ def _check_route_heading_alignment(
     return alignment_ratio >= min_alignment_ratio
 
 
-def _score_route_geometric(
-    route_path: list,
-    lane_data: tuple,
-    trajectory: np.ndarray,
-    heading: np.ndarray,
-) -> float:
-    """
-    Score route using geometric distance from trajectory to full route polyline.
-
-    Uses multiplicative scoring: coverage * distance_score, where:
-    - coverage: Percentage of trajectory points within LANE_WIDTH_THRESHOLD of route
-    - distance_score: 1 / (1 + avg_distance) for covered points
-
-    Args:
-        route_path: List of lane IDs forming the route
-        lane_data: Tuple of (lane_ids, lane_polylines, lane_metadata, lane_lengths)
-        trajectory: Trajectory points (M, 2/3)
-        heading: Trajectory headings (M,)
-
-    Returns:
-        Score value where higher is better (0.0 if route doesn't match trajectory)
-    """
-    # Ensure trajectory is 2D
-    trajectory_2d = trajectory[:, :2] if trajectory.shape[1] == 3 else trajectory
-
-    # Build route polyline
-    route_polyline = _build_route_polyline(route_path, lane_data)
-
-    return _score_route_polyline(route_polyline, trajectory_2d, heading)
-
-
-def _score_route_polyline(route_polyline: np.ndarray,trajectory_2d: np.ndarray,heading: np.ndarray) -> float:
+def _score_route_polyline(route_polyline: np.ndarray, trajectory_2d: np.ndarray, heading: np.ndarray) -> float:
     """Score a pre-built route polyline against a trajectory."""
     if len(route_polyline) < 2 or len(trajectory_2d) == 0:
         return 0.0
@@ -771,10 +629,7 @@ def _is_offroad_at_init(
     Returns:
         True if vehicle is offroad, False otherwise
     """
-    _, positions, headings, valid, lengths, widths = agent_data
-
-    if route_check_timestep >= len(positions) or not valid[route_check_timestep]:
-        return True
+    _, positions, headings, lengths, widths = agent_data
 
     position = positions[route_check_timestep, :2]  # (2,) xy
     heading = headings[route_check_timestep]
@@ -782,11 +637,7 @@ def _is_offroad_at_init(
     width = widths[route_check_timestep]
 
     # Is stationary vehicle?
-    valid_positions = positions[valid]
-    if len(valid_positions) >= 2:
-        displacement = np.linalg.norm(valid_positions[-1, :2] - valid_positions[0, :2])
-    else:
-        displacement = 0.0
+    displacement = np.linalg.norm(position[-1, :2] - position[0, :2]) if len(position) >= 2 else 0.0
     has_movement = displacement > 0.5
     OFFROAD_DISTANCE_THRESHOLD_LOCAL = OFFROAD_DISTANCE_THRESHOLD if has_movement else 1.0
 
