@@ -1,9 +1,13 @@
-ARG PYTHON_VERSION=3.11
+ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim
 
 ARG EXTRAS=nuplan
-ARG DEVKIT=""
-ARG PY123D_REF=HEAD
+ARG PY123D_REF=dev_v0.1.0
+
+COPY --from=ghcr.io/astral-sh/uv:0.6.5 /uv /uvx /bin/
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -12,18 +16,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir uv
-
-RUN git clone --depth 1 https://github.com/autonomousvision/py123d.git /opt/py123d && \
-    if [ "${PY123D_REF}" != "HEAD" ]; then git -C /opt/py123d fetch --depth 1 origin "${PY123D_REF}" && git -C /opt/py123d checkout FETCH_HEAD; fi
-
-# waymo-open-dataset-tf-2-12-0==1.6.7 pins jaxlib==0.4.13 and jax==0.4.13 which don't
-# exist on PyPI (min available: 0.4.17). Use uv --override to replace transitive pins.
-RUN printf 'jaxlib>=0.4.17\njax>=0.4.13\n' > /tmp/overrides.txt && \
-    uv pip install --system --no-cache --override /tmp/overrides.txt -e "/opt/py123d[${EXTRAS}]"
-
-RUN if [ -n "${DEVKIT}" ]; then \
-    uv pip install --system --no-cache "${DEVKIT}" pytest; \
-    fi
+RUN --mount=type=cache,target=/root/.cache/uv \
+    git clone https://github.com/autonomousvision/py123d.git /tmp/py123d && \
+    git -C /tmp/py123d checkout "${PY123D_REF}" && \
+    uv pip install --system "/tmp/py123d[${EXTRAS}]" && \
+    if [ "${EXTRAS}" = "nuplan" ]; then uv pip install --system pytest "nuplan-devkit @ git+https://github.com/motional/nuplan-devkit/@nuplan-devkit-v1.2"; fi && \
+    rm -rf /tmp/py123d
 
 ENTRYPOINT ["py123d-conversion"]

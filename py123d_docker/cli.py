@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -8,15 +9,15 @@ from py123d_docker.configs import DATA_LAYOUT, DATASET_CONFIGS
 
 
 def image_name(dataset):
-    return f"py123d-convert-{dataset}"
+    return f"py123d-docker-{dataset}"
 
 
-def build_hydra_args(dataset, output, config, splits, workers, extra_overrides):
-    args = [f'datasets=["{dataset}"]', "dataset_paths.py123d_data_root=/output"]
+def build_hydra_args(dataset, config, splits, workers, extra_overrides):
+    args = [f"dataset={dataset}", "dataset_paths.py123d_data_root=/output"]
     args += [f"dataset_paths.{k}=/data/{v}" for k, v in config["path_keys"].items()]
     args += config["sensor_overrides"]
     active_splits = splits or config["default_splits"]
-    args.append(f"datasets.{dataset}.splits={json.dumps(active_splits)}")
+    args.append(f"dataset.parser.splits={json.dumps(active_splits, separators=(',', ':'))}")
     if workers and workers > 1:
         args += ["execution=process_pool_executor", f"execution.max_workers={workers}"]
     args += extra_overrides
@@ -49,11 +50,9 @@ def build_docker_build_cmd(dataset, config, py123d_ref=None, no_cache=False):
     cmd = ["docker", "build"]
     if no_cache:
         cmd += ["--no-cache"]
-    python_version = config.get("python_version", "3.11")
+    python_version = config.get("python_version", "3.12")
     cmd += ["--build-arg", f"PYTHON_VERSION={python_version}"]
     cmd += ["--build-arg", f"EXTRAS={config['extras']}"]
-    if config["devkit"]:
-        cmd += ["--build-arg", f"DEVKIT={config['devkit']}"]
     if py123d_ref:
         cmd += ["--build-arg", f"PY123D_REF={py123d_ref}"]
     cmd += ["-t", image_name(dataset), str(dockerfile_dir)]
@@ -87,7 +86,7 @@ def print_list():
 
 
 def main():
-    parser = argparse.ArgumentParser(prog="py123d-convert")
+    parser = argparse.ArgumentParser(prog="py123d-docker")
     parser.add_argument("--dataset", help="Dataset name (see --list)")
     parser.add_argument("--data_root", help="Path to raw data root")
     parser.add_argument("--output", help="Path to output directory")
@@ -123,7 +122,7 @@ def main():
     parser.add_argument("--dry_run", action="store_true", help="Print commands without running")
     parser.add_argument("--build_only", action="store_true", help="Build Docker image only")
     parser.add_argument("--rebuild", action="store_true", help="Force rebuild Docker image (--no-cache)")
-    parser.add_argument("--py123d_ref", default=None, metavar="REF", help="py123d git ref to pin (branch/tag/sha)")
+    parser.add_argument("--py123d_ref", default=None, metavar="REF", help="py123d git ref to pin (branch/tag/commit)")
     parser.add_argument("--list", action="store_true", help="List datasets and data layout")
     args = parser.parse_args()
 
@@ -147,15 +146,18 @@ def main():
     if args.build_only:
         return
 
-    if not args.data_root or not args.output:
-        parser.error("--data_root and --output are required for conversion")
+    if not args.data_root:
+        parser.error("--data_root is required for conversion")
+
+    output = args.output or os.environ.get("PY123D_DATA_ROOT")
+    if not output:
+        parser.error("--output is required for conversion (or set PY123D_DATA_ROOT environment variable)")
 
     data_root = str(Path(args.data_root).resolve())
-    output = str(Path(args.output).resolve())
+    output = str(Path(output).resolve())
 
     hydra_args = build_hydra_args(
         args.dataset,
-        output,
         config,
         args.splits,
         args.workers,

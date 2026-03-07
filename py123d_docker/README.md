@@ -1,34 +1,44 @@
-# py123d-convert
+# py123d-docker
 
-Converts raw AV datasets (nuPlan, Waymo, nuScenes, etc.) to py123d Arrow format using Docker. One image per dataset — no local dep conflicts.
+Convert raw AV datasets to py123d Arrow format with Docker.
 
 ## Prerequisites
 
 - Docker
-- `uv run py123d-convert` (installed via `uv pip install -e ".[all]"`)
+- `uv run py123d-docker` from this repo after `uv sync --extra all`
 
 ## Usage
 
 ```bash
 # List available datasets and expected data layout
-uv run py123d-convert --list
+uv run py123d-docker --list
 
-# Convert (builds image automatically if not present)
-uv run py123d-convert --dataset nuplan-mini --data_root /data --output /data/py123d
+# Convert one dataset (builds image automatically if needed)
+uv run py123d-docker --dataset nuplan-mini --data_root /data --output /data/py123d
 
 # Select specific splits
-uv run py123d-convert --dataset nuplan --splits nuplan_train nuplan_val --workers 16
+uv run py123d-docker --dataset nuplan --data_root /data --output /data/py123d \
+  --splits nuplan_train nuplan_val --workers 16
 
 # Extra Hydra overrides (appended after pre-defined ones)
-uv run py123d-convert --dataset wod-motion --data_root /data --output /data/py123d \
-    --extra "datasets.wod-motion.dataset_converter_config.include_route=true"
+uv run py123d-docker --dataset wod-motion --data_root /data --output /data/py123d \
+  --extra "dataset.dataset_converter_config.include_route=true"
 
-# Dry run — print docker build + run commands without executing
-uv run py123d-convert --dataset nuplan-mini --data_root /data --output /data/py123d --dry_run
+# Dry run
+uv run py123d-docker --dataset nuplan-mini --data_root /data --output /data/py123d --dry_run
 
-# Build image only (no conversion)
-uv run py123d-convert --dataset nuplan-mini --build_only
+# Build image only
+uv run py123d-docker --dataset nuplan-mini --build_only
+
+# Override py123d ref (branch, tag, or commit)
+uv run py123d-docker --dataset nuplan-mini --build_only --rebuild --py123d_ref my-ref
 ```
+
+## py123d install ref
+
+- Docker builds install `py123d` from `dev_v0.1.0` by default.
+- Override with `--py123d_ref` to use a different branch, tag, or commit.
+- Use `--rebuild` when changing `--py123d_ref` or when upstream dependency metadata changes.
 
 ## Expected data layout
 
@@ -47,9 +57,17 @@ data_root/
 
 ## Defaults (all datasets)
 
-- Sensors disabled (2D only): cameras, lidars, fisheye
-- Execution: ray (single worker) or process pool (`--workers N` where N > 1)
-- Output always mounted at `/output` inside container
+- Cameras and lidars disabled
+- Ray by default, process pool when `--workers > 1`
+- Container mounts raw data at `/data` and output at `/output`
+
+## Minimal flow
+
+```bash
+uv run py123d-docker --dataset nuplan-mini --data_root /data --output /data/py123d
+uv run convert --dataset_path /data/py123d --output_dir ./output
+uv run viz --dir ./output
+```
 
 ## Adding a dataset
 
@@ -58,7 +76,6 @@ Add an entry to `configs.py::DATASET_CONFIGS`:
 ```python
 "my-dataset": {
     "extras": "my_extras",        # pip extra in py123d[extras]
-    "devkit": None,               # or a pip install string
     "path_keys": {
         "my_data_root": "my_data",  # dataset_paths.my_data_root → /data/my_data
     },
