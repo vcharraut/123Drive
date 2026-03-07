@@ -25,30 +25,10 @@ Followed by:
         - tracks_to_predict[num_tracks_to_predict] (int32[])
 """
 
-import json
 import struct
 from pathlib import Path
 
 import numpy as np
-
-
-def load_scenario(path: str | Path) -> dict:
-    path = Path(path)
-    if path.suffix == ".bin":
-        return load_puffer_binary(path)
-    with open(path) as f:
-        scenario = json.load(f)
-    array_keys = ["xyz", "heading", "velocity", "length", "width", "height", "valid"]
-    for agent in scenario.get("agents", []):
-        states = agent.get("states", {})
-        for k in array_keys:
-            if k in states and isinstance(states[k], list):
-                states[k] = np.array(states[k])
-    for elem in scenario.get("road_map_elements", []) + scenario.get("traffic_control_elements", []):
-        for k in ("xyz", "dir_xyz", "states"):
-            if k in elem and isinstance(elem[k], list):
-                elem[k] = np.array(elem[k])
-    return scenario
 
 
 def load_puffer_binary(binary_path: str | Path) -> dict:
