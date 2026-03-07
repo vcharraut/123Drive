@@ -49,10 +49,10 @@ def validate_puffer_dict(
     position_jump_threshold: float = 50.0,
     velocity_tolerance: float = 2.0,
     heading_tolerance_deg: float = 30.0,
-) -> tuple[bool, list[str], list[str]]:
+) -> tuple[list[str], list[str]]:
     validation_level = min(max(int(validation_level), 0), 4)
     if validation_level == 0:
-        return True, [], []
+        return [], []
 
     mandatory_errors, mandatory_warnings = _collect_mandatory_issues(puffer_dict)
     if validation_level == 1 or mandatory_errors:

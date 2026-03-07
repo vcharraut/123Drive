@@ -1,5 +1,5 @@
-from src.bin_factory.loader.extractor import convert_py123d_scenario
-from src.bin_factory.loader.load import MapOnlyScenario, get_py123d_scenarios
+from bin_factory.loader.extractor import convert_py123d_scenario
+from bin_factory.loader.load import MapOnlyScenario, get_py123d_scenarios
 
 
 __all__ = [

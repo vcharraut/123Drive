@@ -1,14 +1,14 @@
 import argparse
 import sys
 
-from src.viz.binary_loader import load_scenario
-from src.viz.plot.renderer import render_scenario_png
+from viz.binary_loader import load_puffer_binary
+from viz.plot.renderer import render_scenario_png
 
 
 def main():
     parser = argparse.ArgumentParser(description="Visualize Puffer scenarios as PNG images")
 
-    parser.add_argument("input", help="Input Puffer file path (.json or .bin)")
+    parser.add_argument("input", help="Input Puffer `.bin` file path")
     parser.add_argument("output", help="Output PNG file path")
     parser.add_argument("--timestep", type=int, default=0, help="Which timestep to visualize (default: 0)")
     parser.add_argument("--no-routes", action="store_true", help="Don't show agent routes")
@@ -22,7 +22,7 @@ def main():
 
     args = parser.parse_args()
 
-    scenario = load_scenario(args.input)
+    scenario = load_puffer_binary(args.input)
 
     zoom_center = None
     if args.zoom_x is not None and args.zoom_y is not None:

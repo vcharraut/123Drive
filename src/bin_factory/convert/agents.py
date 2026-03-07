@@ -5,9 +5,9 @@ Convert dynamic agents from intermediate format to Puffer format.
 import numpy as np
 from py123d.datatypes.detections import DefaultBoxDetectionLabel
 
-from src.bin_factory import logger_utils
-from src.bin_factory.convert import routes, utils
-from src.bin_factory.convert import types as puffer_types
+from bin_factory import logger_utils
+from bin_factory.convert import routes, utils
+from bin_factory.convert import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)
@@ -34,7 +34,6 @@ def convert_agents(
     puffer_agents = []
     sdc_index = -1
 
-    # Extract lane centers once for all agents (optimization)
     lane_data = utils.extract_lane_centers(road_map_elements)
 
     for idx, (agent_id, agent_data) in enumerate(dynamic_agents.items()):

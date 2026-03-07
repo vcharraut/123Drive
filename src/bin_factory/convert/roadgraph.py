@@ -3,16 +3,14 @@ Convert road map elements from intermediate format to Puffer format.
 """
 
 import numpy as np
-from py123d.datatypes.map_objects.map_layer_types import LaneType, RoadEdgeType, RoadLineType, SerialIntEnum
+from py123d.common.utils.enums import SerialIntEnum
+from py123d.datatypes.map_objects import LaneType, RoadEdgeType, RoadLineType
 
-from src.bin_factory import logger_utils, types
-from src.bin_factory.convert import types as puffer_types
+from bin_factory import logger_utils, types
+from bin_factory.convert import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)
-
-# TODO: Add right type mapping when we have more types in the data
-FILTERED_TYPES = []
 
 # Datasets with reversed road edge types
 REVERGE_ROAD_EDGE_DATASETS = ["av2", "nuplan", "carla"]
@@ -24,9 +22,6 @@ def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "")
 
     for element_id, element_data in static_map_elements.items():
         element_type = element_data["type"]
-
-        if element_type in FILTERED_TYPES:
-            continue
 
         if not element_type:
             raise ValueError(f"Map element {element_id} has unset type")
@@ -116,7 +111,7 @@ def _convert_map_element_type_to_int(element_type: SerialIntEnum) -> int:
         types.SPEED_BUMP: puffer_types.SPEED_BUMP,
         types.DRIVEWAY: puffer_types.DRIVEWAY,
     }
-    if element_type in other_type_map:
+    if isinstance(element_type, str) and element_type in other_type_map:
         return other_type_map[element_type]
 
     return 0

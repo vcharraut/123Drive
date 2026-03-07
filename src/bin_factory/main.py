@@ -4,13 +4,12 @@ import os
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
-from src.bin_factory import logger_utils
-from src.bin_factory.convert.pufferdrive import convert_to_puffer_dict, puffer_dict_to_binary
-from src.bin_factory.loader.extractor import convert_py123d_scenario
-from src.bin_factory.loader.load import get_py123d_scenarios
-from src.bin_factory.transforms.polyline import process_polylines
-from src.bin_factory.transforms.traffic_lights.processor import add_traffic_lights_to_scenario
-from src.bin_factory.transforms.validation import validate_puffer_dict
+from bin_factory import logger_utils
+from bin_factory.convert.pufferdrive import convert_to_puffer_dict, puffer_dict_to_binary
+from bin_factory.loader.extractor import convert_py123d_scenario
+from bin_factory.loader.load import get_py123d_scenarios
+from bin_factory.transforms.polyline import process_polylines
+from bin_factory.transforms.validation import validate_puffer_dict
 
 
 logger = logger_utils.get_logger(__name__)
@@ -28,11 +27,7 @@ def process_one_scenario(
     min_route_valid_points=0,
     route_check_timestep=0,
 ):
-    # try:
-    # 1. Convert Raw -> Intermediate
     scenario = convert_py123d_scenario(raw_scenario)
-
-    # 2. Apply transforms to Intermediate representation
     scenario = process_polylines(
         scenario,
         max_segment_length=max_segment_length,
@@ -49,8 +44,6 @@ def process_one_scenario(
         min_route_valid_points=min_route_valid_points,
         route_check_timestep=route_check_timestep,
     )
-
-    # 4. Validate Puffer Dict
     errors = []
     warnings = []
     if validate_level > 0:
@@ -60,22 +53,16 @@ def process_one_scenario(
         for error in errors:
             logger.error(f"map_{map_id}: {error}")
 
-    if len(errors) > 0:
-        scenario_id = puffer_dict.get('scenario_id', 'unknown')
+    if errors:
+        scenario_id = puffer_dict.get("scenario_id", "unknown")
         raise ValueError(
-            f"Validation failed for scenario {scenario_id} "
-            f"with {len(errors)} errors and {len(warnings)} warnings",
+            f"Validation failed for scenario {scenario_id} with {len(errors)} errors and {len(warnings)} warnings",
         )
 
-    # 5. Convert Puffer Dict -> Binary
     binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
-
-    # 6. Write to file
     output_path = os.path.join(output_dir, f"map_{map_id:03d}.bin")
     with open(output_path, "wb") as f:
         f.write(binary_data)
-    # except Exception as e:
-    #     logger.error(f"Error processing scenario map_{map_id}: {e}")
 
 
 def main():
@@ -85,7 +72,6 @@ def main():
     parser.add_argument("--dataset_path", required=True, help="Path to py123d dataset (logs/ and maps/)")
     parser.add_argument("--output_dir", default="./output", help="Directory to save binary files")
     parser.add_argument("--num_workers", type=int, default=1, help="Number of parallel workers")
-    parser.add_argument("--batch_size", type=int, default=1, help="Batch size for processing")
 
     # Dataset filtering
     parser.add_argument(

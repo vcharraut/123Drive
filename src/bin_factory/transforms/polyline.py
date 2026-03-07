@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.bin_factory import logger_utils
+from bin_factory import logger_utils
 
 
 logger = logger_utils.get_logger(__name__)

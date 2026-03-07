@@ -3,14 +3,14 @@ import os
 import sys
 from pathlib import Path
 
-from src.viz.binary_loader import load_scenario
-from src.viz.plot.renderer import render_scenario_png, render_scenario_video
+from viz.binary_loader import load_puffer_binary
+from viz.plot.renderer import render_scenario_png, render_scenario_video
 
 
 def main():
     parser = argparse.ArgumentParser(description="Batch visualize Puffer scenarios from a directory")
 
-    parser.add_argument("input_dir", help="Input directory with Puffer files (.json or .bin)")
+    parser.add_argument("input_dir", help="Input directory with Puffer `.bin` files")
     parser.add_argument("output_dir", help="Output directory for visualizations")
     parser.add_argument(
         "--format",
@@ -29,12 +29,12 @@ def main():
     args = parser.parse_args()
 
     input_path = Path(args.input_dir)
-    all_files = sorted(input_path.glob("*.bin")) + sorted(input_path.glob("*.json"))
+    all_files = sorted(input_path.glob("*.bin"))
     if args.max_scenarios:
         all_files = all_files[: args.max_scenarios]
 
     if not all_files:
-        print(f"No Puffer files found in {args.input_dir}", file=sys.stderr)
+        print(f"No Puffer .bin files found in {args.input_dir}", file=sys.stderr)
         return 1
 
     png_dir = os.path.join(args.output_dir, "png") if args.format in ["png", "both"] else None
@@ -50,7 +50,7 @@ def main():
     for i, f in enumerate(all_files, 1):
         name = f.stem
         print(f"[{i}/{len(all_files)}] {name}")
-        scenario = load_scenario(f)
+        scenario = load_puffer_binary(f)
         length = scenario.get("metadata", {}).get("scenario_length", 0)
         timestep = min(args.timestep, max(0, length - 1))
 

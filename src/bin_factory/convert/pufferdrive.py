@@ -2,9 +2,9 @@ import struct
 
 import numpy as np
 
-from src.bin_factory import logger_utils
-from src.bin_factory.convert import agents, roadgraph, traffic_controls
-from src.bin_factory.convert import types as puffer_types
+from bin_factory import logger_utils
+from bin_factory.convert import agents, roadgraph, traffic_controls
+from bin_factory.convert import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)

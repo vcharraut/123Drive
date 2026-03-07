@@ -17,7 +17,7 @@ class MapOnlyScenario:
 
 
 def get_py123d_scenarios(
-    dataset_path: str | None,
+    dataset_path: str,
     max_scenarios: int | None = None,
     datasets: list[str] | None = None,
     split_types: list[str] | None = None,

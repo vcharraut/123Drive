@@ -12,8 +12,8 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from src.viz.binary_loader import load_puffer_binary
-from src.viz.web.utils import build_lane_map, compute_route_polyline
+from viz.binary_loader import load_puffer_binary
+from viz.web.utils import build_lane_map, compute_route_polyline
 
 
 app = FastAPI()
