@@ -71,7 +71,6 @@ const state = {
   staticLayerCacheKey: null,
   playTimer: null,
   viewState: {target: [0, 0, 0], zoom: 0, rotationX: 0, rotationOrbit: 0},
-  lastError: null,
 };
 
 // ── Geometry helpers ───────────────────────────────────────────────────────
@@ -601,14 +600,14 @@ async function loadScenario(filename) {
     if (ego) setViewState({...state.viewState, target: [ego.x, -ego.y, 0]});
     render();
   } catch (err) {
-    state.lastError = String(err?.message || err);
+    const errMsg = String(err?.message || err);
     state.scenario = null;
     state.selected = null;
     stopPlay();
     document.getElementById('scenario-title').textContent = `Failed to load ${filename}`;
     document.getElementById('scenario-meta').innerHTML = '<span class="empty-state">Failed to load scenario. Select another file and retry.</span>';
     document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
-    setAppStatus(`Failed to load ${filename}: ${state.lastError}`, 'error');
+    setAppStatus(`Failed to load ${filename}: ${errMsg}`, 'error');
   }
 }
 
@@ -670,10 +669,10 @@ async function loadScenarioList() {
       setAppStatus('No scenarios found in selected directory', 'info');
     }
   } catch (err) {
-    state.lastError = String(err?.message || err);
+    const errMsg = String(err?.message || err);
     allScenarios = [];
     renderScenarioList([]);
-    setAppStatus(`Failed to load scenario list: ${state.lastError}`, 'error');
+    setAppStatus(`Failed to load scenario list: ${errMsg}`, 'error');
   }
 }
 

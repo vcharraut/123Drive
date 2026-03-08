@@ -11,7 +11,7 @@ from bin_factory.convert import types as puffer_types
 logger = logger_utils.get_logger(__name__)
 
 # Datasets with reversed road edge types
-REVERGE_ROAD_EDGE_DATASETS = ["av2", "nuplan", "carla"]
+REVERSE_ROAD_EDGE_DATASETS = ["av2", "nuplan", "carla"]
 
 
 def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "") -> list[dict]:
@@ -38,7 +38,7 @@ def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "")
                 xyz = np.column_stack([xyz, np.zeros(len(xyz), dtype=np.float64)])
 
             # Reverse xyz order for road edges in certain datasets
-            if dataset_name.split("-")[0] in REVERGE_ROAD_EDGE_DATASETS and isinstance(element_type, RoadEdgeType):
+            if dataset_name.split("-")[0] in REVERSE_ROAD_EDGE_DATASETS and isinstance(element_type, RoadEdgeType):
                 xyz = xyz[::-1]
 
         else:

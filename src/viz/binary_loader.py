@@ -1,5 +1,4 @@
-"""
-Load Puffer binary files and convert to dict format for visualization.
+"""Load Puffer binary files and convert to dict format for visualization.
 
 Binary Format Structure (see binary_converter.py for full details):
 ====================================================================
@@ -32,8 +31,7 @@ import numpy as np
 
 
 def load_puffer_binary(binary_path: str | Path) -> dict:
-    """
-    Load Puffer binary file and convert to dict format for visualization.
+    """Load Puffer binary file and convert to dict format for visualization.
 
     Args:
         binary_path: Path to binary file
@@ -46,7 +44,7 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
             - traffic_control_elements: list of traffic dicts
             - metadata: dict
     """
-    with open(binary_path, "rb") as f:
+    with Path(binary_path).open("rb") as f:
         # Read header
         num_agents = struct.unpack("i", f.read(4))[0]
         num_roads = struct.unpack("i", f.read(4))[0]
@@ -156,13 +154,8 @@ def _read_dynamic_agent(f) -> dict:
         route_data = list(struct.unpack(f"{num_route_ints}i", f.read(4 * num_route_ints)))
         routes.append(route_data)  # Single route, no length prefix
 
-    # Read goal position (ignore for visualization)
-    _goal_x = struct.unpack("f", f.read(4))[0]
-    _goal_y = struct.unpack("f", f.read(4))[0]
-    _goal_z = struct.unpack("f", f.read(4))[0]
-
-    # Read mark_as_expert (ignore for visualization)
-    _mark_as_expert = struct.unpack("i", f.read(4))[0]
+    # Skip goal_position (3x float32) + mark_as_expert (int32) = 16 bytes
+    f.read(16)
 
     return {
         "id": agent_id,

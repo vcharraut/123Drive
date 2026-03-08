@@ -11,19 +11,20 @@ from bin_factory.convert import types as puffer_types
 logger = logger_utils.get_logger(__name__)
 
 
-def convert_traffic_control_elements(traffic_lights: dict, map: dict, scenario_length: int = 0) -> list[dict]:
+def convert_traffic_control_elements(traffic_lights: dict, map_data: dict, scenario_length: int = 0) -> list[dict]:
     """Convert dynamic map elements to Puffer traffic_control_elements.
 
     Args:
         traffic_lights: Dict of traffic light elements from intermediate scenario
-        map: Map data for the scenario (used to extract lane information for traffic control elements)
+        map_data: Map data for the scenario (used to extract lane information for traffic control elements)
+        scenario_length: Number of timesteps in scenario
 
     Returns:
         List of traffic control element dictionaries in Puffer format
     """
     observed_elements, covered_lanes = _convert_observed_traffic_lights(traffic_lights)
     next_id = max((element["id"] for element in observed_elements), default=-1) + 1
-    map_elements = _convert_map_traffic_lights(map, covered_lanes, next_id, scenario_length)
+    map_elements = _convert_map_traffic_lights(map_data, covered_lanes, next_id, scenario_length)
     return observed_elements + map_elements
 
 
@@ -33,9 +34,6 @@ def _convert_observed_traffic_lights(traffic_lights: dict) -> tuple[list[dict], 
 
     for element_id, element_data in traffic_lights.items():
         controlled_lanes = [element_data["controlled_lane"]]
-        if not controlled_lanes:
-            continue
-
         covered_lanes.update(controlled_lanes)
         puffer_elements.append(
             {

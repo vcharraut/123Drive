@@ -1,11 +1,10 @@
-"""
-Bird's Eye View (BEV) renderer for Puffer format scenarios.
+"""Bird's Eye View (BEV) renderer for Puffer format scenarios.
 
 This module provides visualization functions for Puffer format data
 to help debug and understand scenario structure.
 """
 
-import os
+from pathlib import Path
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
@@ -112,22 +111,23 @@ def render_scenario_png(
     zoom_radius: float | None = None,
     follow_ego: bool = False,
     road_render_mode: str = "plot",
-    show_road_headings: bool = True,
+    show_road_headings: bool = False,
 ) -> None:
-    """
-    Render a Puffer scenario as a PNG image at a specific timestep.
+    """Render a Puffer scenario as a PNG image at a specific timestep.
 
     Args:
         puffer_scenario: Puffer format scenario dict
         output_path: Output PNG file path
         timestep: Which timestep to visualize (default: 0)
         show_routes: Show agent routes if available (default: True)
-        show_future: Show trajecot
+        show_future: Show trajectory future (default: True)
         figsize: Figure size in inches (default: (24, 24))
-        dpi: Image resolution (default: 300)
+        dpi: Image resolution (default: 150)
         zoom_center: (x, y) center point for zoom, or None for full view
         zoom_radius: Radius in meters for zoom view, or None for full view
         follow_ego: If True, center view on ego vehicle (overrides zoom_center)
+        road_render_mode: Rendering mode for road elements ("plot" or "scatter")
+        show_road_headings: If True, show road element headings as arrows (default: True)
     """
     fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
     ax.set_aspect("equal")
@@ -158,7 +158,7 @@ def render_scenario_png(
     _render_agents(ax, puffer_scenario, timestep, show_future)
 
     # 5. Add legend
-    _add_legend(ax, puffer_scenario)
+    _add_legend(ax)
 
     # 6. Set view bounds (zoom or auto-scale)
     if follow_ego:
@@ -180,9 +180,9 @@ def render_scenario_png(
         ax.margins(0.1)
 
     # Save figure
-    output_dir = os.path.dirname(output_path)
-    if output_dir:  # Only create directory if path has a directory component
-        os.makedirs(output_dir, exist_ok=True)
+    output_path = Path(output_path)
+    if output_path.parent != Path():
+        output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
     plt.savefig(output_path, dpi=dpi, bbox_inches="tight")
     plt.close(fig)
@@ -204,8 +204,7 @@ def render_scenario_video(
     road_render_mode: str = "plot",
     show_road_headings: bool = False,
 ) -> None:
-    """
-    Render a Puffer scenario as an MP4 video animation.
+    """Render a Puffer scenario as an MP4 video animation.
 
     Args:
         puffer_scenario: Puffer format scenario dict
@@ -218,6 +217,7 @@ def render_scenario_video(
         zoom_center: (x, y) center point for zoom, or None for full view
         zoom_radius: Radius in meters for zoom view, or None for full view
         follow_ego: If True, center view on ego vehicle at each timestep
+        road_render_mode: Rendering mode for road elements ("plot" or "scatter")
     """
     metadata = puffer_scenario.get("metadata", {})
     length = metadata.get("scenario_length", 0)
@@ -232,9 +232,9 @@ def render_scenario_video(
     dataset_name = metadata.get("dataset_name", "unknown")
 
     # Setup video writer
-    output_dir = os.path.dirname(output_path)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
+    output_path = Path(output_path)
+    if output_path.parent != Path():
+        output_path.parent.mkdir(parents=True, exist_ok=True)
     writer = FFMpegWriter(fps=fps, metadata={"title": f"Puffer Scenario {scenario_id}"})
 
     with writer.saving(fig, output_path, dpi=dpi):
@@ -250,7 +250,7 @@ def render_scenario_video(
             )
 
             # Render all elements for this frame
-            _render_road_map(ax, puffer_scenario, render_mode=road_render_mode, show_headings=show_road_headings)
+            _render_road_map(ax, puffer_scenario, render_mode=road_render_mode)
 
             if show_routes:
                 _render_routes(ax, puffer_scenario)
@@ -345,7 +345,7 @@ def _render_road_map(ax: Axes, puffer_scenario: dict, render_mode="plot", show_h
             dy = xyz[1:, 1] - xyz[:-1, 1]
             headings = np.arctan2(dy, dx)
             scale = 1.0
-            for xi, yi, hi in zip(x[:-1], y[:-1], headings):
+            for xi, yi, hi in zip(x[:-1], y[:-1], headings, strict=False):
                 ax.arrow(
                     xi,
                     yi,
@@ -591,7 +591,7 @@ def _get_ego_agent(puffer_scenario: dict) -> dict | None:
     return agents[sdc_index]
 
 
-def _add_legend(ax: Axes, puffer_scenario: dict) -> None:
+def _add_legend(ax: Axes) -> None:
     """Add a legend to the plot."""
     legend_elements = [
         mpatches.Patch(facecolor=COLORS["ego"], edgecolor="black", label="Ego Vehicle"),

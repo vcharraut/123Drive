@@ -13,6 +13,7 @@ def _pack_int_list(buffer, items):
 
 
 def puffer_dict_to_binary(puffer_dict, map_id=0):
+    """Serialize a puffer dict to binary format."""
     agents = puffer_dict["agents"]
     road_map_elements = puffer_dict["road_map_elements"]
     traffic_control_elements = puffer_dict["traffic_control_elements"]
@@ -66,7 +67,7 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
                 goal_z = float(xyz[last_valid_idx, 2])
 
         buffer.extend(struct.pack("fff", goal_x, goal_y, goal_z))
-        mark_as_expert = 0 if routes else 1
+        mark_as_expert = 0 if route else 1
         buffer.extend(struct.pack("i", mark_as_expert))
 
     # Road Map Elements
