@@ -17,7 +17,7 @@ class MapOnlyScenario:
 
 
 def get_py123d_scenarios(
-    dataset_path: str,
+    py123_data_root: str,
     max_scenarios: int | None = None,
     datasets: list[str] | None = None,
     split_types: list[str] | None = None,
@@ -31,7 +31,7 @@ def get_py123d_scenarios(
     """Load py123d scenarios from Arrow logs and/or maps.
 
     Args:
-        dataset_path: Root path to py123d_data (contains logs/ and maps/) or a directory of .arrow maps.
+        py123_data_root: Root path to py123d_data (contains logs/ and maps/) or a directory of .arrow maps.
         max_scenarios: Optional cap on number of scenes.
         datasets: Optional list of dataset names to include (e.g. ["nuplan", "wod-motion"]).
         split_types: Optional list of split types (train/val/test).
@@ -45,7 +45,7 @@ def get_py123d_scenarios(
     Returns:
         List of ArrowSceneAPI or MapOnlyScenario.
     """
-    data_root = Path(dataset_path)
+    data_root = Path(py123_data_root)
 
     if map_only:
         return _load_map_only_scenarios(data_root)
