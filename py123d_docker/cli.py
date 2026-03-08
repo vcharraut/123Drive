@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from py123d_docker.configs import DATA_LAYOUT, DATASET_CONFIGS
+from py123d_docker.configs import DATASET_CONFIGS
 
 
 def image_name(dataset):
@@ -14,7 +14,8 @@ def image_name(dataset):
 
 def build_hydra_args(dataset, config, splits, workers, extra_overrides):
     args = [f"dataset={dataset}", "dataset_paths.py123d_data_root=/output"]
-    args += [f"dataset_paths.{k}=/data/{v}" for k, v in config["path_keys"].items()]
+    args.append(f"dataset_paths.{config['data_root_key']}=/data")
+    args += [f"dataset_paths.{k}=/data/{v}" for k, v in config["extra_paths"].items()]
     args += config["sensor_overrides"]
     active_splits = splits or config["default_splits"]
     args.append(f"dataset.parser.splits={json.dumps(active_splits, separators=(',', ':'))}")
@@ -24,7 +25,7 @@ def build_hydra_args(dataset, config, splits, workers, extra_overrides):
     return args
 
 
-def build_docker_run_cmd(dataset, data_root, output, hydra_args, shm_size, ipc_host, network_host):
+def build_docker_run_cmd(dataset, dataset_path, output, hydra_args, shm_size, ipc_host, network_host):
     cmd = [
         "docker",
         "run",
@@ -41,7 +42,7 @@ def build_docker_run_cmd(dataset, data_root, output, hydra_args, shm_size, ipc_h
     cmd += ["--ipc=host"] if ipc_host else [f"--shm-size={shm_size}"]
     if network_host:
         cmd += ["--network=host"]
-    cmd += ["-v", f"{data_root}:/data", "-v", f"{output}:/output", image_name(dataset), *hydra_args]
+    cmd += ["-v", f"{dataset_path}:/data", "-v", f"{output}:/output", image_name(dataset), *hydra_args]
     return cmd
 
 
@@ -81,14 +82,12 @@ def print_list():
     for name, cfg in DATASET_CONFIGS.items():
         splits = ", ".join(cfg["default_splits"])
         print(f"  {name:<30} extras={cfg['extras']}  splits=[{splits}]")
-    print("\nExpected data layout:")
-    print(DATA_LAYOUT)
 
 
 def main():
     parser = argparse.ArgumentParser(prog="py123d-docker")
     parser.add_argument("--dataset", help="Dataset name (see --list)")
-    parser.add_argument("--data_root", help="Path to raw data root")
+    parser.add_argument("--dataset_path", help="Path to dataset directory")
     parser.add_argument("--output", help="Path to output directory")
     parser.add_argument("--splits", nargs="+", help="Splits to convert (default: all)")
     parser.add_argument("--workers", type=int, help="Number of parallel workers")
@@ -146,14 +145,14 @@ def main():
     if args.build_only:
         return
 
-    if not args.data_root:
-        parser.error("--data_root is required for conversion")
+    if not args.dataset_path:
+        parser.error("--dataset_path is required for conversion")
 
     output = args.output or os.environ.get("PY123D_DATA_ROOT")
     if not output:
         parser.error("--output is required for conversion (or set PY123D_DATA_ROOT environment variable)")
 
-    data_root = str(Path(args.data_root).resolve())
+    dataset_path = str(Path(args.dataset_path).resolve())
     output = str(Path(output).resolve())
 
     hydra_args = build_hydra_args(
@@ -166,7 +165,7 @@ def main():
     run_cmd(
         build_docker_run_cmd(
             args.dataset,
-            data_root,
+            dataset_path,
             output,
             hydra_args,
             args.shm_size,
