@@ -335,7 +335,7 @@ def convert_map_object_to_static_element(map_object, centroid):
         polyline = centered_array(map_object.centerline.array, centroid)
         speed_limit_mps = float(map_object.speed_limit_mps) if map_object.speed_limit_mps is not None else -1.0
         return {
-            "type": LaneType.SURFACE_STREET,  # TODO: map lane types properly
+            "type": map_object.lane_type,
             "polyline": polyline,
             "speed_limit_mps": speed_limit_mps,
             "entry_lanes": map_object.predecessor_ids,
