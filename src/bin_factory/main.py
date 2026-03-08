@@ -63,7 +63,7 @@ def main():
     parser = argparse.ArgumentParser(description="Convert py123d datasets to PufferDrive binary format")
 
     # Core arguments
-    parser.add_argument("--dataset_path", required=True, help="Path to py123d dataset (logs/ and maps/)")
+    parser.add_argument("--py123d_path", type=str, help="Path to py123d dataset (logs/ and maps/)")
     parser.add_argument("--output_dir", default="./output", help="Directory to save binary files")
     parser.add_argument("--num_workers", type=int, default=1, help="Number of parallel workers")
 
@@ -156,13 +156,19 @@ def main():
 
     args = parser.parse_args()
 
+    py123_data_root = args.py123d_path or os.environ.get("PY123D_DATA_ROOT")
+    if not py123_data_root:
+        parser.error("--py123d_path is required (or set PY123D_DATA_ROOT environment variable)")
+
+
+
     logger_utils.setup_logger()
     os.makedirs(args.output_dir, exist_ok=True)
 
-    logger.info(f"Starting conversion: {args.dataset_path} -> {args.output_dir}")
+    logger.info(f"Starting conversion: {args.py123d_path} -> {args.output_dir}")
 
     scenarios = get_py123d_scenarios(
-        dataset_path=args.dataset_path,
+        py123_data_root=py123_data_root,
         max_scenarios=args.max_scenarios,
         datasets=args.datasets,
         split_types=args.split_types,
