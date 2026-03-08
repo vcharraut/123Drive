@@ -55,7 +55,7 @@ For nuplan, extra paths (`maps/`, `sensor_blobs/`) are resolved relative to the 
 
 ```bash
 uv run py123d-docker --dataset nuplan-mini --dataset_path /data/nuplan --output /data/py123d
-uv run convert --py123d_path /data/py123d --output_dir ./output
+uv run convert --py123d_path /data/py123d --output ./output
 uv run viz --dir ./output
 ```
 

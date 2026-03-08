@@ -1,5 +1,6 @@
 import argparse
 import os
+from pathlib import Path
 
 from joblib import Parallel, delayed
 from tqdm import tqdm
@@ -19,7 +20,7 @@ logger = logger_utils.get_logger(__name__)
 def process_one_scenario(
     raw_scenario,
     map_id,
-    output_dir,
+    output,
     validate_level=0,
     max_segment_length=2.0,
     area_threshold=0.1,
@@ -51,8 +52,8 @@ def process_one_scenario(
         raise ValueError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
     binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
-    output_path = os.path.join(output_dir, f"map_{map_id:03d}.bin")
-    with open(output_path, "wb") as f:
+    output_path = Path(output) / f"map_{map_id:03d}.bin"
+    with output_path.open("wb") as f:
         f.write(binary_data)
 
 
@@ -61,15 +62,15 @@ def main():
 
     # Core arguments
     parser.add_argument("--py123d_path", type=str, help="Path to py123d dataset (logs/ and maps/)")
-    parser.add_argument("--output_dir", default="./output", help="Directory to save binary files")
-    parser.add_argument("--num_workers", type=int, default=1, help="Number of parallel workers")
+    parser.add_argument("--output", default="./output", help="Directory to save binary files")
+    parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers")
 
     # Dataset filtering
     parser.add_argument(
-        "--max_scenarios",
+        "--num_scenes",
         type=int,
         default=None,
-        help="Maximum number of scenarios to process",
+        help="Maximum number of scenes to process",
     )
     parser.add_argument(
         "--datasets",
@@ -156,13 +157,13 @@ def main():
         parser.error("--py123d_path is required (or set PY123D_DATA_ROOT environment variable)")
 
     logger_utils.setup_logger()
-    os.makedirs(args.output_dir, exist_ok=True)
+    Path(args.output).mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Starting conversion: {args.py123d_path} -> {args.output_dir}")
+    logger.info(f"Starting conversion: {py123_data_root} -> {args.output}")
 
     scenarios = get_py123d_scenarios(
         py123_data_root=py123_data_root,
-        max_scenarios=args.max_scenarios,
+        num_scenes=args.num_scenes,
         datasets=args.datasets,
         split_types=args.split_types,
         split_names=args.split_names,
@@ -174,12 +175,12 @@ def main():
 
     scenarios = list(scenarios)
 
-    with Parallel(n_jobs=args.num_workers) as parallel:
+    with Parallel(n_jobs=args.workers) as parallel:
         parallel(
             delayed(process_one_scenario)(
                 raw_scenario=scenario,
                 map_id=i,
-                output_dir=args.output_dir,
+                output=args.output,
                 validate_level=args.validate_level,
                 max_segment_length=args.max_segment_length,
                 area_threshold=args.area_threshold,

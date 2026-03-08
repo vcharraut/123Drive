@@ -24,7 +24,7 @@ uv sync --extra all
 uv run py123d-docker --dataset nuplan-mini --dataset_path /data/nuplan --output /data/py123d
 
 # 2) Convert Arrow to PufferDrive .bin
-uv run convert --py123d_path /data/py123d --output_dir ./output
+uv run convert --py123d_path /data/py123d --output ./output
 
 # 3) Inspect in the browser
 uv run viz --dir ./output
@@ -44,25 +44,25 @@ Open `http://localhost:8080`.
 Basic use:
 
 ```bash
-uv run convert --py123d_path /path/to/py123d --output_dir ./output
+uv run convert --py123d_path /path/to/py123d --output ./output
 ```
 
 Examples:
 
 ```bash
 # Parallel conversion
-uv run convert --py123d_path /path/to/py123d --output_dir ./output --num_workers 8
+uv run convert --py123d_path /path/to/py123d --output ./output --workers 8
 
 # Filter datasets / splits / logs
-uv run convert --py123d_path /path/to/py123d --output_dir ./output \
-  --datasets nuplan --split_types val --max_scenarios 100
+uv run convert --py123d_path /path/to/py123d --output ./output \
+  --datasets nuplan --split_types val --num_scenes 100
 
 # Route filtering knobs
-uv run convert --py123d_path /path/to/py123d --output_dir ./output \
+uv run convert --py123d_path /path/to/py123d --output ./output \
   --min_route_valid_points 10 --route_check_timestep 5
 
 # Map-only conversion
-uv run convert --py123d_path /path/to/py123d --output_dir ./output --map_only
+uv run convert --py123d_path /path/to/py123d --output ./output --map_only
 ```
 
 Core flags:
@@ -70,15 +70,15 @@ Core flags:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--py123d_path` | `PY123D_DATA_ROOT` or required | Path to py123d dataset with `logs/` and `maps/` |
-| `--output_dir` | `./output` | Directory for `.bin` files |
-| `--num_workers` | `1` | Parallel workers |
+| `--output` | `./output` | Directory for `.bin` files |
+| `--workers` | `1` | Parallel workers |
 | `--validate_level` | `1` | Validation strictness |
 
 Filtering flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--max_scenarios` | all | Limit number of scenarios |
+| `--num_scenes` | all | Limit number of scenarios |
 | `--datasets` | all | Dataset names to include |
 | `--split_types` | all | Split types to include |
 | `--split_names` | all | Split names to include |

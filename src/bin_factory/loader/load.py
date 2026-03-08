@@ -18,7 +18,7 @@ class MapOnlyScenario:
 
 def get_py123d_scenarios(
     py123_data_root: str,
-    max_scenarios: int | None = None,
+    num_scenes: int | None = None,
     datasets: list[str] | None = None,
     split_types: list[str] | None = None,
     split_names: list[str] | None = None,
@@ -32,7 +32,7 @@ def get_py123d_scenarios(
 
     Args:
         py123_data_root: Root path to py123d_data (contains logs/ and maps/) or a directory of .arrow maps.
-        max_scenarios: Optional cap on number of scenes.
+        num_scenes: Optional cap on number of scenes.
         datasets: Optional list of dataset names to include (e.g. ["nuplan", "wod-motion"]).
         split_types: Optional list of split types (train/val/test).
         split_names: Optional list of split names (e.g. ["nuplan-mini_val"]).
@@ -58,7 +58,7 @@ def get_py123d_scenarios(
         duration_s=duration_s,
         history_s=history_s,
         map_api_required=map_api_required,
-        max_num_scenes=max_scenarios,
+        max_num_scenes=num_scenes,
     )
 
     return get_filtered_scenes(
