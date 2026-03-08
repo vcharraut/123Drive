@@ -109,23 +109,16 @@ def main():
     parser.add_argument("--shm_size", default="10g", help="Shared memory size, ignored if --ipc_host (default: 10g)")
     parser.add_argument(
         "--ipc_host",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
         help="Use host IPC namespace for Ray (default: on)",
     )
     parser.add_argument(
-        "--no_ipc_host",
-        dest="ipc_host",
-        action="store_false",
-        help="Use --shm-size instead of --ipc=host",
-    )
-    parser.add_argument(
         "--network_host",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
         help="Use host network for Ray (default: on)",
     )
-    parser.add_argument("--no_network_host", dest="network_host", action="store_false")
     parser.add_argument(
         "--extra",
         nargs="+",
