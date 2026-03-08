@@ -71,10 +71,35 @@ def _build_base_scenario(raw: SceneAPI | MapOnlyScenario) -> tuple[SceneAPI | No
 
 
 def _compute_scenario_centroid(scene: SceneAPI | None, map_api: MapAPI) -> np.ndarray:
+    """Compute centroid with fallback chain: ego positions → road geometry → origin."""
     if scene is not None:
-        return _compute_map_centroid_from_ego_positions(scene)
+        episode_length = scene.number_of_iterations
+        positions = np.array([[0.0, 0.0]] * episode_length, dtype=np.float64)
+        valid = np.zeros((episode_length,), dtype=np.bool_)
 
-    return _compute_map_centroid_from_road_layers(map_api)
+        for frame_idx in range(episode_length):
+            ego_state = scene.get_ego_state_se3_at_iteration(frame_idx)
+            if ego_state is None:
+                continue
+            positions[frame_idx] = [float(ego_state.center_se3.x), float(ego_state.center_se3.y)]
+            valid[frame_idx] = True
+
+        valid_positions = positions[valid]
+        if len(valid_positions) > 0:
+            return valid_positions.mean(axis=0)
+
+    # Fallback: use road geometry centroid
+    points: list[np.ndarray] = []
+    road_layers = [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE]
+    for obj in _get_map_objects(map_api, road_layers):
+        coords = get_object_xy_points(obj)
+        if coords is not None and len(coords) > 0:
+            points.append(coords)
+
+    if points:
+        return np.vstack(points).mean(axis=0)
+
+    return np.zeros(2, dtype=np.float64)
 
 
 def _extract_scene_payload(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarray) -> dict:
@@ -235,26 +260,6 @@ def _get_traffic_light_detections(scene: SceneAPI, frame_idx: int):
         return []
 
 
-def _compute_map_centroid_from_ego_positions(scene: SceneAPI) -> np.ndarray:
-    """Compute map centroid using ego vehicle position from py123d SceneAPI."""
-    episode_length = scene.number_of_iterations
-    positions = np.array([[0.0, 0.0]] * episode_length, dtype=np.float64)
-    valid = np.zeros((episode_length,), dtype=np.bool_)
-
-    for frame_idx in range(episode_length):
-        ego_state = scene.get_ego_state_se3_at_iteration(frame_idx)
-        if ego_state is None:
-            continue
-        positions[frame_idx] = [float(ego_state.center_se3.x), float(ego_state.center_se3.y)]
-        valid[frame_idx] = True
-
-    valid_positions = positions[valid]
-    if len(valid_positions) == 0:
-        raise ValueError("No ego positions found to compute centroid")
-
-    return valid_positions.mean(axis=0)
-
-
 def _get_map_objects(
     map_api: MapAPI,
     layers: list[MapLayer],
@@ -263,22 +268,6 @@ def _get_map_objects(
     query_geometry = area_of_interest if area_of_interest is not None else geom.box(-1e9, -1e9, 1e9, 1e9)
     objects_by_layer = map_api.query(query_geometry, layers=layers, predicate="intersects")
     return [obj for layer in layers for obj in objects_by_layer.get(layer, [])]
-
-
-def _compute_map_centroid_from_road_layers(map_api: MapAPI) -> np.ndarray:
-    """Compute map centroid using available lane/road geometry."""
-
-    points: list[np.ndarray] = []
-    road_layers = [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE]
-    for obj in _get_map_objects(map_api, road_layers):
-        coords = get_object_xy_points(obj)
-        if coords is not None and len(coords) > 0:
-            points.append(coords)
-
-    if not points:
-        raise ValueError("No map geometry found to compute centroid")
-
-    return np.vstack(points).mean(axis=0)
 
 
 def _iter_map_objects(
@@ -385,3 +374,5 @@ def convert_map_object_to_static_element(map_object, centroid):
             "polygon": polygon,
             "controlled_lanes": map_object.lane_ids,
         }
+
+    raise ValueError(f"Unsupported map object layer: {map_object.layer}")
