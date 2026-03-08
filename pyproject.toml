@@ -35,3 +35,55 @@ include = ["bin_factory", "bin_factory.*", "viz", "viz.*", "py123d_docker", "py1
 
 [tool.uv.sources]
 py123d = { git = "https://github.com/autonomousvision/py123d", branch = "dev_v0.1.0" }
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "F",    # Pyflakes
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "C90",  # mccabe
+    "I",    # isort
+    "N",    # pep8-naming
+    "D",    # pydocstyle
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "A",    # flake8-builtins
+    "C4",   # flake8-comprehensions
+    "ISC",  # flake8-implicit-str-concat
+    "ICN",  # flake8-import-conventions
+    "PIE",  # flake8-pie
+    "PT",   # flake8-pytest-style
+    "PYI",  # flake8-pyi
+    "RET",  # flake8-return
+    "SIM",  # flake8-simplify
+    "TID",  # flake8-tidy-imports
+    "TCH",  # flake8-type-checking
+    "ARG",  # flake8-unused-arguments
+    "PTH",  # flake8-use-pathlib
+    "ERA",  # eradicate
+    "NPY",  # numpy
+    "RUF",  # ruff-specific rules
+]
+
+ignore = [
+    "ISC001",  # Conflicts with the Ruff formatter
+    "D100",    # Missing docstring in public module (often too strict)
+    "D104",    # Missing docstring in public package
+]
+
+[tool.ruff.lint.isort]
+lines-after-imports = 2
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15  # Lowered from 25 for better maintainability
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"  # Enforces a specific docstring style (can be "numpy" or "pep257")
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
