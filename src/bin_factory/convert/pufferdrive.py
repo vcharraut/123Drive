@@ -31,6 +31,7 @@ def convert_to_puffer_dict(scenario: dict, min_route_valid_points: int = 0, rout
     traffic_control_elements = traffic_controls.convert_traffic_control_elements(
         scenario["traffic_lights"],
         scenario["map"],
+        scenario.get("scenario_length", 0),
     )
 
     puffer_metadata = {

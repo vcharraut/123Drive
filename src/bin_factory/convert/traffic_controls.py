@@ -4,10 +4,10 @@ Convert traffic control elements from intermediate format to Puffer format.
 
 import numpy as np
 from py123d.datatypes.detections import TrafficLightStatus
-from py123d.datatypes.map_objects import StopZoneType
+from py123d.datatypes.map_objects import LaneType, StopZoneType
 
-from src.bin_factory import logger_utils
-from src.bin_factory.convert import types as puffer_types
+from bin_factory import logger_utils
+from bin_factory.convert import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)
@@ -18,84 +18,108 @@ def _position_to_group_key(position, decimals=1):
     return tuple(rounded.tolist())
 
 
-def convert_traffic_control_elements(traffic_lights: dict, _objects: dict, map: dict) -> list[dict]:
+def _normalize_controlled_lanes(controlled_lane) -> list[int]:
+    lanes = [controlled_lane] if isinstance(controlled_lane, int) else controlled_lane
+    if not isinstance(lanes, list):
+        raise TypeError(f"controlled_lane must be int or list[int], got {type(controlled_lane).__name__}")
+    return lanes
+
+
+def _valid_controlled_lanes(controlled_lane, map_data: dict) -> list[int]:
+    lanes = _normalize_controlled_lanes(controlled_lane)
+    return [lane_id for lane_id in lanes if lane_id in map_data and isinstance(map_data[lane_id].get("type"), LaneType)]
+
+
+def _traffic_light_states(states) -> np.ndarray:
+    states_list = states.tolist() if isinstance(states, np.ndarray) else states
+    return np.array([_convert_traffic_light_state_to_int(state) for state in states_list], dtype=np.int64)
+
+
+def _group_lanes_by_position(controlled_lanes: list[int], map_data: dict) -> list[list[int]]:
+    pos_to_lanes = {}
+    for lane_id in controlled_lanes:
+        pos_key = _position_to_group_key(map_data[lane_id]["polyline"][0])
+        pos_to_lanes.setdefault(pos_key, []).append(lane_id)
+    return [sorted(grouped_lanes) for _, grouped_lanes in sorted(pos_to_lanes.items())]
+
+
+def _convert_observed_traffic_lights(traffic_lights: dict, map_data: dict) -> tuple[list[dict], set[int]]:
+    puffer_elements = []
+    covered_lanes = set()
+
+    for element_id, element_data in traffic_lights.items():
+        controlled_lanes = _valid_controlled_lanes(element_data["controlled_lane"], map_data)
+        if not controlled_lanes:
+            continue
+
+        covered_lanes.update(controlled_lanes)
+        puffer_elements.append(
+            {
+                "id": int(element_id),
+                "type": puffer_types.TRAFFIC_LIGHT,
+                "xyz": element_data["position"],
+                "states": _traffic_light_states(element_data["states"]),
+                "controlled_lanes": controlled_lanes,
+            },
+        )
+
+    return puffer_elements, covered_lanes
+
+
+def _convert_map_traffic_lights(
+    map_data: dict, covered_lanes: set[int], next_id: int, scenario_length: int
+) -> list[dict]:
+    puffer_elements = []
+    seen_groups = set()
+
+    for element_data in map_data.values():
+        if element_data.get("type") != StopZoneType.TRAFFIC_LIGHT:
+            continue
+
+        controlled_lanes = [
+            lane_id
+            for lane_id in _valid_controlled_lanes(element_data.get("controlled_lanes", []), map_data)
+            if lane_id not in covered_lanes
+        ]
+        if not controlled_lanes:
+            continue
+
+        for grouped_lanes in _group_lanes_by_position(controlled_lanes, map_data):
+            group_key = tuple(grouped_lanes)
+            if group_key in seen_groups:
+                continue
+            seen_groups.add(group_key)
+
+            first_lane = map_data[grouped_lanes[0]]
+            puffer_elements.append(
+                {
+                    "id": next_id,
+                    "type": puffer_types.TRAFFIC_LIGHT,
+                    "xyz": np.asarray(first_lane["polyline"][0], dtype=np.float64),
+                    "states": np.zeros((scenario_length,), dtype=np.int64),
+                    "controlled_lanes": grouped_lanes,
+                },
+            )
+            next_id += 1
+
+    return puffer_elements
+
+
+def convert_traffic_control_elements(traffic_lights: dict, map: dict, scenario_length: int = 0) -> list[dict]:
     """
     Convert dynamic map elements to Puffer traffic_control_elements.
 
     Args:
         traffic_lights: Dict of traffic light elements from intermediate scenario
-        _objects: Dict of static map elements from intermediate scenario
         map: Map data for the scenario (used to extract lane information for traffic control elements)
 
     Returns:
         List of traffic control element dictionaries in Puffer format
     """
-    puffer_elements = []
-
-    for element_id, element_data in traffic_lights.items():
-        position = element_data["position"]
-        states = element_data["states"]
-        controlled_lane = element_data["controlled_lane"]
-
-        element_type_int = puffer_types.TRAFFIC_LIGHT
-
-        # Convert states to int array
-        # States might be a list or numpy array
-        states_list = states.tolist() if isinstance(states, np.ndarray) else states
-
-        states_int = [_convert_traffic_light_state_to_int(s) for s in states_list]
-        states_int = np.array(states_int, dtype=np.int64)
-
-        # Normalize controlled_lane to list (PufferDrive expects list)
-        if isinstance(controlled_lane, int):
-            controlled_lanes = [controlled_lane]
-        elif isinstance(controlled_lane, list):
-            controlled_lanes = controlled_lane
-        else:
-            raise TypeError(f"controlled_lane must be int or list[int], got {type(controlled_lane).__name__}")
-
-        puffer_element = {
-            "id": int(element_id),
-            "type": element_type_int,
-            "xyz": position,
-            "states": states_int,
-            "controlled_lanes": controlled_lanes,
-        }
-
-        puffer_elements.append(puffer_element)
-
-    next_id = max((e["id"] for e in puffer_elements), default=-1) + 1
-    for element_id, element_data in map.items():
-        if isinstance(element_data["type"], StopZoneType):
-            element_type_int = int(element_data["type"])
-            controlled = element_data["controlled_lanes"]
-
-            if element_type_int == 1:  # TRAFFIC_LIGHT
-                lane_positions = {lid: map[lid]["polyline"][0] for lid in controlled if lid in map}
-
-                # Merge lane ids with same position into one traffic control element
-                pos_to_lanes = {}
-                for lid, pos in lane_positions.items():
-                    pos_key = _position_to_group_key(pos)
-                    if pos_key not in pos_to_lanes:
-                        pos_to_lanes[pos_key] = []
-                    pos_to_lanes[pos_key].append(lid)
-
-                for grouped_lanes in pos_to_lanes.values():
-                    first_lane = map[grouped_lanes[0]]
-
-                    puffer_element = {
-                        "id": next_id,
-                        "type": element_type_int,
-                        "xyz": first_lane["polyline"][0],
-                        "states": [],
-                        "controlled_lanes": grouped_lanes,
-                    }
-
-                    puffer_elements.append(puffer_element)
-                    next_id += 1
-
-    return puffer_elements
+    observed_elements, covered_lanes = _convert_observed_traffic_lights(traffic_lights, map)
+    next_id = max((element["id"] for element in observed_elements), default=-1) + 1
+    map_elements = _convert_map_traffic_lights(map, covered_lanes, next_id, scenario_length)
+    return observed_elements + map_elements
 
 
 def _convert_traffic_light_state_to_int(state) -> int:
