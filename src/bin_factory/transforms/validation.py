@@ -1,5 +1,4 @@
-"""
-Validation helpers for the PufferDrive dict format.
+"""Validation helpers for the PufferDrive dict format.
 
 Validation levels:
 0. Disabled

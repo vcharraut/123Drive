@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import shapely.geometry as geom
 from py123d.datatypes.detections import DefaultBoxDetectionLabel
-from py123d.datatypes.map_objects import LaneType, MapLayer
+from py123d.datatypes.map_objects import MapLayer
 from py123d.geometry import Point2D
 
 from bin_factory import types
@@ -30,7 +30,6 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     Returns:
         Intermediate scenario dict.
     """
-
     scene, map_api, scenario = _build_base_scenario(raw)
     map_only = scene is None
     centroid = _compute_scenario_centroid(scene, map_api)
@@ -141,11 +140,13 @@ def _fill_ego_track(objects: dict[int, dict], scene: SceneAPI, centroid: np.ndar
     for frame_idx in range(scene.number_of_iterations):
         ego_state = scene.get_ego_state_se3_at_iteration(frame_idx)
         if ego_state is None:
-            continue
+            raise ValueError(f"Missing ego state at frame {frame_idx}")
+
         obj = objects[0]
         _apply_detection_state(obj, frame_idx, ego_state.center_se3, ego_state.bounding_box_se3, centroid)
         if ego_state.dynamic_state_se3 is None:
-            continue
+            raise ValueError(f"Missing ego dynamic state at frame {frame_idx}")
+
         vel = ego_state.dynamic_state_se3.velocity_3d
         obj["velocity"][frame_idx] = [float(vel.x), float(vel.y)]
 
@@ -184,15 +185,15 @@ def _fill_detection_tracks(
             )
             if object_id not in objects:
                 objects[object_id] = _make_empty_agent(episode_length, detection.metadata.default_label)
+
             bbox = detection.bounding_box_se3  # type: ignore[attr-defined]
             obj = objects[object_id]
             _apply_detection_state(obj, frame_idx, bbox.center_se3, bbox, centroid)
+
             if detection.velocity_2d is None:
                 continue
-            obj["velocity"][frame_idx] = [
-                float(detection.velocity_2d.x),
-                float(detection.velocity_2d.y),
-            ]
+
+            obj["velocity"][frame_idx] = [float(detection.velocity_2d.x), float(detection.velocity_2d.y)]
 
 
 def extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
@@ -201,12 +202,12 @@ def extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
     Returns:
         Dict mapping agent_id to agent data dict.
     """
-
     episode_length = scene.number_of_iterations
     objects: dict[int, dict] = {0: _make_empty_agent(episode_length, DefaultBoxDetectionLabel.EGO)}
     tokens_to_object_id: dict[str, int] = {}
     _fill_ego_track(objects, scene, centroid)
     _fill_detection_tracks(objects, scene, centroid, tokens_to_object_id)
+
     return objects
 
 
@@ -229,12 +230,11 @@ def _filter_agents(objects: dict[int, dict]) -> dict[int, dict]:
 
 def extract_traffic_lights(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarray) -> dict[int, dict]:
     """Extract dynamic traffic light states from py123d logs."""
-
     episode_length = scene.number_of_iterations
     elements: dict[int, dict] = {}
 
     for frame_idx in range(episode_length):
-        traffic_lights = _get_traffic_light_detections(scene, frame_idx)
+        traffic_lights = scene.get_traffic_light_detections_at_iteration(frame_idx)
         if not traffic_lights:
             continue
 
@@ -263,10 +263,9 @@ def _get_traffic_light_detections(scene: SceneAPI, frame_idx: int):
 def _get_map_objects(
     map_api: MapAPI,
     layers: list[MapLayer],
-    area_of_interest: geom.base.BaseGeometry | None = None,
 ) -> list[Any]:
-    query_geometry = area_of_interest if area_of_interest is not None else geom.box(-1e9, -1e9, 1e9, 1e9)
-    objects_by_layer = map_api.query(query_geometry, layers=layers, predicate="intersects")
+    objects_by_layer = map_api.query(geom.box(-1e9, -1e9, 1e9, 1e9), layers=layers, predicate="intersects")
+
     return [obj for layer in layers for obj in objects_by_layer.get(layer, [])]
 
 
@@ -294,14 +293,15 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
     """Extract static map elements from a py123d MapAPI."""
     result = {}
     non_lane_objects = []
-
-    _SKIPPED_LAYERS = {
+    skipped_layers = {
         MapLayer.LANE_GROUP,
         MapLayer.INTERSECTION,
         MapLayer.WALKWAY,
         MapLayer.CARPARK,
         MapLayer.GENERIC_DRIVABLE,
     }
+
+    # Lanes are processed first to ensure their IDs are included in the result for reference by other map elements.
     for obj in _iter_map_objects(map_api, centroid, map_only):
         if obj.layer == MapLayer.LANE:
             result[obj.object_id] = convert_map_object_to_static_element(obj, centroid)
@@ -309,10 +309,10 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
             non_lane_objects.append(obj)
 
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
-    # (object_id namespaces overlap across map layers)
+    # (object_id namespaces can overlap across map layers)
     next_id = max(result.keys(), default=-1) + 1
     for obj in non_lane_objects:
-        if obj.layer not in _SKIPPED_LAYERS:
+        if obj.layer not in skipped_layers:
             element = convert_map_object_to_static_element(obj, centroid)
             if element is None:
                 continue
@@ -330,7 +330,16 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
     return result
 
 
-def convert_map_object_to_static_element(map_object, centroid):
+def convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> dict | None:
+    """Convert py123d map object to unified static element dict.
+
+    Args:
+        map_object: py123d map object with layer, geometry, and metadata.
+        centroid: Reference point for centering polylines/polygons.
+
+    Returns:
+        Dict with type, geometry (polyline/polygon), and layer-specific fields, or None if unsupported.
+    """
     if map_object.layer == MapLayer.LANE:
         polyline = centered_array(map_object.centerline.array, centroid)
         speed_limit_mps = float(map_object.speed_limit_mps) if map_object.speed_limit_mps is not None else -1.0

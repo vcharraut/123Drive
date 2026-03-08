@@ -1,6 +1,4 @@
-"""
-Convert dynamic agents from intermediate format to Puffer format.
-"""
+"""Convert dynamic agents from intermediate format to Puffer format."""
 
 import numpy as np
 from py123d.datatypes.detections import DefaultBoxDetectionLabel

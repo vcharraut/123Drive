@@ -136,14 +136,3 @@ uv run viz-video ./output/map_000.bin ./video.mp4
 uv run viz-batch ./output ./exports --format both
 ```
 
-## Notes
-
-- Synthetic traffic-light generation is not part of this release branch.
-- Traffic controls still include observed traffic-light data extracted from source datasets when available.
-- Recommended release path: `py123d-docker -> convert -> viz`.
-
-## Repo Layout
-
-- `src/bin_factory/` conversion pipeline
-- `src/viz/` web viewer and matplotlib exporters
-- `py123d_docker/` Docker wrapper for py123d extraction

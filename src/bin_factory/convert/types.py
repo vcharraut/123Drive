@@ -33,6 +33,13 @@ CROSSWALK = 31
 SPEED_BUMP = 32
 DRIVEWAY = 33
 
+# Traffic light state values
+TL_STATE_UNKNOWN = 0
+TL_STATE_GREEN = 3
+TL_STATE_YELLOW = 2
+TL_STATE_RED = 4
+
+
 # Traffic control types
 TRAFFIC_LIGHT = 1
 STOP_SIGN = 2
