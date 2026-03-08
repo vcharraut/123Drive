@@ -79,12 +79,32 @@ def build_route_cache(static_map_elements: dict, lane_data: tuple) -> dict:
 
 def compute_agent_route(agent_data: tuple, route_cache: dict, route_check_timestep: int = 0) -> list[int]:
     """Return the best lane sequence for one agent, or an empty list."""
-    agent_context = _build_agent_route_context(agent_data)
-    agent_id = agent_data[0]
+    agent_id, positions, headings, valid, lengths, widths = agent_data
+    positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
+    valid = np.asarray(valid, dtype=bool)
+    trajectory = positions_2d[valid]
+    heading_valid = headings[valid]
+
     agent_str = f"Agent {agent_id}" if agent_id is not None else "Agent"
 
-    if agent_context is None or len(route_cache["lane_ids"]) == 0:
+    if len(trajectory) == 0 or len(route_cache["lane_ids"]) == 0:
         return []
+
+    agent_dirs = np.stack([np.cos(heading_valid), np.sin(heading_valid)], axis=1)
+    sample_indices = np.linspace(0, len(trajectory) - 1, min(10, len(trajectory)), dtype=int)
+
+    agent_context = {
+        "id": agent_id,
+        "positions_2d": positions_2d,
+        "headings": headings,
+        "valid": valid,
+        "lengths": lengths,
+        "widths": widths,
+        "trajectory": trajectory,
+        "heading_valid": heading_valid,
+        "sample_positions": trajectory[sample_indices],
+        "sample_agent_dirs": agent_dirs[sample_indices],
+    }
 
     if _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep):
         logger.debug(f"{agent_str}: Off-road at timestep {route_check_timestep}")
@@ -103,34 +123,6 @@ def compute_agent_route(agent_data: tuple, route_cache: dict, route_check_timest
     return best_route
 
 
-def _build_agent_route_context(agent_data: tuple) -> dict | None:
-    """Convert raw per-timestep states into route-specific derived arrays."""
-    agent_id, positions, headings, valid, lengths, widths = agent_data
-    positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
-    valid = np.asarray(valid, dtype=bool)
-    trajectory = positions_2d[valid]
-    heading_valid = headings[valid]
-
-    if len(trajectory) == 0:
-        return None
-
-    agent_dirs = np.stack([np.cos(heading_valid), np.sin(heading_valid)], axis=1)
-    sample_indices = np.linspace(0, len(trajectory) - 1, min(10, len(trajectory)), dtype=int)
-
-    return {
-        "id": agent_id,
-        "positions_2d": positions_2d,
-        "headings": headings,
-        "valid": valid,
-        "lengths": lengths,
-        "widths": widths,
-        "trajectory": trajectory,
-        "heading_valid": heading_valid,
-        "sample_positions": trajectory[sample_indices],
-        "sample_agent_dirs": agent_dirs[sample_indices],
-    }
-
-
 def _search_route_beam(
     root_candidates: list[tuple[int | str, float]],
     route_cache: dict,
@@ -145,12 +137,58 @@ def _search_route_beam(
     score then route length as a tie-breaker so flat-score continuations are not
     dropped too early.
     """
-    initial_states = _score_route_candidates([[lane_id] for lane_id, _ in root_candidates], route_cache, agent_context)
-    beam = _select_top_states(initial_states, beam_width)
+    lane_id_to_idx = route_cache["lane_id_to_idx"]
+    trimmed_polylines = route_cache["trimmed_polylines"]
+
+    def rank(s):
+        return (s["score"], len(s["route"]))
+
+    def merge_lane_centerlines(route):
+        parts = []
+        for lane_id in route:
+            lane_idx = lane_id_to_idx.get(lane_id)
+            if lane_idx is None:
+                continue
+            polyline = trimmed_polylines[lane_idx]
+            if len(polyline) == 0:
+                continue
+            if parts and np.allclose(parts[-1][-1], polyline[0]):
+                parts.append(polyline[1:])
+            else:
+                parts.append(polyline)
+        if not parts:
+            return np.zeros((0, 2), dtype=np.float64)
+        return np.concatenate(parts) if len(parts) > 1 else parts[0].copy()
+
+    def score_route_candidates(lane_sequences):
+        if not lane_sequences:
+            return []
+        polylines = [merge_lane_centerlines(seq) for seq in lane_sequences]
+        scores = _score_route_polylines_batch(polylines, agent_context)
+        return [
+            {"route": seq, "visited": set(seq), "score": float(sc)}
+            for seq, sc in zip(lane_sequences, scores)
+            if sc > 0
+        ]
+
+    def select_top_states(states):
+        selected, seen = [], set()
+        for s in sorted(states, key=rank, reverse=True):
+            key = tuple(s["route"])
+            if key in seen:
+                continue
+            selected.append(s)
+            seen.add(key)
+            if len(selected) == beam_width:
+                break
+        return selected
+
+    initial_states = score_route_candidates([[lane_id] for lane_id, _ in root_candidates])
+    beam = select_top_states(initial_states)
     if not beam:
         return [], 0.0
 
-    best_beam_state = max(beam, key=_beam_state_rank)
+    best_beam_state = max(beam, key=rank)
 
     for _ in range(max_length - 1):
         candidates = []
@@ -164,50 +202,16 @@ def _search_route_beam(
         if not candidates:
             break
 
-        expanded_states = _score_route_candidates(candidates, route_cache, agent_context)
-        beam = _select_top_states(expanded_states, beam_width)
+        expanded_states = score_route_candidates(candidates)
+        beam = select_top_states(expanded_states)
         if not beam:
             break
 
-        candidate_best = max(beam, key=_beam_state_rank)
-        if _beam_state_rank(candidate_best) > _beam_state_rank(best_beam_state):
+        candidate_best = max(beam, key=rank)
+        if rank(candidate_best) > rank(best_beam_state):
             best_beam_state = candidate_best
 
     return best_beam_state["route"], best_beam_state["score"]
-
-
-def _score_route_candidates(lane_sequences: list[list], route_cache: dict, agent_context: dict) -> list[dict]:
-    """Materialize and score a batch of candidate lane sequences."""
-    if not lane_sequences:
-        return []
-
-    polylines = [_merge_lane_centerlines(sequence, route_cache) for sequence in lane_sequences]
-    scores = _score_route_polylines_batch(polylines, agent_context)
-
-    return [
-        {
-            "route": sequence,
-            "visited": set(sequence),
-            "score": float(score),
-        }
-        for sequence, score in zip(lane_sequences, scores)
-        if score > 0
-    ]
-
-
-def _merge_lane_centerlines(route: list, route_cache: dict) -> np.ndarray:
-    """Concatenate lane centerlines into one polyline for route scoring."""
-    lane_id_to_idx = route_cache["lane_id_to_idx"]
-    trimmed_polylines = route_cache["trimmed_polylines"]
-    route_polyline = np.zeros((0, 2), dtype=np.float64)
-
-    for lane_id in route:
-        lane_idx = lane_id_to_idx.get(lane_id)
-        if lane_idx is None:
-            continue
-        route_polyline = _append_polyline(route_polyline, trimmed_polylines[lane_idx])
-
-    return route_polyline
 
 
 def _select_root_lane_candidates(
@@ -227,17 +231,37 @@ def _select_root_lane_candidates(
     lane_polylines = route_cache["lane_polylines"]
     lane_lengths = route_cache["lane_lengths"]
 
-    sample_indices = _get_root_sample_indices(len(trajectory))
+    traj_len = len(trajectory)
+    if traj_len == 0:
+        return []
+    window = min(traj_len, 8)
+    sample_count = min(window, 5)
+    sample_indices = np.unique(np.linspace(0, window - 1, sample_count, dtype=int))
     if len(sample_indices) == 0:
         return []
 
     sample_points = trajectory[sample_indices]
     sample_headings = heading[sample_indices]
-    sample_points, sample_headings = _deduplicate_sample_points(sample_points, sample_headings)
+
+    if len(sample_points) > 1:
+        diffs = np.linalg.norm(np.diff(sample_points, axis=0), axis=1)
+        keep_mask = np.concatenate(([True], diffs >= 1e-3))
+        sample_points = sample_points[keep_mask]
+        sample_headings = sample_headings[keep_mask]
     if len(sample_points) == 0:
         return []
 
-    candidate_lane_indices = _filter_root_candidate_lanes(sample_points, route_cache)
+    lane_bbox_mins = route_cache["lane_bbox_mins"]
+    if len(lane_bbox_mins) == 0:
+        return []
+    clipped = np.clip(
+        sample_points[:, np.newaxis, :],
+        lane_bbox_mins[np.newaxis, :, :],
+        route_cache["lane_bbox_maxs"][np.newaxis, :, :],
+    )
+    diff = sample_points[:, np.newaxis, :] - clipped
+    bbox_distances = np.sqrt(np.einsum("ijk,ijk->ij", diff, diff))
+    candidate_lane_indices = np.where(np.any(bbox_distances <= ROOT_CANDIDATE_BBOX_MARGIN, axis=0))[0]
     if len(candidate_lane_indices) == 0:
         return []
 
@@ -266,58 +290,6 @@ def _select_root_lane_candidates(
     return [(lane_ids[candidate_lane_indices[idx]], lane_total_scores[idx]) for idx in ranked]
 
 
-def _get_root_sample_indices(traj_len: int) -> np.ndarray:
-    if traj_len == 0:
-        return np.array([], dtype=np.int64)
-    window = min(traj_len, 8)
-    sample_count = min(window, 5)
-    return np.unique(np.linspace(0, window - 1, sample_count, dtype=int))
-
-
-def _deduplicate_sample_points(points: np.ndarray, headings: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    if len(points) <= 1:
-        return points, headings
-
-    diffs = np.linalg.norm(np.diff(points, axis=0), axis=1)
-    keep_mask = np.concatenate(([True], diffs >= 1e-3))
-    return points[keep_mask], headings[keep_mask]
-
-
-def _filter_root_candidate_lanes(sample_points: np.ndarray, route_cache: dict) -> np.ndarray:
-    lane_bbox_mins = route_cache["lane_bbox_mins"]
-    if len(lane_bbox_mins) == 0:
-        return np.array([], dtype=np.int64)
-
-    bbox_distances = _points_to_bboxes_distance(sample_points, lane_bbox_mins, route_cache["lane_bbox_maxs"])
-    return np.where(np.any(bbox_distances <= ROOT_CANDIDATE_BBOX_MARGIN, axis=0))[0]
-
-
-def _points_to_bboxes_distance(points: np.ndarray, bbox_mins: np.ndarray, bbox_maxs: np.ndarray) -> np.ndarray:
-    clipped = np.clip(points[:, np.newaxis, :], bbox_mins[np.newaxis, :, :], bbox_maxs[np.newaxis, :, :])
-    diff = points[:, np.newaxis, :] - clipped
-    return np.sqrt(np.einsum("ijk,ijk->ij", diff, diff))
-
-
-def _select_top_states(states: list[dict], beam_width: int) -> list[dict]:
-    selected = []
-    seen = set()
-
-    for beam_state in sorted(states, key=_beam_state_rank, reverse=True):
-        route_key = tuple(beam_state["route"])
-        if route_key in seen:
-            continue
-        selected.append(beam_state)
-        seen.add(route_key)
-        if len(selected) == beam_width:
-            break
-
-    return selected
-
-
-def _beam_state_rank(beam_state: dict) -> tuple[float, int]:
-    return beam_state["score"], len(beam_state["route"])
-
-
 def _score_route_polylines_batch(route_polylines: list[np.ndarray], agent_context: dict) -> np.ndarray:
     """Score many candidate route polylines against one agent trajectory."""
     scores = np.zeros(len(route_polylines), dtype=np.float64)
@@ -332,26 +304,36 @@ def _score_route_polylines_batch(route_polylines: list[np.ndarray], agent_contex
     valid_indices = np.where(valid_mask)[0]
     valid_polylines = [route_polylines[idx] for idx in valid_indices]
     valid_lengths = lengths[valid_indices]
-    padded_polylines = _pad_polylines(valid_polylines)
 
-    # Reject routes that mostly point against the agent's motion before doing
-    # the more expensive full-trajectory coverage computation.
-    alignment_mask = _check_route_heading_alignment_batch(
-        padded_polylines,
-        valid_lengths,
-        agent_context["sample_positions"],
-        agent_context["sample_agent_dirs"],
-    )
+    max_points = max(len(p) for p in valid_polylines)
+    padded_polylines = np.zeros((len(valid_polylines), max_points, 2), dtype=np.float64)
+    for idx, polyline in enumerate(valid_polylines):
+        padded_polylines[idx, : len(polyline), :] = polyline
+
+    sample_positions = agent_context["sample_positions"]
+    sample_agent_dirs = agent_context["sample_agent_dirs"]
+    if len(padded_polylines) == 0 or len(sample_positions) == 0:
+        alignment_mask = np.zeros(len(padded_polylines), dtype=bool)
+    else:
+        _, closest_indices = _points_to_polylines_distance(
+            sample_positions, padded_polylines, polyline_lengths=valid_lengths,
+        )
+        route_directions = _get_lane_directions_at_indices_batch(padded_polylines, closest_indices)
+        alignments = np.sum(route_directions * sample_agent_dirs[:, np.newaxis, :], axis=2)
+        alignment_ratio = np.mean(alignments > ALIGNMENT_THRESHOLD, axis=0)
+        alignment_mask = alignment_ratio >= 0.7
+
     if not np.any(alignment_mask):
         return scores
 
     aligned_indices = valid_indices[alignment_mask]
     aligned_polylines = padded_polylines[alignment_mask]
     aligned_lengths = valid_lengths[alignment_mask]
-    min_distances = _points_to_polylines_min_distance(
+    min_distances = _points_to_polylines_distance(
         agent_context["trajectory"],
         aligned_polylines,
         polyline_lengths=aligned_lengths,
+        return_indices=False,
     )
 
     # Final score matches the original intent: coverage times inverse average
@@ -372,60 +354,6 @@ def _score_route_polylines_batch(route_polylines: list[np.ndarray], agent_contex
     coverage_ratios = covered_counts[positive_coverage] / len(agent_context["trajectory"])
     scores[aligned_indices[positive_coverage]] = coverage_ratios / (1.0 + avg_distances[positive_coverage])
     return scores
-
-
-def _check_route_heading_alignment_batch(
-    route_polylines: np.ndarray,
-    route_lengths: np.ndarray,
-    sample_positions: np.ndarray,
-    sample_agent_dirs: np.ndarray,
-    min_alignment_ratio: float = 0.7,
-) -> np.ndarray:
-    """Binary heading filter for a batch of candidate route polylines."""
-    if len(route_polylines) == 0 or len(sample_positions) == 0:
-        return np.zeros(len(route_polylines), dtype=bool)
-
-    _, closest_indices = _points_to_polylines_distance(
-        sample_positions,
-        route_polylines,
-        polyline_lengths=route_lengths,
-    )
-    route_directions = _get_lane_directions_at_indices_batch(route_polylines, closest_indices)
-    alignments = np.sum(route_directions * sample_agent_dirs[:, np.newaxis, :], axis=2)
-    alignment_ratio = np.mean(alignments > ALIGNMENT_THRESHOLD, axis=0)
-    return alignment_ratio >= min_alignment_ratio
-
-
-def _pad_polylines(polylines: list[np.ndarray]) -> np.ndarray:
-    max_points = max(len(polyline) for polyline in polylines)
-    padded = np.zeros((len(polylines), max_points, 2), dtype=np.float64)
-
-    for idx, polyline in enumerate(polylines):
-        padded[idx, : len(polyline), :] = polyline
-
-    return padded
-
-
-def _append_polyline(base: np.ndarray, addition: np.ndarray) -> np.ndarray:
-    if len(addition) == 0:
-        return base.copy()
-    if len(base) == 0:
-        return addition.copy()
-    if np.allclose(base[-1], addition[0]):
-        return np.vstack((base, addition[1:]))
-    return np.vstack((base, addition))
-
-
-def _extract_road_edge(element: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
-    if element["type"] not in ROAD_EDGE_TYPES:
-        return None
-
-    polyline = element["polyline"]
-    if polyline is None or len(polyline) < 2:
-        return None
-
-    polyline_2d = polyline[:, :2]
-    return polyline_2d, polyline_2d.min(axis=0), polyline_2d.max(axis=0)
 
 
 def _is_offroad_at_timestep(agent_context: dict, route_cache: dict, route_check_timestep: int = 0) -> bool:
@@ -451,10 +379,11 @@ def _is_offroad_at_timestep(agent_context: dict, route_cache: dict, route_check_
     )
 
     if len(route_cache["lane_polylines"]) > 0:
-        min_distances = _points_to_polylines_min_distance(
+        min_distances = _points_to_polylines_distance(
             position.reshape(1, 2),
             route_cache["lane_polylines"],
             polyline_lengths=route_cache["lane_lengths"],
+            return_indices=False,
         )
         if np.min(min_distances) > distance_threshold:
             return True
@@ -477,6 +406,9 @@ def _is_offroad_at_timestep(agent_context: dict, route_cache: dict, route_check_
     bbox_min = corners.min(axis=0) - max(half_len, half_width)
     bbox_max = corners.max(axis=0) + max(half_len, half_width)
 
+    def cross_2d(v1, v2):
+        return v1[0] * v2[1] - v1[1] * v2[0]
+
     for polyline_2d, edge_min, edge_max in route_cache["road_edges"]:
         if edge_max[0] < bbox_min[0] or edge_min[0] > bbox_max[0]:
             continue
@@ -493,7 +425,37 @@ def _is_offroad_at_timestep(agent_context: dict, route_cache: dict, route_check_
                 continue
             if seg_max[1] < bbox_min[1] or seg_min[1] > bbox_max[1]:
                 continue
-            if _segment_intersects_polygon(seg_start, seg_end, corners):
+
+            # Check segment against each polygon edge
+            intersects = False
+            for pidx in range(len(corners)):
+                poly_start = corners[pidx]
+                poly_end = corners[(pidx + 1) % len(corners)]
+
+                d1 = seg_end - seg_start
+                d2 = poly_end - poly_start
+                denom = cross_2d(d1, d2)
+
+                if abs(denom) < 1e-10:
+                    if abs(cross_2d(poly_start - seg_start, d1)) > 1e-10 or abs(cross_2d(poly_end - seg_start, d1)) > 1e-10:
+                        continue
+                    if (
+                        max(min(seg_start[0], seg_end[0]), min(poly_start[0], poly_end[0]))
+                        <= min(max(seg_start[0], seg_end[0]), max(poly_start[0], poly_end[0])) + 1e-10
+                        and max(min(seg_start[1], seg_end[1]), min(poly_start[1], poly_end[1]))
+                        <= min(max(seg_start[1], seg_end[1]), max(poly_start[1], poly_end[1])) + 1e-10
+                    ):
+                        intersects = True
+                        break
+                    continue
+
+                t = cross_2d(poly_start - seg_start, d2) / denom
+                u = cross_2d(poly_start - seg_start, d1) / denom
+                if 0 <= t <= 1 and 0 <= u <= 1:
+                    intersects = True
+                    break
+
+            if intersects:
                 return True
 
     return False
@@ -556,22 +518,6 @@ def _points_to_polylines_distance(
     return min_distances, closest_indices
 
 
-def _points_to_polylines_min_distance(
-    points: np.ndarray,
-    polylines: np.ndarray,
-    polyline_lengths: np.ndarray | None = None,
-) -> np.ndarray:
-    distances = _points_to_polylines_distance(
-        points,
-        polylines,
-        polyline_lengths=polyline_lengths,
-        return_indices=False,
-    )
-    if isinstance(distances, tuple):
-        return distances[0]
-    return distances
-
-
 def _get_lane_directions_at_indices_batch(polylines: np.ndarray, indices: np.ndarray) -> np.ndarray:
     n_lanes = indices.shape[1]
     max_points = polylines.shape[1]
@@ -583,33 +529,13 @@ def _get_lane_directions_at_indices_batch(polylines: np.ndarray, indices: np.nda
     return directions / (norms + 1e-6)
 
 
-def _segment_intersects_polygon(seg_start: np.ndarray, seg_end: np.ndarray, polygon: np.ndarray) -> bool:
-    for idx in range(len(polygon)):
-        poly_start = polygon[idx]
-        poly_end = polygon[(idx + 1) % len(polygon)]
-        if _segments_intersect(seg_start, seg_end, poly_start, poly_end):
-            return True
-    return False
+def _extract_road_edge(element: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+    if element["type"] not in ROAD_EDGE_TYPES:
+        return None
 
+    polyline = element["polyline"]
+    if polyline is None or len(polyline) < 2:
+        return None
 
-def _cross_2d(v1, v2):
-    return v1[0] * v2[1] - v1[1] * v2[0]
-
-
-def _segments_intersect(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.ndarray) -> bool:
-    d1 = p2 - p1
-    d2 = p4 - p3
-
-    denom = _cross_2d(d1, d2)
-    if abs(denom) < 1e-10:
-        if abs(_cross_2d(p3 - p1, d1)) > 1e-10 or abs(_cross_2d(p4 - p1, d1)) > 1e-10:
-            return False
-
-        def ranges_overlap(a1, a2, b1, b2) -> bool:
-            return max(min(a1, a2), min(b1, b2)) <= min(max(a1, a2), max(b1, b2)) + 1e-10
-
-        return ranges_overlap(p1[0], p2[0], p3[0], p4[0]) and ranges_overlap(p1[1], p2[1], p3[1], p4[1])
-
-    t = _cross_2d(p3 - p1, d2) / denom
-    u = _cross_2d(p3 - p1, d1) / denom
-    return 0 <= t <= 1 and 0 <= u <= 1
+    polyline_2d = polyline[:, :2]
+    return polyline_2d, polyline_2d.min(axis=0), polyline_2d.max(axis=0)
