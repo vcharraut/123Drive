@@ -60,6 +60,21 @@ def build_docker_build_cmd(dataset, config, py123d_ref=None, no_cache=False):
     return cmd
 
 
+def resolve_existing_dir(path_str, label):
+    path = Path(path_str).resolve()
+    if not path.exists() or not path.is_dir():
+        raise ValueError(f"{label} must be an existing directory: {path}")
+    return str(path)
+
+
+def resolve_output_dir(path_str):
+    path = Path(path_str).resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    if not path.is_dir():
+        raise ValueError(f"Output path must be a directory: {path}")
+    return str(path)
+
+
 def image_exists(dataset):
     result = subprocess.run(
         ["docker", "image", "inspect", image_name(dataset)],
@@ -152,8 +167,8 @@ def main():
     if not output:
         parser.error("--output is required for conversion (or set PY123D_DATA_ROOT environment variable)")
 
-    dataset_path = str(Path(args.dataset_path).resolve())
-    output = str(Path(output).resolve())
+    dataset_path = resolve_existing_dir(args.dataset_path, "Dataset path")
+    output = resolve_output_dir(output)
 
     hydra_args = build_hydra_args(
         args.dataset,
