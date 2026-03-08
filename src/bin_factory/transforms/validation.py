@@ -113,16 +113,12 @@ def _validate_metadata_schema(metadata: dict, errors: list[str]) -> int:
             errors.append(f"Missing metadata key: '{key}'")
 
     scenario_length = metadata.get("scenario_length")
-    scenario_length_value = None
-    if isinstance(scenario_length, int) and not isinstance(scenario_length, bool):
-        scenario_length_value = scenario_length
-    elif isinstance(scenario_length, np.integer):
-        scenario_length_value = int(scenario_length)
     if "dataset_name" in metadata and not isinstance(metadata["dataset_name"], str):
         errors.append(f"metadata['dataset_name'] must be str, got {type(metadata['dataset_name']).__name__}")
     if "scenario_length" in metadata and not _is_int_like(scenario_length):
         errors.append(f"metadata['scenario_length'] must be int, got {type(scenario_length).__name__}")
-    elif scenario_length_value is not None and scenario_length_value < 0:
+        scenario_length = None
+    elif _is_int_like(scenario_length) and int(scenario_length) < 0:
         errors.append("metadata['scenario_length'] must be non-negative")
     if "sdc_index" in metadata and not _is_int_like(metadata["sdc_index"]):
         errors.append(f"metadata['sdc_index'] must be int, got {type(metadata['sdc_index']).__name__}")
@@ -132,8 +128,8 @@ def _validate_metadata_schema(metadata: dict, errors: list[str]) -> int:
         )
     timestep_seconds = metadata.get("timestep_seconds", 0)
     if (
-        scenario_length_value is not None
-        and scenario_length_value > 0
+        _is_int_like(scenario_length)
+        and int(scenario_length) > 0
         and _is_number(timestep_seconds)
         and timestep_seconds <= 0
     ):
@@ -143,7 +139,7 @@ def _validate_metadata_schema(metadata: dict, errors: list[str]) -> int:
         if key in metadata and not isinstance(metadata[key], list):
             errors.append(f"metadata['{key}'] must be list, got {type(metadata[key]).__name__}")
 
-    return 0 if scenario_length_value is None else scenario_length_value
+    return int(scenario_length) if _is_int_like(scenario_length) else 0
 
 
 def _validate_agents_schema(agents: list, expected_length: int, errors: list[str]) -> set[int]:
@@ -161,13 +157,7 @@ def _validate_agents_schema(agents: list, expected_length: int, errors: list[str
             if key not in agent:
                 errors.append(f"Agent {index} missing key: '{key}'")
 
-        agent_id = agent.get("id", "?")
-        if "id" in agent and not _is_int_like(agent_id):
-            errors.append(f"Agent {index} id must be int, got {type(agent_id).__name__}")
-        elif _is_int_like(agent_id) and agent_id in seen_ids:
-            errors.append(f"Duplicate agent id: {agent_id}")
-        elif "id" in agent:
-            seen_ids.add(int(agent_id))
+        agent_id = _check_id(agent, index, seen_ids, errors, "Agent")
 
         if "type" in agent:
             agent_type = agent["type"]
@@ -234,14 +224,8 @@ def _validate_roads_schema(roads: list, errors: list[str]) -> set[int]:
             if key not in road:
                 errors.append(f"Road {index} missing key: '{key}'")
 
-        road_id = road.get("id", "?")
+        road_id = _check_id(road, index, seen_ids, errors, "Road")
         road_type = road.get("type")
-        if "id" in road and not _is_int_like(road_id):
-            errors.append(f"Road {index} id must be int, got {type(road_id).__name__}")
-        elif "id" in road and road_id in seen_ids:
-            errors.append(f"Duplicate road id: {road_id}")
-        elif "id" in road:
-            seen_ids.add(int(road_id))
 
         if "type" in road and not _is_int_like(road_type):
             errors.append(f"Road {road_id} type must be int, got {type(road_type).__name__}")
@@ -278,13 +262,7 @@ def _validate_traffic_controls_schema(traffic_controls: list, expected_length: i
             if key not in control:
                 errors.append(f"Traffic control {index} missing key: '{key}'")
 
-        control_id = control.get("id", "?")
-        if "id" in control and not _is_int_like(control_id):
-            errors.append(f"Traffic control {index} id must be int, got {type(control_id).__name__}")
-        elif "id" in control and control_id in seen_ids:
-            errors.append(f"Duplicate traffic control id: {control_id}")
-        elif "id" in control:
-            seen_ids.add(int(control_id))
+        control_id = _check_id(control, index, seen_ids, errors, "Traffic control")
 
         if "type" in control and not _is_int_like(control["type"]):
             errors.append(f"Traffic control {control_id} type must be int, got {type(control['type']).__name__}")
@@ -306,6 +284,17 @@ def _validate_traffic_controls_schema(traffic_controls: list, expected_length: i
             )
 
     return seen_ids
+
+
+def _check_id(item, index, seen_ids, errors, prefix):
+    item_id = item.get("id", "?")
+    if "id" in item and not _is_int_like(item_id):
+        errors.append(f"{prefix} {index} id must be int, got {type(item_id).__name__}")
+    elif _is_int_like(item_id) and item_id in seen_ids:
+        errors.append(f"Duplicate {prefix.lower()} id: {item_id}")
+    elif "id" in item:
+        seen_ids.add(int(item_id))
+    return item_id
 
 
 def _validate_array(
@@ -373,29 +362,16 @@ def _validate_lane_topology(roads: list, lane_ids: set[int], errors: list[str]):
         if not _is_int_like(lane_id):
             continue
 
-        for entry_lane_id in road.get("entry_lanes", []):
-            if not _is_int_like(entry_lane_id):
-                continue
-            other_lane = lanes_by_id.get(int(entry_lane_id))
-            if other_lane is None:
-                continue
-            if int(lane_id) not in other_lane.get("exit_lanes", []):
-                errors.append(
-                    f"Lane {lane_id} lists {entry_lane_id} as entry, but lane {entry_lane_id} "
-                    f"does not list {lane_id} in exit_lanes"
-                )
-
-        for exit_lane_id in road.get("exit_lanes", []):
-            if not _is_int_like(exit_lane_id):
-                continue
-            other_lane = lanes_by_id.get(int(exit_lane_id))
-            if other_lane is None:
-                continue
-            if int(lane_id) not in other_lane.get("entry_lanes", []):
-                errors.append(
-                    f"Lane {lane_id} lists {exit_lane_id} as exit, but lane {exit_lane_id} "
-                    f"does not list {lane_id} in entry_lanes"
-                )
+        for fwd_key, rev_key in [("entry_lanes", "exit_lanes"), ("exit_lanes", "entry_lanes")]:
+            for ref_id in road.get(fwd_key, []):
+                other_lane = lanes_by_id.get(int(ref_id)) if _is_int_like(ref_id) else None
+                if other_lane is None:
+                    continue
+                if int(lane_id) not in other_lane.get(rev_key, []):
+                    errors.append(
+                        f"Lane {lane_id} lists {ref_id} as {fwd_key[:-1]}, but lane {ref_id} "
+                        f"does not list {lane_id} in {rev_key}"
+                    )
 
 
 def _validate_agent_routes(agents: list, lane_ids: set[int], errors: list[str]):
