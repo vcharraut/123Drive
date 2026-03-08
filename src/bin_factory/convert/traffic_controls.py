@@ -62,9 +62,7 @@ def _convert_map_traffic_lights(
             continue
 
         controlled_lanes = [
-            lane_id
-            for lane_id in element_data.get("controlled_lanes", [])
-            if lane_id not in covered_lanes
+            lane_id for lane_id in element_data.get("controlled_lanes", []) if lane_id not in covered_lanes
         ]
         if not controlled_lanes:
             continue

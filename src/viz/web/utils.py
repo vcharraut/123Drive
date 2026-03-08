@@ -164,21 +164,21 @@ def get_road_styling(road_type):
         if is_unknown_lane(road_type):
             return ROAD_COLORS["lane_unknown"], None, 2.0
         return ROAD_COLORS["lane"], None, 1.5
-    elif is_road_line(road_type):
+    if is_road_line(road_type):
         if is_unknown_road_line(road_type):
             return ROAD_COLORS["road_line_unknown"], "dash", 2.0
         color = ROAD_COLORS["road_line_yellow"] if is_yellow_line(road_type) else ROAD_COLORS["road_line_white"]
         dash = "dot" if is_broken_line(road_type) else "solid"
         return color, dash, 1.5
-    elif is_road_edge(road_type):
+    if is_road_edge(road_type):
         if is_unknown_road_edge(road_type):
             return ROAD_COLORS["road_edge_unknown"], "solid", 3.0
         return ROAD_COLORS["road_edge"], "solid", 2.5
-    elif road_type == 31:
+    if road_type == 31:
         return ROAD_COLORS["crosswalk"], "solid", 3
-    elif road_type == 32:
+    if road_type == 32:
         return ROAD_COLORS["speed_bump"], "solid", 3
-    elif road_type == 33:
+    if road_type == 33:
         return ROAD_COLORS["stop_sign"], None, 3
     return "#888888", None, 1
 

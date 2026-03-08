@@ -167,7 +167,7 @@ def _search_route_beam(
         scores = _score_route_polylines_batch(polylines, agent_context)
         return [
             {"route": seq, "visited": set(seq), "score": float(sc)}
-            for seq, sc in zip(lane_sequences, scores)
+            for seq, sc in zip(lane_sequences, scores, strict=False)
             if sc > 0
         ]
 
@@ -316,7 +316,9 @@ def _score_route_polylines_batch(route_polylines: list[np.ndarray], agent_contex
         alignment_mask = np.zeros(len(padded_polylines), dtype=bool)
     else:
         _, closest_indices = _points_to_polylines_distance(
-            sample_positions, padded_polylines, polyline_lengths=valid_lengths,
+            sample_positions,
+            padded_polylines,
+            polyline_lengths=valid_lengths,
         )
         route_directions = _get_lane_directions_at_indices_batch(padded_polylines, closest_indices)
         alignments = np.sum(route_directions * sample_agent_dirs[:, np.newaxis, :], axis=2)
@@ -437,7 +439,10 @@ def _is_offroad_at_timestep(agent_context: dict, route_cache: dict, route_check_
                 denom = cross_2d(d1, d2)
 
                 if abs(denom) < 1e-10:
-                    if abs(cross_2d(poly_start - seg_start, d1)) > 1e-10 or abs(cross_2d(poly_end - seg_start, d1)) > 1e-10:
+                    if (
+                        abs(cross_2d(poly_start - seg_start, d1)) > 1e-10
+                        or abs(cross_2d(poly_end - seg_start, d1)) > 1e-10
+                    ):
                         continue
                     if (
                         max(min(seg_start[0], seg_end[0]), min(poly_start[0], poly_end[0]))

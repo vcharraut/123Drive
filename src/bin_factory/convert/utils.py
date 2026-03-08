@@ -3,8 +3,7 @@ from py123d.datatypes.map_objects import LaneType
 
 
 def extract_lane_centers(static_map_elements: dict) -> tuple[list, np.ndarray, dict, np.ndarray]:
-    """
-    Extract lane center information as numpy arrays for vectorized operations.
+    """Extract lane center information as numpy arrays for vectorized operations.
 
     Args:
         static_map_elements: Dict of static map elements

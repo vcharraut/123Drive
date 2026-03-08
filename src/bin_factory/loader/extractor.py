@@ -252,6 +252,7 @@ def extract_traffic_lights(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarra
 
     return elements
 
+
 def _get_map_objects(
     map_api: MapAPI,
     layers: list[MapLayer],
