@@ -34,4 +34,4 @@ where = ["src", "."]
 include = ["bin_factory", "bin_factory.*", "viz", "viz.*", "py123d_docker", "py123d_docker.*"]
 
 [tool.uv.sources]
-py123d = { git = "https://github.com/autonomousvision/py123d.git", branch = "main" }
+py123d = { git = "https://github.com/autonomousvision/py123d", branch = "dev_v0.1.0" }

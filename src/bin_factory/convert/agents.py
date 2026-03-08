@@ -35,6 +35,7 @@ def convert_agents(
     sdc_index = -1
 
     lane_data = utils.extract_lane_centers(road_map_elements)
+    route_cache = routes.build_route_cache(road_map_elements, lane_data)
 
     for idx, (agent_id, agent_data) in enumerate(dynamic_agents.items()):
         # Get position data (x, y, z)
@@ -64,26 +65,22 @@ def convert_agents(
         # 3. Agents with sufficient valid trajectory points (configurable, default: 0)
         should_compute_routes = (
             agent_type_int == puffer_types.VEHICLE
+            and route_check_timestep < len(valid)
             and valid[route_check_timestep]
             and np.sum(valid) >= min_route_valid_points
         )
 
         if should_compute_routes:
-            # Extract valid trajectory points
-            valid_trajectory = position[valid]
-            valid_heading = heading[valid]
-
             _routes = routes.compute_agent_route(
-                agent_data=(agent_id, valid_trajectory, valid_heading, length, width),
-                static_map_elements=road_map_elements,
-                lane_data=lane_data,
+                agent_data=(agent_id, position, heading, valid, length, width),
+                route_cache=route_cache,
                 route_check_timestep=route_check_timestep,
             )
         else:
             _routes = []
 
         puffer_agent = {
-            "id": idx,  # Use int ID directly
+            "id": idx,
             "type": agent_type_int,
             "states": {
                 "xyz": position,

@@ -14,7 +14,7 @@ def convert_to_puffer_dict(scenario: dict, min_route_valid_points: int = 0, rout
     if not isinstance(scenario, dict):
         raise TypeError(f"Expected dict, got {type(scenario).__name__}")
 
-    required_fields = ["id", "agents", "map", "traffic_lights", "objects"]
+    required_fields = ["id", "agents", "map", "traffic_lights"]
     missing = [f for f in required_fields if f not in scenario]
     if missing:
         raise ValueError(f"scenario missing required fields: {missing}")
@@ -30,7 +30,6 @@ def convert_to_puffer_dict(scenario: dict, min_route_valid_points: int = 0, rout
 
     traffic_control_elements = traffic_controls.convert_traffic_control_elements(
         scenario["traffic_lights"],
-        scenario["objects"],
         scenario["map"],
     )
 
