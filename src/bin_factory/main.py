@@ -40,19 +40,15 @@ def process_one_scenario(
         route_check_timestep=route_check_timestep,
     )
     errors = []
-    warnings = []
     if validate_level > 0:
-        errors, warnings = validate_puffer_dict(puffer_dict, validation_level=validate_level)
-        for warning in warnings:
-            logger.warning(f"map_{map_id}: {warning}")
+        validation_mode = {0: "off", 1: "schema", 2: "semantic"}[validate_level]
+        errors = validate_puffer_dict(puffer_dict, validation_mode=validation_mode)
         for error in errors:
             logger.error(f"map_{map_id}: {error}")
 
     if errors:
         scenario_id = puffer_dict.get("scenario_id", "unknown")
-        raise ValueError(
-            f"Validation failed for scenario {scenario_id} with {len(errors)} errors and {len(warnings)} warnings",
-        )
+        raise ValueError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
     binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
     output_path = os.path.join(output_dir, f"map_{map_id:03d}.bin")
@@ -116,11 +112,9 @@ def main():
     parser.add_argument(
         "--validate_level",
         type=int,
+        choices=[0, 1, 2],
         default=1,
-        help=(
-            "Validation level "
-            "(0 = off, 1 = mandatory schema, 2 = physics warnings, 3 = reject hard physics, 4 = reject all physics)"
-        ),
+        help="Validation level (0 = off, 1 = schema, 2 = semantic)",
     )
 
     # Configuration parameters

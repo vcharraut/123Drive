@@ -102,10 +102,8 @@ Validation levels:
 | Level | Behavior |
 |------|----------|
 | `0` | Skip validation |
-| `1` | Schema / integrity checks |
-| `2` | Schema errors + physics warnings |
-| `3` | Reject hard physics issues |
-| `4` | Reject all physics / coherence issues |
+| `1` | Schema checks: required keys, container types, array shapes, and length consistency |
+| `2` | Semantic checks: schema plus topology refs, finite values, valid traffic-light states, and ego-only temporal sanity |
 
 ## Viz
 
