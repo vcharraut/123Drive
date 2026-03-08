@@ -1,6 +1,4 @@
-"""
-Convert road map elements from intermediate format to Puffer format.
-"""
+"""Convert road map elements from intermediate format to Puffer format."""
 
 import numpy as np
 from py123d.common.utils.enums import SerialIntEnum
@@ -57,7 +55,6 @@ def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "")
             puffer_element["speed_limit"] = element_data["speed_limit_mps"]
             puffer_element["entry_lanes"] = element_data["entry_lanes"]
             puffer_element["exit_lanes"] = element_data["exit_lanes"]
-            puffer_element["neighbors"] = []
 
         puffer_elements.append(puffer_element)
 

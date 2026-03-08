@@ -67,10 +67,13 @@ def _convert_observed_traffic_lights(traffic_lights: dict, map_data: dict) -> tu
 
 
 def _convert_map_traffic_lights(
-    map_data: dict, covered_lanes: set[int], next_id: int, scenario_length: int
+    map_data: dict,
+    covered_lanes: set[int],
+    next_id: int,
+    scenario_length: int,
 ) -> list[dict]:
-    puffer_elements = []
     seen_groups = set()
+    unique_groups = []
 
     for element_data in map_data.values():
         if element_data.get("type") != StopZoneType.TRAFFIC_LIGHT:
@@ -86,28 +89,24 @@ def _convert_map_traffic_lights(
 
         for grouped_lanes in _group_lanes_by_position(controlled_lanes, map_data):
             group_key = tuple(grouped_lanes)
-            if group_key in seen_groups:
-                continue
-            seen_groups.add(group_key)
+            if group_key not in seen_groups:
+                seen_groups.add(group_key)
+                unique_groups.append(grouped_lanes)
 
-            first_lane = map_data[grouped_lanes[0]]
-            puffer_elements.append(
-                {
-                    "id": next_id,
-                    "type": puffer_types.TRAFFIC_LIGHT,
-                    "xyz": np.asarray(first_lane["polyline"][0], dtype=np.float64),
-                    "states": np.zeros((scenario_length,), dtype=np.int64),
-                    "controlled_lanes": grouped_lanes,
-                },
-            )
-            next_id += 1
-
-    return puffer_elements
+    return [
+        {
+            "id": element_id,
+            "type": puffer_types.TRAFFIC_LIGHT,
+            "xyz": np.asarray(map_data[grouped_lanes[0]]["polyline"][0], dtype=np.float64),
+            "states": np.zeros((scenario_length,), dtype=np.int64),
+            "controlled_lanes": grouped_lanes,
+        }
+        for element_id, grouped_lanes in enumerate(unique_groups, start=next_id)
+    ]
 
 
 def convert_traffic_control_elements(traffic_lights: dict, map: dict, scenario_length: int = 0) -> list[dict]:
-    """
-    Convert dynamic map elements to Puffer traffic_control_elements.
+    """Convert dynamic map elements to Puffer traffic_control_elements.
 
     Args:
         traffic_lights: Dict of traffic light elements from intermediate scenario

@@ -572,6 +572,14 @@ def _collect_physical_constraint_issues(agent_id, agent_type, states: dict, dt: 
     return issues
 
 
+_DIMENSION_RANGES = {
+    # agent_type -> {dim: (min, max)}
+    1: {"length": (2.0, 20.0), "width": (1.5, 5.0), "height": (1.0, 4.0)},
+    2: {"length": (0.3, 0.6), "width": (0.3, 0.6), "height": (1.0, 3.0)},
+    3: {"length": (1.5, 2.0), "width": (0.5, 0.8)},
+}
+
+
 def _collect_dimension_range_issues(
     agent_id,
     agent_type,
@@ -579,56 +587,17 @@ def _collect_dimension_range_issues(
     width: float,
     height: float,
 ) -> list[tuple[str, str]]:
-    if agent_type == 1:
-        return [
-            *(
-                []
-                if 2.0 <= length <= 20.0
-                else [(_SOFT, f"Vehicle {agent_id} has unusual length={length:.2f}m (expected 2-20m)")]
-            ),
-            *(
-                []
-                if 1.5 <= width <= 5.0
-                else [(_SOFT, f"Vehicle {agent_id} has unusual width={width:.2f}m (expected 1.5-5m)")]
-            ),
-            *(
-                []
-                if 1.0 <= height <= 4.0
-                else [(_SOFT, f"Vehicle {agent_id} has unusual height={height:.2f}m (expected 1-4m)")]
-            ),
-        ]
-    if agent_type == 2:
-        return [
-            *(
-                []
-                if 0.3 <= length <= 0.6
-                else [(_SOFT, f"Pedestrian {agent_id} has unusual length={length:.2f}m (expected 0.3-0.6m)")]
-            ),
-            *(
-                []
-                if 0.3 <= width <= 0.6
-                else [(_SOFT, f"Pedestrian {agent_id} has unusual width={width:.2f}m (expected 0.3-0.6m)")]
-            ),
-            *(
-                []
-                if 1.0 <= height <= 3.0
-                else [(_SOFT, f"Pedestrian {agent_id} has unusual height={height:.2f}m (expected 1-3m)")]
-            ),
-        ]
-    if agent_type == 3:
-        return [
-            *(
-                []
-                if 1.5 <= length <= 2.0
-                else [(_SOFT, f"Cyclist {agent_id} has unusual length={length:.2f}m (expected 1.5-2m)")]
-            ),
-            *(
-                []
-                if 0.5 <= width <= 0.8
-                else [(_SOFT, f"Cyclist {agent_id} has unusual width={width:.2f}m (expected 0.5-0.8m)")]
-            ),
-        ]
-    return []
+    ranges = _DIMENSION_RANGES.get(agent_type)
+    if not ranges:
+        return []
+
+    type_name = AGENT_TYPE_MAP.get(agent_type, "OTHER")
+    dims = {"length": length, "width": width, "height": height}
+    return [
+        (_SOFT, f"{type_name} {agent_id} has unusual {dim}={val:.2f}m (expected {lo}-{hi}m)")
+        for dim, (lo, hi) in ranges.items()
+        if not (lo <= (val := dims[dim]) <= hi)
+    ]
 
 
 def _collect_road_physics_issues(roads: list) -> list[tuple[str, str]]:
@@ -702,7 +671,8 @@ def _collect_traffic_control_physics_issues(elements: list, roads: list) -> list
             issues.append(
                 (
                     _SOFT,
-                    f"Traffic control {elem_id} has rapid flickering: {state_changes} state changes in {len(states)} timesteps",
+                    f"Traffic control {elem_id} has rapid flickering: "
+                    f"{state_changes} state changes in {len(states)} timesteps",
                 ),
             )
 

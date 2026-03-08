@@ -19,8 +19,7 @@ def convert_agents(
     min_route_valid_points: int = 0,
     route_check_timestep: int = 0,
 ) -> tuple[list[dict], int]:
-    """
-    Convert dynamic agents from intermediate format to Puffer format.
+    """Convert dynamic agents from intermediate format to Puffer format.
 
     Args:
         dynamic_agents: Dict of dynamic agents from intermediate scenario
@@ -80,7 +79,7 @@ def convert_agents(
             _routes = []
 
         puffer_agent = {
-            "id": idx,
+            "id": agent_id,
             "type": agent_type_int,
             "states": {
                 "xyz": position,

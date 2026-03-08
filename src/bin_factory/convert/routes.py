@@ -278,14 +278,8 @@ def _deduplicate_sample_points(points: np.ndarray, headings: np.ndarray) -> tupl
     if len(points) <= 1:
         return points, headings
 
-    keep_mask = np.ones(len(points), dtype=bool)
-    unique_points = []
-    for idx, point in enumerate(points):
-        if any(np.linalg.norm(point - seen) < 1e-3 for seen in unique_points):
-            keep_mask[idx] = False
-            continue
-        unique_points.append(point)
-
+    diffs = np.linalg.norm(np.diff(points, axis=0), axis=1)
+    keep_mask = np.concatenate(([True], diffs >= 1e-3))
     return points[keep_mask], headings[keep_mask]
 
 
@@ -598,16 +592,17 @@ def _segment_intersects_polygon(seg_start: np.ndarray, seg_end: np.ndarray, poly
     return False
 
 
+def _cross_2d(v1, v2):
+    return v1[0] * v2[1] - v1[1] * v2[0]
+
+
 def _segments_intersect(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.ndarray) -> bool:
     d1 = p2 - p1
     d2 = p4 - p3
 
-    def cross_2d(v1, v2):
-        return v1[0] * v2[1] - v1[1] * v2[0]
-
-    denom = cross_2d(d1, d2)
+    denom = _cross_2d(d1, d2)
     if abs(denom) < 1e-10:
-        if abs(cross_2d(p3 - p1, d1)) > 1e-10 or abs(cross_2d(p4 - p1, d1)) > 1e-10:
+        if abs(_cross_2d(p3 - p1, d1)) > 1e-10 or abs(_cross_2d(p4 - p1, d1)) > 1e-10:
             return False
 
         def ranges_overlap(a1, a2, b1, b2) -> bool:
@@ -615,6 +610,6 @@ def _segments_intersect(p1: np.ndarray, p2: np.ndarray, p3: np.ndarray, p4: np.n
 
         return ranges_overlap(p1[0], p2[0], p3[0], p4[0]) and ranges_overlap(p1[1], p2[1], p3[1], p4[1])
 
-    t = cross_2d(p3 - p1, d2) / denom
-    u = cross_2d(p3 - p1, d1) / denom
+    t = _cross_2d(p3 - p1, d2) / denom
+    u = _cross_2d(p3 - p1, d1) / denom
     return 0 <= t <= 1 and 0 <= u <= 1
