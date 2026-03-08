@@ -19,7 +19,6 @@ def process_one_scenario(
     raw_scenario,
     map_id,
     output_dir,
-    traffic_lights=False,
     validate_level=0,
     max_segment_length=2.0,
     area_threshold=0.1,
@@ -34,11 +33,6 @@ def process_one_scenario(
         area_threshold=area_threshold,
         dist_threshold=dist_threshold,
     )
-
-    if traffic_lights:
-        scenario = add_traffic_lights_to_scenario(scenario)
-
-    # 3. Convert Intermediate -> Puffer Dict
     puffer_dict = convert_to_puffer_dict(
         scenario,
         min_route_valid_points=min_route_valid_points,
@@ -118,12 +112,6 @@ def main():
         help="Load map-only scenarios (no logs)",
     )
 
-    # Processor flags
-    parser.add_argument(
-        "--traffic_lights",
-        action="store_true",
-        help="Generate synthetic traffic lights",
-    )
     parser.add_argument(
         "--validate_level",
         type=int,
@@ -193,7 +181,6 @@ def main():
                 raw_scenario=scenario,
                 map_id=i,
                 output_dir=args.output_dir,
-                traffic_lights=args.traffic_lights,
                 validate_level=args.validate_level,
                 max_segment_length=args.max_segment_length,
                 area_threshold=args.area_threshold,
