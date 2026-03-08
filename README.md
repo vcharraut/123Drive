@@ -29,10 +29,10 @@ uv sync --extra all
 uv sync --extra all
 
 # 1) Extract raw dataset to py123d Arrow
-uv run py123d-docker --dataset nuplan-mini --data_root /data --output /data/py123d
+uv run py123d-docker --dataset nuplan-mini --dataset_path /data/nuplan --output /data/py123d
 
 # 2) Convert Arrow to PufferDrive .bin
-uv run convert --dataset_path /data/py123d --output_dir ./output
+uv run convert --py123d_path /data/py123d --output_dir ./output
 
 # 3) Inspect in the browser
 uv run viz --dir ./output
@@ -45,32 +45,32 @@ Open `http://localhost:8080`.
 Basic use:
 
 ```bash
-uv run convert --dataset_path /path/to/py123d --output_dir ./output
+uv run convert --py123d_path /path/to/py123d --output_dir ./output
 ```
 
 Common examples:
 
 ```bash
 # Parallel conversion
-uv run convert --dataset_path /path/to/py123d --output_dir ./output --num_workers 8
+uv run convert --py123d_path /path/to/py123d --output_dir ./output --num_workers 8
 
 # Filter datasets / splits / logs
-uv run convert --dataset_path /path/to/py123d --output_dir ./output \
+uv run convert --py123d_path /path/to/py123d --output_dir ./output \
   --datasets nuplan --split_types val --max_scenarios 100
 
 # Route filtering knobs
-uv run convert --dataset_path /path/to/py123d --output_dir ./output \
+uv run convert --py123d_path /path/to/py123d --output_dir ./output \
   --min_route_valid_points 10 --route_check_timestep 5
 
 # Stricter validation
-uv run convert --dataset_path /path/to/py123d --output_dir ./output --validate_level 3
+uv run convert --py123d_path /path/to/py123d --output_dir ./output --validate_level 3
 ```
 
 Core flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--dataset_path` | required | Path to py123d dataset with `logs/` and `maps/` |
+| `--py123d_path` | default to PY123D_DATA_ROOT env varialbe, can be override | Path to py123d dataset with `logs/` and `maps/` |
 | `--output_dir` | `./output` | Directory for `.bin` files |
 | `--num_workers` | `1` | Parallel workers |
 | `--validate_level` | `1` | Validation strictness |
