@@ -252,14 +252,6 @@ def extract_traffic_lights(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarra
 
     return elements
 
-
-def _get_traffic_light_detections(scene: SceneAPI, frame_idx: int):
-    try:
-        return scene.get_traffic_light_detections_at_iteration(frame_idx)
-    except IndexError:
-        return []
-
-
 def _get_map_objects(
     map_api: MapAPI,
     layers: list[MapLayer],
@@ -349,10 +341,6 @@ def convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> di
             "speed_limit_mps": speed_limit_mps,
             "entry_lanes": map_object.predecessor_ids,
             "exit_lanes": map_object.successor_ids,
-            "left_neighbor": [map_object.left_lane_id],
-            "right_neighbor": [map_object.right_lane_id],
-            "left_boundaries": [],
-            "right_boundaries": [],
         }
 
     if map_object.layer == MapLayer.ROAD_LINE:

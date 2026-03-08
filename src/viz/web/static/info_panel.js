@@ -38,7 +38,7 @@
       isOoi ? '<span class="badge badge-ooi">OOI</span>' : '',
     ].join('');
 
-    const routeLanes = (data.routes && data.routes[0]) ? safeIdList(data.routes[0]) : '—';
+    const routeLanes = (data.route && data.route.length) ? safeIdList(data.route) : '—';
 
     const trajRows = data.xyz.slice(0, 50).map((pos, i) => {
       const cls = i === t ? 'class="current-row"' : '';

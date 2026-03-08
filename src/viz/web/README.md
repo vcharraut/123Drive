@@ -1,16 +1,11 @@
 # Web Viz
 
-Browser viewer for PufferDrive `.bin` scenarios.
+Minimal browser viewer for PufferDrive `.bin` scenarios.
 
-## Install
+Run from the source checkout:
 
 ```bash
 uv sync --extra all
-```
-
-## Run
-
-```bash
 uv run viz --dir /path/to/bin/files --port 8080
 ```
 

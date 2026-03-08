@@ -32,7 +32,7 @@ _REQUIRED_METADATA_KEYS = {
     "objects_of_interests",
     "tracks_to_predict",
 }
-_REQUIRED_AGENT_KEYS = {"id", "type", "states", "routes"}
+_REQUIRED_AGENT_KEYS = {"id", "type", "states", "route"}
 _REQUIRED_AGENT_STATE_KEYS = {"xyz", "heading", "velocity", "length", "width", "height", "valid"}
 _REQUIRED_ROAD_KEYS = {"id", "type", "xyz"}
 _LANE_EXTRA_KEYS = {"entry_lanes", "exit_lanes", "speed_limit"}
@@ -228,8 +228,8 @@ def _validate_dynamic_agents(
         if "states" in agent:
             _validate_agent_states(agent_id, agent["states"], expected_length, errors)
 
-        if "routes" in agent:
-            _validate_routes(agent_id, agent["routes"], errors)
+        if "route" in agent:
+            _validate_route(agent_id, agent["route"], errors)
 
 
 def _validate_agent_states(agent_id, states: dict, expected_length: int, errors: list[str]):
@@ -283,21 +283,18 @@ def _validate_agent_states(agent_id, states: dict, expected_length: int, errors:
                 errors.append(f"Agent {agent_id} state '{key}' has length {length}, expected {expected_length}")
 
 
-def _validate_routes(agent_id, routes, errors: list[str]):
-    if not isinstance(routes, list):
-        errors.append(f"Agent {agent_id} routes must be list, got {type(routes).__name__}")
+def _validate_route(agent_id, route, errors: list[str]):
+    if not isinstance(route, (list, np.ndarray)):
+        errors.append(f"Agent {agent_id} route must be list or ndarray, got {type(route).__name__}")
         return
 
-    for route_idx, route in enumerate(routes):
-        if isinstance(route, np.ndarray):
-            if route.ndim != 1:
-                errors.append(f"Agent {agent_id} route {route_idx} must be 1D, got shape {route.shape}")
-            continue
-        if not isinstance(route, list):
-            errors.append(f"Agent {agent_id} route {route_idx} must be list or ndarray")
-            continue
-        if not all(_is_int_like(lane_id) for lane_id in route):
-            errors.append(f"Agent {agent_id} route {route_idx} must contain only lane ids")
+    if isinstance(route, np.ndarray):
+        if route.ndim != 1:
+            errors.append(f"Agent {agent_id} route must be 1D, got shape {route.shape}")
+        return
+
+    if not all(_is_int_like(lane_id) for lane_id in route):
+        errors.append(f"Agent {agent_id} route must contain only lane ids")
 
 
 def _validate_road_map_elements(roads: list, errors: list[str]) -> set[int]:

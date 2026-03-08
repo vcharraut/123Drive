@@ -5,9 +5,23 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "123Drive"
 version = "0.1.0"
-description = "Format data from 123d format to PufferDrive"
+description = "Convert py123d datasets to PufferDrive binaries"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Valentin Charraut" },
+]
+keywords = ["autonomous-driving", "dataset-conversion", "pufferdrive", "py123d"]
+classifiers = [
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: OS Independent",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
   "numpy",
   "joblib",
@@ -32,6 +46,14 @@ viz-video = "viz.plot.video:main"
 [tool.setuptools.packages.find]
 where = ["src", "."]
 include = ["bin_factory", "bin_factory.*", "viz", "viz.*", "py123d_docker", "py123d_docker.*"]
+
+[tool.setuptools.package-data]
+viz = ["web/static/*"]
+
+[project.urls]
+Homepage = "https://github.com/vcharraut/123Drive"
+Repository = "https://github.com/vcharraut/123Drive"
+Issues = "https://github.com/vcharraut/123Drive/issues"
 
 [tool.uv.sources]
 py123d = { git = "https://github.com/autonomousvision/py123d", branch = "dev_v0.1.0" }

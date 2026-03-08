@@ -11,6 +11,9 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FFMpegWriter
+from matplotlib.axes import Axes
+from matplotlib.patches import Circle
+from matplotlib.transforms import Affine2D
 
 
 # Color scheme for visualization
@@ -289,7 +292,7 @@ def render_scenario_video(
     print(f"✓ Saved video to {output_path}")
 
 
-def _render_road_map(ax: plt.Axes, puffer_scenario: dict, render_mode="plot", show_headings=False) -> None:
+def _render_road_map(ax: Axes, puffer_scenario: dict, render_mode="plot", show_headings=False) -> None:
     """Render road map elements (lanes, road lines, road edges, crosswalks)."""
     road_elements = puffer_scenario.get("road_map_elements", [])
 
@@ -357,12 +360,12 @@ def _render_road_map(ax: plt.Axes, puffer_scenario: dict, render_mode="plot", sh
                 )
 
 
-def _render_routes(ax: plt.Axes, puffer_scenario: dict) -> None:
+def _render_routes(ax: Axes, puffer_scenario: dict) -> None:
     """Render agent routes as dashed lines with agent-specific colors."""
     agents = puffer_scenario.get("agents", [])
     road_elements = puffer_scenario.get("road_map_elements", [])
-    metadata = puffer_scenario.get("metadata", {})
-    ego_id = metadata.get("ego_id", metadata.get("sdc_index", -1))
+    ego_agent = _get_ego_agent(puffer_scenario)
+    ego_id = ego_agent.get("id", -1) if ego_agent else -1
 
     # Build lane ID to polyline mapping
     lane_map = {}
@@ -375,58 +378,52 @@ def _render_routes(ax: plt.Axes, puffer_scenario: dict) -> None:
     # Render each agent's route with matching color
     for agent in agents:
         agent_id = agent.get("id", -1)
-        routes = agent.get("routes", [])
+        route = agent.get("route", [])
 
-        if not routes:
+        if not route:
             continue
 
         initial_pos_x = agent["states"]["xyz"][0, 0]
         initial_pos_y = agent["states"]["xyz"][0, 1]
 
-        for route in routes[:1]:
-            # Get agent color
-            is_ego = agent_id == ego_id
-            agent_color = get_agent_color(agent_id, is_ego)
+        is_ego = agent_id == ego_id
+        agent_color = get_agent_color(agent_id, is_ego)
+        route_points = []
+        for lane_id in route:
+            if lane_id in lane_map:
+                lane_xyz = lane_map[lane_id]
+                if len(lane_xyz) > 0:
+                    route_points.extend(lane_xyz)
 
-            # Routes is a list of lane IDs
-            route_points = []
-            for lane_id in route:
-                if lane_id in lane_map:
-                    lane_xyz = lane_map[lane_id]
-                    if len(lane_xyz) > 0:
-                        route_points.extend(lane_xyz)
+        if len(route_points) > 1:
+            route_points = np.array(route_points)
+            dists = np.linalg.norm(route_points[:, :2] - np.array([initial_pos_x, initial_pos_y]), axis=1)
+            start_idx = np.argmin(dists)
+            route_points = route_points[start_idx:]
 
-            if len(route_points) > 1:
-                route_points = np.array(route_points)
+            ax.text(
+                route_points[0, 0],
+                route_points[0, 1],
+                f"{agent_id}",
+                fontsize=6,
+                color=agent_color,
+                ha="center",
+                va="bottom",
+                zorder=6,
+            )
 
-                # Crop route to start near agent's initial position
-                dists = np.linalg.norm(route_points[:, :2] - np.array([initial_pos_x, initial_pos_y]), axis=1)
-                start_idx = np.argmin(dists)
-                route_points = route_points[start_idx:]
-
-                ax.text(
-                    route_points[0, 0],
-                    route_points[0, 1],
-                    f"{agent_id}",
-                    fontsize=6,
-                    color=agent_color,
-                    ha="center",
-                    va="bottom",
-                    zorder=6,
-                )
-
-                ax.plot(
-                    route_points[:, 0],
-                    route_points[:, 1],
-                    color=agent_color,  # Use agent's color
-                    linewidth=2.0,
-                    alpha=0.6,
-                    linestyle="--",
-                    zorder=5,
-                )
+            ax.plot(
+                route_points[:, 0],
+                route_points[:, 1],
+                color=agent_color,
+                linewidth=2.0,
+                alpha=0.6,
+                linestyle="--",
+                zorder=5,
+            )
 
 
-def _render_traffic_lights(ax: plt.Axes, puffer_scenario: dict, timestep: int) -> None:
+def _render_traffic_lights(ax: Axes, puffer_scenario: dict, timestep: int) -> None:
     """Render traffic lights with their states at the given timestep."""
     traffic_elements = puffer_scenario.get("traffic_control_elements", [])
 
@@ -446,7 +443,7 @@ def _render_traffic_lights(ax: plt.Axes, puffer_scenario: dict, timestep: int) -
 
         # Draw traffic light as a circle
         ax.add_patch(
-            plt.Circle(
+            Circle(
                 (x, y),
                 radius=0.6,
                 alpha=0.9,
@@ -458,7 +455,7 @@ def _render_traffic_lights(ax: plt.Axes, puffer_scenario: dict, timestep: int) -
         )
 
 
-def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_future: bool) -> None:
+def _render_agents(ax: Axes, puffer_scenario: dict, timestep: int, show_future: bool) -> None:
     """Render dynamic agents (vehicles, pedestrians, cyclists) at the given timestep."""
     agents = puffer_scenario.get("agents", [])
     metadata = puffer_scenario.get("metadata", {})
@@ -468,7 +465,8 @@ def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_futu
         for t in metadata["tracks_to_predict"]:
             idx_agents_to_predict.append(t)
 
-    ego_id = metadata.get("ego_id", -1)
+    ego_agent = _get_ego_agent(puffer_scenario)
+    ego_id = ego_agent.get("id", -1) if ego_agent else -1
 
     for agent in agents:
         agent_id = agent.get("id", -1)
@@ -513,7 +511,7 @@ def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_futu
         )
 
         # Transform to world coordinates: rotate then translate
-        t = plt.matplotlib.transforms.Affine2D().rotate(heading).translate(x, y) + ax.transData
+        t = Affine2D().rotate(heading).translate(x, y) + ax.transData
         rect.set_transform(t)
         ax.add_patch(rect)
 
@@ -563,9 +561,8 @@ def _render_agents(ax: plt.Axes, puffer_scenario: dict, timestep: int, show_futu
                 )
 
 
-def _get_ego_position(puffer_scenario: dict, timestep: int) -> tuple:
-    """
-    Get ego vehicle position at a specific timestep.
+def _get_ego_position(puffer_scenario: dict, timestep: int) -> tuple[float, float] | None:
+    """Get ego vehicle position at a specific timestep.
 
     Args:
         puffer_scenario: Puffer format scenario dict
@@ -574,25 +571,27 @@ def _get_ego_position(puffer_scenario: dict, timestep: int) -> tuple:
     Returns:
         (x, y) position tuple, or None if ego not found
     """
-    metadata = puffer_scenario.get("metadata", {})
-    ego_id = metadata.get("sdc_index")
-    dynamic_agents = puffer_scenario.get("agents", [])
-
-    for agent in dynamic_agents:
-        agent_id = agent.get("id")
-
-        if agent_id == ego_id:
-            states = agent.get("states", {})
-            xyz = np.array(states.get("xyz", []))
-            valid = np.array(states.get("valid", []))
-
-            if timestep < len(xyz) and valid[timestep]:
-                return (xyz[timestep][0], xyz[timestep][1])
+    ego_agent = _get_ego_agent(puffer_scenario)
+    if ego_agent is not None:
+        states = ego_agent.get("states", {})
+        xyz = np.array(states.get("xyz", []))
+        valid = np.array(states.get("valid", []))
+        if timestep < len(xyz) and valid[timestep]:
+            return float(xyz[timestep][0]), float(xyz[timestep][1])
 
     return None
 
 
-def _add_legend(ax: plt.Axes, puffer_scenario: dict) -> None:
+def _get_ego_agent(puffer_scenario: dict) -> dict | None:
+    metadata = puffer_scenario.get("metadata", {})
+    sdc_index = metadata.get("sdc_index", -1)
+    agents = puffer_scenario.get("agents", [])
+    if not isinstance(sdc_index, int) or not (0 <= sdc_index < len(agents)):
+        return None
+    return agents[sdc_index]
+
+
+def _add_legend(ax: Axes, puffer_scenario: dict) -> None:
     """Add a legend to the plot."""
     legend_elements = [
         mpatches.Patch(facecolor=COLORS["ego"], edgecolor="black", label="Ego Vehicle"),

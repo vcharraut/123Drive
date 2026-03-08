@@ -53,8 +53,8 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
         buffer.extend(height.tobytes())
         buffer.extend(valid.tobytes())
 
-        routes = agent["routes"]
-        _pack_int_list(buffer, routes[0] if routes else [])
+        route = agent.get("route", [])
+        _pack_int_list(buffer, route)
 
         goal_x = goal_y = goal_z = 0.0
         if len(valid) > 0:

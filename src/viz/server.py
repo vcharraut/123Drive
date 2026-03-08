@@ -1,6 +1,7 @@
 """FastAPI server for Puffer visualization."""
 
 import argparse
+from collections import OrderedDict
 from pathlib import Path
 from threading import Lock
 
@@ -30,9 +31,10 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(NoCacheStaticMiddleware)
 
-SCENARIO_DIR: Path = None
-_SCENARIO_CACHE: dict[str, tuple[int, int, bytes]] = {}
+SCENARIO_DIR: Path | None = None
+_SCENARIO_CACHE: OrderedDict[str, tuple[int, int, bytes]] = OrderedDict()
 _SCENARIO_CACHE_LOCK = Lock()
+_SCENARIO_CACHE_MAX_ITEMS = 16
 
 
 def _arr(v):
@@ -51,10 +53,10 @@ def serialize_scenario(data: dict) -> dict:
         xyz = states.get("xyz", np.array([]))
         start_pos = xyz[0] if len(xyz) > 0 else None
 
-        routes = agent.get("routes", [])
+        route = agent.get("route", [])
         route_polyline = None
-        if routes:
-            pts = compute_route_polyline(routes[0], lane_map, start_pos)
+        if route:
+            pts = compute_route_polyline(route, lane_map, start_pos)
             if pts is not None:
                 route_polyline = pts.tolist()
 
@@ -69,7 +71,7 @@ def serialize_scenario(data: dict) -> dict:
                 "width": _arr(states.get("width")),
                 "height": _arr(states.get("height")),
                 "valid": _arr(states.get("valid")),
-                "routes": agent.get("routes", []),
+                "route": route,
                 "route_polyline": route_polyline,
             },
         )
@@ -130,6 +132,8 @@ def _get_serialized_response_bytes(path: Path) -> bytes:
     with _SCENARIO_CACHE_LOCK:
         cached = _SCENARIO_CACHE.get(cache_key)
     if cached and cached[0] == cache_token[0] and cached[1] == cache_token[1]:
+        with _SCENARIO_CACHE_LOCK:
+            _SCENARIO_CACHE.move_to_end(cache_key)
         return cached[2]
 
     data = load_puffer_binary(path)
@@ -138,6 +142,9 @@ def _get_serialized_response_bytes(path: Path) -> bytes:
 
     with _SCENARIO_CACHE_LOCK:
         _SCENARIO_CACHE[cache_key] = (cache_token[0], cache_token[1], payload)
+        _SCENARIO_CACHE.move_to_end(cache_key)
+        while len(_SCENARIO_CACHE) > _SCENARIO_CACHE_MAX_ITEMS:
+            _SCENARIO_CACHE.popitem(last=False)
     return payload
 
 

@@ -68,13 +68,13 @@ def convert_agents(
         )
 
         if should_compute_routes:
-            _routes = routes.compute_agent_route(
+            route = routes.compute_agent_route(
                 agent_data=(agent_id, position, heading, valid, length, width),
                 route_cache=route_cache,
                 route_check_timestep=route_check_timestep,
             )
         else:
-            _routes = []
+            route = []
 
         puffer_agent = {
             "id": agent_id,
@@ -88,7 +88,7 @@ def convert_agents(
                 "height": height,
                 "valid": valid,
             },
-            "routes": _routes,
+            "route": route,
         }
 
         puffer_agents.append(puffer_agent)

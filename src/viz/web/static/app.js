@@ -62,7 +62,7 @@ const state = {
   followEgo: false,
   layers: {
     lanes: true, road_lines: true, road_edges: true, crosswalks: true,
-    agents: true, routes: true, trajectories: true, traffic_lights: true, agent_ids: true,
+    agents: true, routes: false, trajectories: true, traffic_lights: true, agent_ids: true,
     unknowns: false,
     scatter_roads: false,
   },
@@ -80,7 +80,7 @@ const toXY = d => d.xyz.map(p => [p[0], p[1]]);
 
 function getEgoState(scenario, t) {
   const sdc = scenario.metadata.sdc_index;
-  const agent = scenario.agents.find(a => a.id === sdc);
+  const agent = (sdc >= 0 && sdc < scenario.agents.length) ? scenario.agents[sdc] : null;
   if (!agent || !agent.valid[t]) return null;
   return {x: agent.xyz[t][0], y: agent.xyz[t][1], heading: agent.heading[t]};
 }

@@ -88,9 +88,4 @@ def _discover_map_arrow_paths(maps_root: Path) -> list[Path]:
     if not maps_root.exists():
         return []
 
-    map_paths: list[Path] = []
-    for map_file in maps_root.iterdir():
-        if map_file.is_file() and map_file.suffix == ".arrow":
-            map_paths.append(map_file)
-
-    return map_paths
+    return sorted(path for path in maps_root.rglob("*.arrow") if path.is_file())

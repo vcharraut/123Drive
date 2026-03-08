@@ -33,6 +33,7 @@ def convert_to_puffer_dict(scenario: dict, min_route_valid_points: int = 0, rout
         "dataset_name": scenario.get("dataset_name", ""),
         "scenario_length": scenario.get("scenario_length", 0),
         "sdc_index": sdc_index,
+        "timestep_seconds": scenario.get("timestep_seconds", 0.0),
         "objects_of_interests": [],
         "tracks_to_predict": [],
     }

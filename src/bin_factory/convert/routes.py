@@ -77,7 +77,7 @@ def build_route_cache(static_map_elements: dict, lane_data: tuple) -> dict:
     }
 
 
-def compute_agent_route(agent_data: tuple, route_cache: dict, route_check_timestep: int = 0) -> list[list[int]]:
+def compute_agent_route(agent_data: tuple, route_cache: dict, route_check_timestep: int = 0) -> list[int]:
     """Return the best lane sequence for one agent, or an empty list."""
     agent_context = _build_agent_route_context(agent_data)
     agent_id = agent_data[0]
@@ -100,7 +100,7 @@ def compute_agent_route(agent_data: tuple, route_cache: dict, route_check_timest
         logger.debug(f"{agent_str}: No valid route found from candidates")
         return []
 
-    return [best_route]
+    return best_route
 
 
 def _build_agent_route_context(agent_data: tuple) -> dict | None:

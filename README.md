@@ -2,21 +2,13 @@
 
 Convert `py123d` datasets to PufferDrive `.bin` files.
 
-Pipeline:
-
 ```text
-raw dataset -> py123d-docker -> py123d Arrow -> convert -> .bin -> viz
+raw dataset -> [py123d-docker] -> py123d Arrow -> [convert] -> .bin -> [viz]
 ```
-
-This release is intentionally small:
-- extract with `py123d-docker`
-- convert with `convert`
-- inspect in the browser with `viz`
-- export PNG or MP4 only when needed with `viz-png`, `viz-video`, `viz-batch`
 
 ## Install
 
-`123Drive` is currently `uv`-first. Recommended install:
+`123Drive` is `uv`-first. Recommended install:
 
 ```bash
 uv sync --extra all
@@ -40,6 +32,13 @@ uv run viz --dir ./output
 
 Open `http://localhost:8080`.
 
+## CLIs
+
+- `convert`: py123d Arrow -> PufferDrive `.bin`
+- `py123d-docker`: raw dataset -> py123d Arrow through Docker
+- `viz`: browser viewer for `.bin`
+- `viz-png`, `viz-video`, `viz-batch`: optional matplotlib exports
+
 ## Convert
 
 Basic use:
@@ -48,7 +47,7 @@ Basic use:
 uv run convert --py123d_path /path/to/py123d --output_dir ./output
 ```
 
-Common examples:
+Examples:
 
 ```bash
 # Parallel conversion
@@ -62,15 +61,15 @@ uv run convert --py123d_path /path/to/py123d --output_dir ./output \
 uv run convert --py123d_path /path/to/py123d --output_dir ./output \
   --min_route_valid_points 10 --route_check_timestep 5
 
-# Stricter validation
-uv run convert --py123d_path /path/to/py123d --output_dir ./output --validate_level 3
+# Map-only conversion
+uv run convert --py123d_path /path/to/py123d --output_dir ./output --map_only
 ```
 
 Core flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--py123d_path` | default to PY123D_DATA_ROOT env varialbe, can be override | Path to py123d dataset with `logs/` and `maps/` |
+| `--py123d_path` | `PY123D_DATA_ROOT` or required | Path to py123d dataset with `logs/` and `maps/` |
 | `--output_dir` | `./output` | Directory for `.bin` files |
 | `--num_workers` | `1` | Parallel workers |
 | `--validate_level` | `1` | Validation strictness |
@@ -103,36 +102,31 @@ Validation levels:
 | Level | Behavior |
 |------|----------|
 | `0` | Skip validation |
-| `1` | Mandatory schema / integrity checks only |
-| `2` | Mandatory errors + physical checks as warnings |
-| `3` | Reject hard physical issues, keep soft ones as warnings |
-| `4` | Reject all physical / coherence issues |
+| `1` | Schema / integrity checks |
+| `2` | Schema errors + physics warnings |
+| `3` | Reject hard physics issues |
+| `4` | Reject all physics / coherence issues |
 
-## Web Viz
-
-Default viewer:
+## Viz
 
 ```bash
 uv run viz --dir ./output --port 8080
 ```
 
-Features:
 - browse `.bin` scenarios from a directory
-- inspect map, agents, routes, and traffic controls
-- playback, selection, follow-ego, and layer toggles
+- inspect map, agents, route, and traffic controls
+- playback, follow-ego, selection, and layer toggles
 
-## Matplotlib Viz
 
-Secondary export/debug tools:
+## Docker extractor
 
 ```bash
-# Single PNG
-uv run viz-png ./output/map_000.bin ./frame.png
-
-# Single MP4
-uv run viz-video ./output/map_000.bin ./video.mp4
-
-# Batch export
-uv run viz-batch ./output ./exports --format both
+uv run py123d-docker --list
+uv run py123d-docker --dataset nuplan-mini --dataset_path /data/nuplan --output /data/py123d
 ```
 
+## Docs
+
+- Binary format: `docs/binary-format.md`
+- Supported data surface: `docs/data.md`
+- Route search notes: `docs/route-algorithm.md`

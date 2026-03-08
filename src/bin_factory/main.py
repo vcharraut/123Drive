@@ -161,8 +161,6 @@ def main():
     if not py123_data_root:
         parser.error("--py123d_path is required (or set PY123D_DATA_ROOT environment variable)")
 
-
-
     logger_utils.setup_logger()
     os.makedirs(args.output_dir, exist_ok=True)
 
