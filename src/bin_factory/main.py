@@ -44,8 +44,9 @@ def process_one_scenario(
     if validate_level > 0:
         validation_mode = {0: "off", 1: "schema", 2: "semantic"}[validate_level]
         errors = validate_puffer_dict(puffer_dict, validation_mode=validation_mode)
+        scenario_id = puffer_dict.get("scenario_id", "unknown")
         for error in errors:
-            logger.error(f"map_{map_id}: {error}")
+            logger.error(f"{scenario_id}: {error}")
 
     if errors:
         scenario_id = puffer_dict.get("scenario_id", "unknown")
@@ -55,6 +56,14 @@ def process_one_scenario(
     output_path = Path(output) / f"map_{map_id:03d}.bin"
     with output_path.open("wb") as f:
         f.write(binary_data)
+
+
+def _safe_process(raw_scenario, **kwargs):
+    try:
+        return process_one_scenario(raw_scenario, **kwargs)
+    except Exception as e:
+        logger.error(f"Scenario failed: {e}")
+        return None
 
 
 def main():
@@ -109,6 +118,8 @@ def main():
         action="store_true",
         help="Load map-only scenarios (no logs)",
     )
+
+    parser.add_argument("--fail_fast", action="store_true", help="Stop on first error")
 
     parser.add_argument(
         "--validate_level",
@@ -174,10 +185,11 @@ def main():
     )
 
     scenarios = list(scenarios)
+    func = process_one_scenario if args.fail_fast else _safe_process
 
     with Parallel(n_jobs=args.workers) as parallel:
         parallel(
-            delayed(process_one_scenario)(
+            delayed(func)(
                 raw_scenario=scenario,
                 map_id=i,
                 output=args.output,
