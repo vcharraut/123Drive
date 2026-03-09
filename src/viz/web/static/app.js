@@ -3,6 +3,32 @@
 
 const {DeckGL, OrthographicView, OrbitView, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer, PathStyleExtension, LinearInterpolator, COORDINATE_SYSTEM} = window.deck;
 
+// ── Theme ───────────────────────────────────────────────────────────────────
+const CLEAR_COLORS = {
+  dark:  [0.031, 0.047, 0.071, 1],   // #080C12
+  light: [0.941, 0.949, 0.961, 1],   // #F0F2F5
+};
+
+function getTheme() {
+  return document.body.getAttribute('data-theme') || 'dark';
+}
+
+function setTheme(theme) {
+  document.body.setAttribute('data-theme', theme);
+  document.body.style.colorScheme = theme;
+  localStorage.setItem('puffer-viz-theme', theme);
+  const btn = document.getElementById('btn-theme');
+  if (btn) btn.textContent = theme === 'dark' ? '\u2600' : '\u263E';
+  if (typeof deckgl !== 'undefined') {
+    deckgl.setProps({ parameters: { clearColor: CLEAR_COLORS[theme] } });
+  }
+}
+
+// Restore saved theme or default to dark
+const savedTheme = localStorage.getItem('puffer-viz-theme') || 'dark';
+if (savedTheme === 'light') document.body.setAttribute('data-theme', 'light');
+document.body.style.colorScheme = savedTheme;
+
 // Flip Y axis: data uses Y-up (north) but OrthographicView uses Y-down (screen).
 // Only applied in 2D; 3D uses identity to preserve chirality (driving side).
 const FLIP_Y = [1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
@@ -352,7 +378,7 @@ const deckgl = new DeckGL({
   getCursor: ({isDragging}) => dragState.mode ? 'grabbing' : (state.viewMode === '3d' ? 'grab' : (isDragging ? 'grabbing' : 'crosshair')),
   pickingRadius: 8,
   layers: [],
-  parameters: { clearColor: [1, 1, 1, 1] },
+  parameters: { clearColor: CLEAR_COLORS[getTheme()] },
   onViewStateChange: ({viewState}) => {
     // Clamp rotationX to avoid flipping upside down in 3D
     if (state.viewMode === '3d') {
@@ -1191,6 +1217,13 @@ document.addEventListener('keydown', e => {
     case ' ': e.preventDefault(); togglePlay(); break;
   }
 });
+
+// ── Theme toggle ────────────────────────────────────────────────────────────
+
+document.getElementById('btn-theme').addEventListener('click', () => {
+  setTheme(getTheme() === 'dark' ? 'light' : 'dark');
+});
+setTheme(savedTheme);
 
 // ── Init ───────────────────────────────────────────────────────────────────
 
