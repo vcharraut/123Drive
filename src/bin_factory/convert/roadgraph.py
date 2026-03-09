@@ -27,11 +27,14 @@ def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "")
         # Convert element type to int
         element_type_int = _convert_map_element_type_to_int(element_type)
 
-        if element_type_int == 0:
+        if element_type_int == -1:
             continue
 
         if element_type_int < 30:  # polyline-based types (lanes, road lines, road edges)
             xyz = element_data["polyline"]
+
+            if xyz is None or len(xyz) <= 1:
+                continue
 
             # Ensure polyline has 3D coordinates
             if xyz.shape[1] == 2:
@@ -111,4 +114,4 @@ def _convert_map_element_type_to_int(element_type: SerialIntEnum) -> int:
     if isinstance(element_type, str) and element_type in other_type_map:
         return other_type_map[element_type]
 
-    return 0
+    return -1

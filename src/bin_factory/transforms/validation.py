@@ -14,7 +14,7 @@ VALIDATION_SCHEMA = "schema"
 VALIDATION_SEMANTIC = "semantic"
 
 VALID_AGENT_TYPES = {1, 2, 3, 4}
-LANE_TYPES = set(range(1, 10))
+LANE_TYPES = set(range(10))
 VALID_TL_STATES = {0, 2, 3, 4}
 
 REQUIRED_TOP_LEVEL_KEYS = {
@@ -280,7 +280,8 @@ def _validate_traffic_controls_schema(traffic_controls: list, expected_length: i
             )
         if "controlled_lanes" in control and not isinstance(control["controlled_lanes"], list):
             errors.append(
-                f"Traffic control {control_id} controlled_lanes must be list, got {type(control['controlled_lanes']).__name__}",
+                f"Traffic control {control_id} controlled_lanes must be list, got "
+                f"{type(control['controlled_lanes']).__name__}",
             )
 
     return seen_ids

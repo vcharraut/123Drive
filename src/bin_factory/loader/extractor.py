@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import shapely.geometry as geom
 from py123d.datatypes.detections import DefaultBoxDetectionLabel
-from py123d.datatypes.map_objects import MapLayer
+from py123d.datatypes.map_objects import LaneType, MapLayer
 from py123d.geometry import Point2D
 
 from bin_factory import types
@@ -249,7 +249,13 @@ def extract_traffic_lights(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarra
         for detection in traffic_lights:
             lane_id = int(detection.lane_id)
             if lane_id not in elements:
-                position = get_lane_position(map_api, lane_id, centroid)
+                try:
+                    position = get_lane_position(map_api, lane_id, centroid)
+                except ValueError:
+                    # Some traffic light detections can be on map borders where lane geometry is missing;
+                    # skip these with a warning.
+                    # NOTE: This happens on Waymo maps due to weird map filtering
+                    continue
                 elements[lane_id] = {
                     "position": np.array(position, dtype=np.float64),
                     "states": [None] * episode_length,
@@ -294,6 +300,7 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
     """Extract static map elements from a py123d MapAPI."""
     result = {}
     non_lane_objects = []
+    undefined_lane = []
     skipped_layers = {
         MapLayer.LANE_GROUP,
         MapLayer.INTERSECTION,
@@ -306,8 +313,62 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
     for obj in _iter_map_objects(map_api, centroid, map_only):
         if obj.layer == MapLayer.LANE:
             result[obj.object_id] = convert_map_object_to_static_element(obj, centroid)
+            if obj.lane_type == LaneType.UNDEFINED:
+                undefined_lane.append(obj.object_id)
         else:
             non_lane_objects.append(obj)
+
+    # Infer undefined lane types based on connected lanes if possible
+    # NOTE: Problem exists in nuPlan where some lanes in intersections are marked as UNDEFINED but are actually drivable
+    for lane_id in undefined_lane:
+        lane = result[lane_id]
+        entry_types = {result[entry_id]["type"] for entry_id in lane.get("entry_lanes", []) if entry_id in result}
+        exit_types = {result[exit_id]["type"] for exit_id in lane.get("exit_lanes", []) if exit_id in result}
+        connected_types = entry_types.union(exit_types)
+
+        if len(connected_types) == 1:
+            lane["type"] = connected_types.pop()
+        else:
+            pass
+
+    # Flip entry/exit lane directions if they are reverse of lane geometry direction.
+    # Entry lanes should connect to lane start; exit lanes should connect to lane end.
+    for lane in result.values():
+        lane_start = lane["polyline"][0]
+        lane_end = lane["polyline"][-1]
+
+        entry_lanes = lane.get("entry_lanes", [])
+        exit_lanes = lane.get("exit_lanes", [])
+
+        for entry_id in entry_lanes:
+            if entry_id not in result:
+                continue
+            entry_lane = result[entry_id]
+            if "polyline" not in entry_lane:
+                continue
+            entry_end = entry_lane["polyline"][-1]
+            if np.linalg.norm(entry_end - lane_start) > np.linalg.norm(entry_end - lane_end):
+                lane["entry_lanes"].remove(entry_id)
+                lane["exit_lanes"].append(entry_id)
+
+        for exit_id in exit_lanes:
+            if exit_id not in result:
+                continue
+            exit_lane = result[exit_id]
+            if "polyline" not in exit_lane:
+                continue
+            exit_start = exit_lane["polyline"][0]
+            if np.linalg.norm(exit_start - lane_end) > np.linalg.norm(exit_start - lane_start):
+                lane["exit_lanes"].remove(exit_id)
+                lane["entry_lanes"].append(exit_id)
+
+    # Filter dangling lane topology references
+    # NOTE: Happens on nuPlan after filtering to map objects within a radius.
+    lane_ids = set(result.keys())
+    for element in result.values():
+        element["entry_lanes"] = [lid for lid in element["entry_lanes"] if lid in lane_ids]
+        element["exit_lanes"] = [lid for lid in element["exit_lanes"] if lid in lane_ids]
+
 
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
     # (object_id namespaces can overlap across map layers)
@@ -319,14 +380,6 @@ def extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -
                 continue
             result[next_id] = element
             next_id += 1
-
-    # Filter dangling lane topology references
-    lane_ids = set(result.keys())
-    for element in result.values():
-        if "entry_lanes" in element:
-            element["entry_lanes"] = [lid for lid in element["entry_lanes"] if lid in lane_ids]
-        if "exit_lanes" in element:
-            element["exit_lanes"] = [lid for lid in element["exit_lanes"] if lid in lane_ids]
 
     return result
 
@@ -343,7 +396,10 @@ def convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> di
     """
     if map_object.layer == MapLayer.LANE:
         polyline = centered_array(map_object.centerline.array, centroid)
-        speed_limit_mps = float(map_object.speed_limit_mps) if map_object.speed_limit_mps is not None else -1.0
+        if not map_object.speed_limit_mps or np.isnan(map_object.speed_limit_mps):
+            speed_limit_mps = -1.0
+        else:
+            speed_limit_mps = float(map_object.speed_limit_mps)
         return {
             "type": map_object.lane_type,
             "polyline": polyline,
