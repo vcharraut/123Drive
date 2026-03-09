@@ -53,7 +53,7 @@ def serialize_scenario(data: dict) -> dict:
         xyz = states.get("xyz", np.array([]))
         start_pos = xyz[0] if len(xyz) > 0 else None
 
-        route = agent.get("route", [])
+        route = agent.get("route") or (agent.get("routes") or [[]])[0]
         route_polyline = None
         if route:
             pts = compute_route_polyline(route, lane_map, start_pos)

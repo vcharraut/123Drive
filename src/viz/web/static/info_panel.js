@@ -13,9 +13,12 @@
     } = context;
 
     const sdc = scenario.metadata.sdc_index;
+    const egoAgent = (Number.isInteger(sdc) && sdc >= 0 && sdc < scenario.agents.length)
+      ? scenario.agents[sdc]
+      : null;
     const ttp = scenario.metadata.tracks_to_predict || [];
     const ooi = getObjectsOfInterest(scenario.metadata);
-    const isEgo = data.id === sdc;
+    const isEgo = egoAgent ? data.id === egoAgent.id : false;
     const isTtp = ttp.includes(data.id);
     const isOoi = ooi.includes(data.id);
     const typeName = AGENT_TYPE_NAMES[data.type] || `type_${data.type}`;

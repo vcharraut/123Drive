@@ -147,12 +147,11 @@ def _read_dynamic_agent(f) -> dict:
     # Read valid
     valid = np.array(struct.unpack(f"{trajectory_length}i", f.read(4 * trajectory_length)))
 
-    # Read routes (only first route stored, no length prefix)
+    # Read route lane ids
     num_route_ints = struct.unpack("i", f.read(4))[0]
-    routes = []
+    route = []
     if num_route_ints > 0:
-        route_data = list(struct.unpack(f"{num_route_ints}i", f.read(4 * num_route_ints)))
-        routes.append(route_data)  # Single route, no length prefix
+        route = list(struct.unpack(f"{num_route_ints}i", f.read(4 * num_route_ints)))
 
     # Skip goal_position (3x float32) + mark_as_expert (int32) = 16 bytes
     f.read(16)
@@ -169,7 +168,7 @@ def _read_dynamic_agent(f) -> dict:
             "height": height,
             "valid": valid,
         },
-        "routes": routes,
+        "route": route,
     }
 
 
