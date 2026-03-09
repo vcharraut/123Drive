@@ -74,7 +74,21 @@ const state = {
   staticLayerCacheKey: null,
   playTimer: null,
   viewState: {target: [0, 0, 0], zoom: 0, rotationX: 0, rotationOrbit: 0},
+  suppressNextCanvasClick: false,
 };
+
+const dragState = {
+  pointerId: null,
+  mode: null,
+  startScreen: null,
+  startGround: null,
+  startTarget: null,
+  startRotationX: 0,
+  startRotationOrbit: 0,
+  moved: false,
+};
+
+const DRAG_THRESHOLD_PX = 4;
 
 // ── Geometry helpers ───────────────────────────────────────────────────────
 
@@ -170,19 +184,172 @@ const CONTROLLER_2D = {
   dragMode: 'pan',
 };
 
-const CONTROLLER_3D = {
-  scrollZoom: { smooth: false, speed: 0.012 },
-  inertia: 100,
-  keyboard: false,
-  dragMode: 'rotate',
-};
+const CONTROLLER_3D = false;
+
+function instantViewState(vs) {
+  const next = {...vs};
+  delete next.transitionDuration;
+  delete next.transitionInterpolator;
+  delete next.transitionEasing;
+  return next;
+}
+
+function convertTargetForViewMode(target, fromMode, toMode) {
+  if (!Array.isArray(target) || target.length < 2 || fromMode === toMode) return target;
+  return [target[0], -target[1], target[2] || 0];
+}
+
+function isPrimaryPointerEvent(event) {
+  const srcEvent = event?.srcEvent || event;
+  const button = srcEvent?.button;
+  return button == null || button === 0;
+}
+
+function consumeSuppressedCanvasClick() {
+  if (!state.suppressNextCanvasClick) return false;
+  state.suppressNextCanvasClick = false;
+  return true;
+}
+
+function updateFollowEgoUi() {
+  document.getElementById('btn-follow').classList.toggle('active', state.followEgo);
+}
+
+function setFollowEgo(enabled) {
+  state.followEgo = enabled;
+  updateFollowEgoUi();
+}
+
+function disableFollowEgo() {
+  if (!state.followEgo) return;
+  setFollowEgo(false);
+}
+
+function syncCanvasCursor() {
+  deckContainer.style.cursor = dragState.mode ? 'grabbing' : (state.viewMode === '3d' ? 'grab' : 'crosshair');
+}
+
+function getMainViewport() {
+  const viewports = deckgl.getViewports();
+  return viewports.find(v => v.id === 'main') || viewports[0] || null;
+}
+
+function getCanvasPosition(event) {
+  const rect = deckContainer.getBoundingClientRect();
+  return [event.clientX - rect.left, event.clientY - rect.top];
+}
+
+function reset3DDrag(event) {
+  if (event && dragState.pointerId != null && deckContainer.hasPointerCapture?.(dragState.pointerId)) {
+    deckContainer.releasePointerCapture(dragState.pointerId);
+  }
+  state.suppressNextCanvasClick = false;
+  dragState.pointerId = null;
+  dragState.mode = null;
+  dragState.startScreen = null;
+  dragState.startGround = null;
+  dragState.startTarget = null;
+  dragState.startRotationX = 0;
+  dragState.startRotationOrbit = 0;
+  dragState.moved = false;
+  syncCanvasCursor();
+}
+
+function begin3DDrag(event) {
+  if (state.viewMode !== '3d') return;
+  if (event.button !== 0 && event.button !== 2) return;
+
+  const mode = event.button === 0 ? 'pan' : 'rotate';
+  const startScreen = getCanvasPosition(event);
+  const viewport = getMainViewport();
+
+  dragState.pointerId = event.pointerId;
+  dragState.mode = mode;
+  dragState.startScreen = startScreen;
+  dragState.startGround = mode === 'pan' && viewport
+    ? viewport.unproject(startScreen, {targetZ: 0})
+    : null;
+  dragState.startTarget = [...(state.viewState.target || [0, 0, 0])];
+  dragState.startRotationX = state.viewState.rotationX || 0;
+  dragState.startRotationOrbit = state.viewState.rotationOrbit || 0;
+  dragState.moved = false;
+
+  deckContainer.setPointerCapture?.(event.pointerId);
+  syncCanvasCursor();
+  event.preventDefault();
+}
+
+function update3DDrag(event) {
+  if (state.viewMode !== '3d') return;
+  if (dragState.pointerId == null || dragState.pointerId !== event.pointerId) return;
+  if (!dragState.mode || !dragState.startScreen) return;
+
+  const pos = getCanvasPosition(event);
+  const dx = pos[0] - dragState.startScreen[0];
+  const dy = pos[1] - dragState.startScreen[1];
+  if (!dragState.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+  if (!dragState.moved) {
+    dragState.moved = true;
+    disableFollowEgo();
+  }
+
+  if (dragState.mode === 'pan') {
+    const viewport = getMainViewport();
+    if (!viewport || !dragState.startGround || !dragState.startTarget) return;
+    const ground = viewport.unproject(pos, {targetZ: 0});
+    if (!ground) return;
+
+    setViewState(instantViewState({
+      ...state.viewState,
+      target: [
+        dragState.startTarget[0] + dragState.startGround[0] - ground[0],
+        dragState.startTarget[1] + dragState.startGround[1] - ground[1],
+        dragState.startTarget[2] || 0,
+      ],
+    }));
+  } else if (dragState.mode === 'rotate') {
+    const width = Math.max(deckContainer.clientWidth, 1);
+    const height = Math.max(deckContainer.clientHeight, 1);
+    setViewState(instantViewState({
+      ...state.viewState,
+      rotationOrbit: dragState.startRotationOrbit + (dx / width) * 180,
+      rotationX: Math.max(0, Math.min(80, dragState.startRotationX + (dy / height) * 180)),
+    }));
+  }
+
+  event.preventDefault();
+}
+
+function end3DDrag(event) {
+  if (dragState.pointerId == null || dragState.pointerId !== event.pointerId) return;
+  const shouldSuppressClick = dragState.moved && dragState.mode === 'pan';
+  reset3DDrag(event);
+  state.suppressNextCanvasClick = shouldSuppressClick;
+}
+
+function handle3DWheel(event) {
+  if (state.viewMode !== '3d') return;
+  event.preventDefault();
+  disableFollowEgo();
+  setViewState(instantViewState({
+    ...state.viewState,
+    zoom: (state.viewState.zoom || 0) - event.deltaY * 0.002,
+  }));
+}
+
+function handleSelectableClick(event, cb) {
+  if (consumeSuppressedCanvasClick()) return true;
+  if (!isPrimaryPointerEvent(event)) return true;
+  cb();
+  return true;
+}
 
 const deckgl = new DeckGL({
   container: deckContainer,
   views: [new OrthographicView({id:'main'})],
   viewState: state.viewState,
   controller: CONTROLLER_2D,
-  getCursor: ({isDragging}) => isDragging ? 'grabbing' : 'crosshair',
+  getCursor: ({isDragging}) => dragState.mode ? 'grabbing' : (state.viewMode === '3d' ? 'grab' : (isDragging ? 'grabbing' : 'crosshair')),
   pickingRadius: 8,
   layers: [],
   parameters: { clearColor: [1, 1, 1, 1] },
@@ -211,6 +378,12 @@ const deckgl = new DeckGL({
 
 // Suppress right-click context menu on canvas
 deckContainer.addEventListener('contextmenu', e => e.preventDefault());
+deckContainer.addEventListener('pointerdown', begin3DDrag);
+deckContainer.addEventListener('pointermove', update3DDrag);
+deckContainer.addEventListener('pointerup', end3DDrag);
+deckContainer.addEventListener('pointercancel', end3DDrag);
+deckContainer.addEventListener('wheel', handle3DWheel, {passive: false});
+syncCanvasCursor();
 
 // ── Layer builders ─────────────────────────────────────────────────────────
 
@@ -220,7 +393,10 @@ function getStaticLayers(scenario, layerFlags) {
 
   const roads = scenario.road_map_elements;
   const layers = [];
-  const onClick = (cb) => ({ pickable: true, onClick: ({object}) => cb(object) });
+  const onClick = (cb) => ({
+    pickable: true,
+    onClick: ({object}, event) => object ? handleSelectableClick(event, () => cb(object)) : false,
+  });
 
   // Helper: pixel-unit path layer
   const pxPath = (id, data, color, width, dashed = false) => new PathLayer({
@@ -246,7 +422,9 @@ function getStaticLayers(scenario, layerFlags) {
       getFillColor: color,
       getRadius: radius, radiusUnits: 'pixels',
       pickable: true,
-      onClick: ({object}) => object && selectElement('road', object.road),
+      onClick: ({object}, event) => object
+        ? handleSelectableClick(event, () => selectElement('road', object.road))
+        : false,
     });
   };
 
@@ -394,9 +572,9 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         getLineColor: [255,255,255,230],
         getLineWidth: 1, lineWidthUnits: 'pixels',
         stroked: true, filled: true, extruded: false,
-        pickable: true, onClick: ({object, index}) => {
-          selectElement('agent', validAgents[index]);
-        },
+        pickable: true, onClick: ({object, index}, event) => object
+          ? handleSelectableClick(event, () => selectElement('agent', validAgents[index]))
+          : false,
       }));
     } else {
       // 3D extruded boxes
@@ -413,9 +591,9 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         getLineColor: [0,0,0,200],
         getElevation: d => d.height,
         stroked: true, filled: true, extruded: true,
-        pickable: true, onClick: ({object, index}) => {
-          selectElement('agent', validAgents[index]);
-        },
+        pickable: true, onClick: ({object, index}, event) => object
+          ? handleSelectableClick(event, () => selectElement('agent', validAgents[index]))
+          : false,
       }));
     }
 
@@ -476,7 +654,9 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       getFillColor: d => d.color,
       getLineColor: [255,255,255,200],
       stroked: true, lineWidthUnits: 'pixels', getLineWidth: 1,
-      pickable: true, onClick: ({object}) => selectElement('traffic_light', object.tl),
+      pickable: true, onClick: ({object}, event) => object
+        ? handleSelectableClick(event, () => selectElement('traffic_light', object.tl))
+        : false,
     }));
   }
 
@@ -665,7 +845,9 @@ function selectElement(type, data) {
   render();
 }
 
-function handleCanvasClick({coordinate, layer, object}) {
+function handleCanvasClick({coordinate, layer, object}, event) {
+  if (consumeSuppressedCanvasClick()) return;
+  if (!isPrimaryPointerEvent(event)) return;
   if (!object && !layer) {
     state.selected = null;
     document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
@@ -695,6 +877,7 @@ async function loadScenario(filename) {
   document.getElementById('scenario-title').textContent = `Loading ${filename}…`;
   setAppStatus(`Loading ${filename}…`, 'info');
   try {
+    reset3DDrag();
     const resp = await fetch(`/api/scenario/${encodeURIComponent(filename)}`);
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}`);
@@ -704,8 +887,7 @@ async function loadScenario(filename) {
     state.timestep = 0;
     state.selected = null;
     state.staticLayerCacheKey = null;
-    state.followEgo = false;
-    document.getElementById('btn-follow').classList.remove('active');
+    setFollowEgo(false);
 
     document.getElementById('scenario-title').textContent =
       `${data.scenario_id} [${data.metadata.dataset_name}]`;
@@ -717,7 +899,10 @@ async function loadScenario(filename) {
     fitView();
     // Center on SDC if available
     const ego = getEgoState(data, 0);
-    if (ego) setViewState({...state.viewState, target: [ego.x, -ego.y, 0]});
+    if (ego) setViewState({
+      ...state.viewState,
+      target: state.viewMode === '3d' ? [ego.x, ego.y, 0] : [ego.x, -ego.y, 0],
+    });
     render();
   } catch (err) {
     const errMsg = String(err?.message || err);
@@ -866,8 +1051,7 @@ function togglePlay() {
 document.getElementById('btn-fit').addEventListener('click', fitView);
 
 document.getElementById('btn-follow').addEventListener('click', () => {
-  state.followEgo = !state.followEgo;
-  document.getElementById('btn-follow').classList.toggle('active', state.followEgo);
+  setFollowEgo(!state.followEgo);
   render();
 });
 
@@ -880,6 +1064,8 @@ document.getElementById('btn-scatter').addEventListener('click', () => {
 });
 
 document.getElementById('btn-3d').addEventListener('click', () => {
+  reset3DDrag();
+  const prevMode = state.viewMode;
   state.viewMode = state.viewMode === '2d' ? '3d' : '2d';
   document.getElementById('btn-3d').textContent = state.viewMode === '3d' ? '3D' : '2D';
   state.staticLayerCacheKey = null;
@@ -888,13 +1074,18 @@ document.getElementById('btn-3d').addEventListener('click', () => {
     if (ego) {
       const headingDeg = ego.heading * 180 / Math.PI;
       state.viewState = {
-        ...state.viewState,
+        ...instantViewState(state.viewState),
         target: [ego.x, ego.y, 0],
         rotationOrbit: -headingDeg + 90,
         rotationX: 20,
       };
     } else {
-      state.viewState = { ...state.viewState, rotationX: 30, rotationOrbit: 0 };
+      state.viewState = {
+        ...instantViewState(state.viewState),
+        target: convertTargetForViewMode(state.viewState.target, prevMode, state.viewMode),
+        rotationX: 30,
+        rotationOrbit: 0,
+      };
     }
     deckgl.setProps({
       views: [new OrbitView({id:'main', fov:50})],
@@ -902,13 +1093,19 @@ document.getElementById('btn-3d').addEventListener('click', () => {
       controller: CONTROLLER_3D,
     });
   } else {
-    state.viewState = { ...state.viewState, rotationX: 0, rotationOrbit: 0 };
+    state.viewState = {
+      ...instantViewState(state.viewState),
+      target: convertTargetForViewMode(state.viewState.target, prevMode, state.viewMode),
+      rotationX: 0,
+      rotationOrbit: 0,
+    };
     deckgl.setProps({
       views: [new OrthographicView({id:'main'})],
       viewState: state.viewState,
       controller: CONTROLLER_2D,
     });
   }
+  syncCanvasCursor();
   render();
 });
 
