@@ -16,14 +16,9 @@
   <span id="app-status" aria-live="polite"></span>
   <button class="hbtn" id="btn-fit">⊡ Fit All</button>
   <button class="hbtn" id="btn-follow">◎ Follow Ego</button>
-  <select id="follow-radius">
-    <option value="50">50 m</option>
-    <option value="100" selected>100 m</option>
-    <option value="200">200 m</option>
-    <option value="500">500 m</option>
-  </select>
   <button class="hbtn" id="btn-3d">2D / 3D</button>
   <button class="hbtn" id="btn-scatter">⬤ Lines</button>
+  <span id="zoom-display"></span>
 </div>
 
 <div id="main">
@@ -99,6 +94,7 @@
 
 <script src="helpers.js"></script>
 <script src="info_panel.js"></script>
+<script src="binary_parser.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

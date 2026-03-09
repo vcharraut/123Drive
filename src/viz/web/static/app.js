@@ -163,30 +163,48 @@ function getAgentRouteSegments(agent, roadMap) {
 
 const deckContainer = document.getElementById('deckgl-canvas');
 
+const CONTROLLER_2D = {
+  scrollZoom: { smooth: false, speed: 0.012 },
+  inertia: 400,
+  keyboard: false,
+  dragMode: 'pan',
+};
+
+const CONTROLLER_3D = {
+  scrollZoom: { smooth: false, speed: 0.012 },
+  inertia: 100,
+  keyboard: false,
+  dragMode: 'rotate',
+};
+
 const deckgl = new DeckGL({
   container: deckContainer,
   views: [new OrthographicView({id:'main'})],
   viewState: state.viewState,
-  controller: {
-    dragPan: true,
-    dragRotate: true,
-    scrollZoom: { smooth: false, speed: 0.012 },
-    inertia: 400,
-    keyboard: false,
-  },
+  controller: CONTROLLER_2D,
   getCursor: ({isDragging}) => isDragging ? 'grabbing' : 'crosshair',
   pickingRadius: 8,
   layers: [],
   parameters: { clearColor: [1, 1, 1, 1] },
   onViewStateChange: ({viewState}) => {
+    // Clamp rotationX to avoid flipping upside down in 3D
+    if (state.viewMode === '3d') {
+      viewState.rotationX = Math.max(0, Math.min(80, viewState.rotationX));
+    }
     if (state.followEgo) {
-      // Allow zoom changes only
-      state.viewState = {...state.viewState, zoom: viewState.zoom};
+      // Follow-ego locks target; let user control zoom + rotation
+      const keep = {zoom: viewState.zoom};
+      if (state.viewMode === '3d') {
+        keep.rotationX = viewState.rotationX;
+        keep.rotationOrbit = viewState.rotationOrbit;
+      }
+      state.viewState = {...state.viewState, ...keep};
       deckgl.setProps({viewState: state.viewState});
     } else {
       state.viewState = viewState;
       deckgl.setProps({viewState});
     }
+    updateZoomDisplay(viewState.zoom);
   },
   onClick: handleCanvasClick,
 });
@@ -239,10 +257,12 @@ function getStaticLayers(scenario, layerFlags) {
       ? scatterRoads(`sc-${id}`, data, color, Math.max(2, width))
       : pxPath(id, data, color, width, dashed);
 
-  // Lanes (types 1–9 only; type 0 = unknown, duplicates lane geometry)
+  // Lanes (types 0–9)
   if (layerFlags.lanes) {
     const knownLanes = roads.filter(r => r.type >= 1 && r.type <= 9);
+    const unknownLanes = roads.filter(r => r.type === 0);
     if (knownLanes.length) layers.push(roadLayer('lanes-known', knownLanes, [205,210,215], 1));
+    if (layerFlags.unknowns && unknownLanes.length) layers.push(roadLayer('lanes-unknown', unknownLanes, [124, 58, 237], 1, true));
   }
 
   // Road lines (types 10–19)
@@ -606,23 +626,14 @@ function render() {
 
   if (state.followEgo) {
     const ego = getEgoState(s, t);
-    const r = parseInt(document.getElementById('follow-radius').value);
     if (ego) {
-      const size = Math.min(deckContainer.clientWidth, deckContainer.clientHeight);
-      const zoom = Math.log2(size / (2 * r));
       let vs;
       if (state.viewMode === '2d') {
-        const curZoom = state.viewState.zoom ?? zoom;
-        vs = {target: [ego.x, -ego.y, 0], zoom: curZoom, transitionDuration: 80};
+        vs = {...state.viewState, target: [ego.x, -ego.y, 0], transitionDuration: 80};
       } else {
-        // TPS: camera behind + slightly above ego (no FLIP_Y in 3D).
-        // OrbitView azimuth 0 = -Y direction. +180 to place camera behind ego.
-        const headingDeg = ego.heading * 180 / Math.PI;
         vs = {
+          ...state.viewState,
           target: [ego.x, ego.y, 0],
-          zoom: state.viewState.zoom ?? zoom,
-          rotationOrbit: -headingDeg + 90,
-          rotationX: 20,
           transitionDuration: 60,
         };
       }
@@ -630,6 +641,7 @@ function render() {
       deckgl.setProps({viewState: vs});
     }
   }
+  updateZoomDisplay(state.viewState.zoom);
 
   document.getElementById('timestep-display').textContent =
     `${t} / ${s.metadata.scenario_length - 1}`;
@@ -687,7 +699,7 @@ async function loadScenario(filename) {
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}`);
     }
-    const data = await resp.json();
+    const data = parsePufferBinary(await resp.arrayBuffer());
     state.scenario = data;
     state.timestep = 0;
     state.selected = null;
@@ -734,9 +746,17 @@ function renderScenarioMeta(data) {
     <div class="info-row"><span class="info-label">TTP</span><span class="info-val">${safeIdList(m.tracks_to_predict)}</span></div>`;
 }
 
+function updateZoomDisplay(zoom) {
+  const size = Math.min(deckContainer.clientWidth, deckContainer.clientHeight);
+  const radius = size / (2 ** (zoom + 1));
+  const rounded = Math.round(radius / 10) * 10;
+  document.getElementById('zoom-display').textContent = `${rounded} m`;
+}
+
 function setViewState(vs) {
   state.viewState = vs;
   deckgl.setProps({viewState: vs});
+  updateZoomDisplay(vs.zoom);
 }
 
 function fitView() {
@@ -757,6 +777,7 @@ function fitView() {
     views: state.viewMode === '2d'
       ? [new OrthographicView({id:'main'})]
       : [new OrbitView({id:'main', fov:50})],
+    controller: state.viewMode === '3d' ? CONTROLLER_3D : CONTROLLER_2D,
   });
 }
 
@@ -875,10 +896,18 @@ document.getElementById('btn-3d').addEventListener('click', () => {
     } else {
       state.viewState = { ...state.viewState, rotationX: 30, rotationOrbit: 0 };
     }
-    deckgl.setProps({views: [new OrbitView({id:'main', fov:50})], viewState: state.viewState});
+    deckgl.setProps({
+      views: [new OrbitView({id:'main', fov:50})],
+      viewState: state.viewState,
+      controller: CONTROLLER_3D,
+    });
   } else {
     state.viewState = { ...state.viewState, rotationX: 0, rotationOrbit: 0 };
-    deckgl.setProps({views: [new OrthographicView({id:'main'})], viewState: state.viewState});
+    deckgl.setProps({
+      views: [new OrthographicView({id:'main'})],
+      viewState: state.viewState,
+      controller: CONTROLLER_2D,
+    });
   }
   render();
 });

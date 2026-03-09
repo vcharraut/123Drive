@@ -114,15 +114,13 @@ body {
 .hbtn:hover { background: var(--bg-hover); border-color: var(--accent); color: var(--accent); }
 .hbtn.active { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
 
-#follow-radius {
-  background: var(--bg);
-  border: 1px solid var(--border-mid);
-  color: var(--text-2);
-  padding: 4px 8px;
-  border-radius: 20px;
-  font-family: var(--font-ui);
+#zoom-display {
+  color: var(--text-3);
+  font-family: var(--font-mono);
   font-size: 12px;
-  cursor: pointer;
+  white-space: nowrap;
+  min-width: 48px;
+  text-align: right;
 }
 
 /* ── Main layout ─────────────────────────────────────────────────────────── */
