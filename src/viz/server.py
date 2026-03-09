@@ -1,20 +1,13 @@
 """FastAPI server for Puffer visualization."""
 
 import argparse
-from collections import OrderedDict
 from pathlib import Path
-from threading import Lock
 
-import numpy as np
-import orjson
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-
-from viz.binary_loader import load_puffer_binary
-from viz.web.utils import build_lane_map, compute_route_polyline
 
 
 app = FastAPI()
@@ -32,83 +25,6 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
 app.add_middleware(NoCacheStaticMiddleware)
 
 SCENARIO_DIR: Path | None = None
-_SCENARIO_CACHE: OrderedDict[str, tuple[int, int, bytes]] = OrderedDict()
-_SCENARIO_CACHE_LOCK = Lock()
-_SCENARIO_CACHE_MAX_ITEMS = 16
-
-
-def _arr(v):
-    if isinstance(v, np.ndarray):
-        return v.tolist()
-    return v
-
-
-def serialize_scenario(data: dict) -> dict:
-    agents = []
-    road_elements = data.get("road_map_elements", [])
-    lane_map = build_lane_map(road_elements)
-
-    for agent in data.get("agents", []):
-        states = agent.get("states", {})
-        xyz = states.get("xyz", np.array([]))
-        start_pos = xyz[0] if len(xyz) > 0 else None
-
-        route = agent.get("route") or (agent.get("routes") or [[]])[0]
-        route_polyline = None
-        if route:
-            pts = compute_route_polyline(route, lane_map, start_pos)
-            if pts is not None:
-                route_polyline = pts.tolist()
-
-        agents.append(
-            {
-                "id": agent["id"],
-                "type": agent["type"],
-                "xyz": _arr(xyz),
-                "heading": _arr(states.get("heading")),
-                "velocity": _arr(states.get("velocity")),
-                "length": _arr(states.get("length")),
-                "width": _arr(states.get("width")),
-                "height": _arr(states.get("height")),
-                "valid": _arr(states.get("valid")),
-                "route": route,
-                "route_polyline": route_polyline,
-            },
-        )
-
-    roads = []
-    for elem in road_elements:
-        xyz = elem.get("xyz")
-        roads.append(
-            {
-                "id": elem["id"],
-                "type": elem["type"],
-                "xyz": _arr(xyz),
-                "entry_lanes": elem.get("entry_lanes", []),
-                "exit_lanes": elem.get("exit_lanes", []),
-                "speed_limit": elem.get("speed_limit", 0.0),
-            },
-        )
-
-    traffic = []
-    for elem in data.get("traffic_control_elements", []):
-        traffic.append(
-            {
-                "id": elem["id"],
-                "type": elem["type"],
-                "xyz": _arr(elem.get("xyz")),
-                "states": elem.get("states", []),
-                "controlled_lanes": elem.get("controlled_lanes", []),
-            },
-        )
-
-    return {
-        "scenario_id": data.get("scenario_id", ""),
-        "agents": agents,
-        "road_map_elements": roads,
-        "traffic_control_elements": traffic,
-        "metadata": data.get("metadata", {}),
-    }
 
 
 def _require_scenario_dir() -> Path:
@@ -125,29 +41,6 @@ def _resolve_scenario_path(filename: str) -> Path:
     return path
 
 
-def _get_serialized_response_bytes(path: Path) -> bytes:
-    stat = path.stat()
-    cache_key = str(path)
-    cache_token = (stat.st_mtime_ns, stat.st_size)
-    with _SCENARIO_CACHE_LOCK:
-        cached = _SCENARIO_CACHE.get(cache_key)
-    if cached and cached[0] == cache_token[0] and cached[1] == cache_token[1]:
-        with _SCENARIO_CACHE_LOCK:
-            _SCENARIO_CACHE.move_to_end(cache_key)
-        return cached[2]
-
-    data = load_puffer_binary(path)
-    serialized = serialize_scenario(data)
-    payload = orjson.dumps(serialized)
-
-    with _SCENARIO_CACHE_LOCK:
-        _SCENARIO_CACHE[cache_key] = (cache_token[0], cache_token[1], payload)
-        _SCENARIO_CACHE.move_to_end(cache_key)
-        while len(_SCENARIO_CACHE) > _SCENARIO_CACHE_MAX_ITEMS:
-            _SCENARIO_CACHE.popitem(last=False)
-    return payload
-
-
 @app.get("/api/scenarios")
 def list_scenarios():
     scenario_dir = _require_scenario_dir()
@@ -160,7 +53,7 @@ def get_scenario(filename: str):
     path = _resolve_scenario_path(filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Scenario not found")
-    return Response(content=_get_serialized_response_bytes(path), media_type="application/json")
+    return FileResponse(path, media_type="application/octet-stream")
 
 
 def main():
