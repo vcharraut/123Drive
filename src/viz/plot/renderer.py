@@ -109,7 +109,7 @@ def render_scenario_png(
     dpi: int = 150,
     zoom_center: tuple | None = None,
     zoom_radius: float | None = None,
-    follow_ego: bool = False,
+    follow_ego: bool = True,
     road_render_mode: str = "plot",
     show_road_headings: bool = False,
 ) -> None:
@@ -199,10 +199,9 @@ def render_scenario_video(
     figsize: tuple = (20, 20),
     dpi: int = 150,
     zoom_center: tuple | None = None,
-    zoom_radius: float | None = 200,
+    zoom_radius: float | None = None,
     follow_ego: bool = True,
     road_render_mode: str = "plot",
-    show_road_headings: bool = False,
 ) -> None:
     """Render a Puffer scenario as an MP4 video animation.
 

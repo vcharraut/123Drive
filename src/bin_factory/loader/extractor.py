@@ -74,14 +74,14 @@ def _compute_scenario_centroid(scene: SceneAPI | None, map_api: MapAPI) -> np.nd
     if scene is not None:
         episode_length = scene.number_of_iterations
         positions = np.array([[0.0, 0.0]] * episode_length, dtype=np.float64)
-        valid = np.zeros((episode_length,), dtype=np.bool_)
+        valid = np.zeros((episode_length,), dtype=np.int32)
 
         for frame_idx in range(episode_length):
             ego_state = scene.get_ego_state_se3_at_iteration(frame_idx)
             if ego_state is None:
                 continue
             positions[frame_idx] = [float(ego_state.center_se3.x), float(ego_state.center_se3.y)]
-            valid[frame_idx] = True
+            valid[frame_idx] = 1
 
         valid_positions = positions[valid]
         if len(valid_positions) > 0:
@@ -116,7 +116,7 @@ def _make_empty_agent(episode_length, agent_type):
         "position": np.zeros((episode_length, 3), dtype=np.float64),
         "heading": np.zeros((episode_length,), dtype=np.float64),
         "velocity": np.zeros((episode_length, 2), dtype=np.float64),
-        "valid": np.zeros((episode_length,), dtype=np.bool_),
+        "valid": np.zeros((episode_length,), dtype=np.int32),
         "length": np.zeros((episode_length,), dtype=np.float64),
         "width": np.zeros((episode_length,), dtype=np.float64),
         "height": np.zeros((episode_length,), dtype=np.float64),
@@ -130,25 +130,33 @@ def _apply_detection_state(obj: dict, frame_idx: int, center_se3, bbox, centroid
         float(center_se3.z),
     ]
     obj["heading"][frame_idx] = center_se3.pose_se2.yaw
-    obj["valid"][frame_idx] = True
+    obj["valid"][frame_idx] = 1
     obj["length"][frame_idx] = float(bbox.length)
     obj["width"][frame_idx] = float(bbox.width)
     obj["height"][frame_idx] = float(bbox.height)
 
 
 def _fill_ego_track(objects: dict[int, dict], scene: SceneAPI, centroid: np.ndarray):
+    obj = objects[0]
+    timestep = scene.log_metadata.timestep_seconds
+
     for frame_idx in range(scene.number_of_iterations):
         ego_state = scene.get_ego_state_se3_at_iteration(frame_idx)
         if ego_state is None:
             raise ValueError(f"Missing ego state at frame {frame_idx}")
 
-        obj = objects[0]
         _apply_detection_state(obj, frame_idx, ego_state.center_se3, ego_state.bounding_box_se3, centroid)
-        if ego_state.dynamic_state_se3 is None:
-            raise ValueError(f"Missing ego dynamic state at frame {frame_idx}")
 
-        vel = ego_state.dynamic_state_se3.velocity_3d
-        obj["velocity"][frame_idx] = [float(vel.x), float(vel.y)]
+        if ego_state.dynamic_state_se3 is not None:
+            vel = ego_state.dynamic_state_se3.velocity_3d
+            obj["velocity"][frame_idx] = [float(vel.x), float(vel.y)]
+            continue
+
+        if frame_idx == 0 or not obj["valid"][frame_idx - 1] or timestep <= 0:
+            continue
+
+        delta_pos = obj["position"][frame_idx, :2] - obj["position"][frame_idx - 1, :2]
+        obj["velocity"][frame_idx] = delta_pos / timestep
 
 
 def _get_or_create_object_id(
