@@ -367,6 +367,8 @@ def _validate_lane_topology(roads: list, lane_ids: set[int], errors: list[str]):
                 other_lane = lanes_by_id.get(int(ref_id)) if _is_int_like(ref_id) else None
                 if other_lane is None:
                     continue
+                if other_lane.get("type") not in [1, 2]:  # Only validate lane-lane links
+                    continue
                 if int(lane_id) not in other_lane.get(rev_key, []):
                     errors.append(
                         f"Lane {lane_id} lists {ref_id} as {fwd_key[:-1]}, but lane {ref_id} "
