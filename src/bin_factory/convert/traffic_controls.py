@@ -15,7 +15,7 @@ def convert_traffic_control_elements(traffic_lights: dict, map_data: dict, scena
     """Convert dynamic map elements to Puffer traffic_control_elements.
 
     Args:
-        traffic_lights: Dict of traffic light elements from intermediate scenario
+        traffic_lights: Dict of traffic light elements from py123d dict
         map_data: Map data for the scenario (used to extract lane information for traffic control elements)
         scenario_length: Number of timesteps in scenario
 

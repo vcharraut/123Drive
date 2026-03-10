@@ -42,7 +42,7 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     if map_api is None:
         raise ValueError("Map API is required to convert scenario")
 
-    scenario = {
+    py123d_dict = {
         "id": scenario_id,
         "agents": {},
         "map": {},
@@ -84,19 +84,19 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
             centroid = np.vstack(points).mean(axis=0)
 
     map_only = scene is None
-    scenario["map"] = _extract_map(map_api, centroid, map_only)
+    py123d_dict["map"] = _extract_map(map_api, centroid, map_only)
 
     if scene is not None:
         agents = _extract_objects(scene, centroid)
         # filter to agent-like labels only
         agents = {oid: obj for oid, obj in agents.items() if obj["type"] in _AGENT_LABELS}
 
-        scenario["agents"] = agents
-        scenario["traffic_lights"] = _extract_traffic_lights(scene, map_api, centroid)
-        scenario["scenario_length"] = scene.number_of_iterations
-        scenario["timestep_seconds"] = scene.log_metadata.timestep_seconds
+        py123d_dict["agents"] = agents
+        py123d_dict["traffic_lights"] = _extract_traffic_lights(scene, map_api, centroid)
+        py123d_dict["scenario_length"] = scene.number_of_iterations
+        py123d_dict["timestep_seconds"] = scene.log_metadata.timestep_seconds
 
-    return scenario
+    return py123d_dict
 
 
 def _extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:

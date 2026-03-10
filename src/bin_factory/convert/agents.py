@@ -21,7 +21,7 @@ def convert_agents(
     """Convert dynamic agents from intermediate format to Puffer format.
 
     Args:
-        dynamic_agents: Dict of dynamic agents from intermediate scenario
+        dynamic_agents: Dict of dynamic agents from py123d dict
         road_map_elements: Dict of static map elements (for reference)
         min_route_valid_points: Minimum valid trajectory points required for route computation (0 = no filtering)
         route_check_timestep: Timestep at which agent must be valid for route computation (default: 0)

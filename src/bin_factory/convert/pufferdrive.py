@@ -12,7 +12,7 @@ def convert_to_puffer_dict(py123d_dict: dict, min_route_valid_points: int = 0, r
     required_fields = ["id", "agents", "map", "traffic_lights"]
     missing = [f for f in required_fields if f not in py123d_dict]
     if missing:
-        raise ValueError(f"scenario missing required fields: {missing}")
+        raise ValueError(f"py123d dict missing required fields: {missing}")
 
     puffer_agents, sdc_index = agents.convert_agents(
         py123d_dict["agents"],
