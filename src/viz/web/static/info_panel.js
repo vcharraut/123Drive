@@ -105,9 +105,6 @@
     const {ROAD_TYPE_NAMES, escapeHtml, safeIdList} = context;
     const typeName = ROAD_TYPE_NAMES[data.type] || `type_${data.type}`;
     const npts = data.xyz.length;
-    const xs = data.xyz.map(p => p[0]);
-    const ys = data.xyz.map(p => p[1]);
-    const bbox = `(${Math.min(...xs).toFixed(1)}, ${Math.min(...ys).toFixed(1)}) → (${Math.max(...xs).toFixed(1)}, ${Math.max(...ys).toFixed(1)})`;
     const entry = data.entry_lanes.length ? safeIdList(data.entry_lanes) : '—';
     const exit = data.exit_lanes.length ? safeIdList(data.exit_lanes) : '—';
     const sl = data.speed_limit ? data.speed_limit.toFixed(1) + ' m/s' : '—';
@@ -119,7 +116,6 @@
       <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>
       <div class="info-row"><span class="info-label">Type</span><span class="info-val">${escapeHtml(typeName)}</span></div>
       <div class="info-row"><span class="info-label">Points</span><span class="info-val">${escapeHtml(npts)}</span></div>
-      <div class="info-row"><span class="info-label">BBox</span><span class="info-val" style="font-size:9px">${escapeHtml(bbox)}</span></div>
       <div class="info-row"><span class="info-label">Entry</span><span class="info-val" style="font-size:9px">${entry}</span></div>
       <div class="info-row"><span class="info-label">Exit</span><span class="info-val" style="font-size:9px">${exit}</span></div>
       <div class="info-row"><span class="info-label">Speed lim</span><span class="info-val">${escapeHtml(sl)}</span></div>
