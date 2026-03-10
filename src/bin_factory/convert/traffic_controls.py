@@ -37,6 +37,8 @@ def convert_traffic_control_elements(traffic_lights: dict, map_data: dict, scena
         List of traffic control element dictionaries in Puffer format
     """
     observed_elements, covered_lanes = _convert_observed_traffic_lights(traffic_lights)
+    if scenario_length > 0:
+        return observed_elements
     next_id = max((element["id"] for element in observed_elements), default=-1) + 1
     map_elements = _convert_map_traffic_lights(map_data, covered_lanes, next_id, scenario_length)
     return observed_elements + map_elements

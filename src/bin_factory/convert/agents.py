@@ -5,7 +5,7 @@ from py123d.datatypes.detections import DefaultBoxDetectionLabel
 from py123d.datatypes.map_objects import LaneType
 
 from bin_factory import logger_utils
-from bin_factory.convert import routes, utils
+from bin_factory.convert import routes
 from bin_factory.convert import types as puffer_types
 
 
@@ -32,7 +32,7 @@ def convert_agents(
     puffer_agents = []
     sdc_index = -1
 
-    lane_data = utils.extract_lane_centers(road_map_elements)
+    lane_data = _extract_lane_centers(road_map_elements)
     route_cache = routes.build_route_cache(road_map_elements, lane_data)
 
     for idx, (agent_id, agent_data) in enumerate(dynamic_agents.items()):
@@ -103,7 +103,7 @@ def _convert_agent_type_to_int(agent_type) -> int:
     return type_map.get(agent_type, puffer_types.OTHER)
 
 
-def extract_lane_centers(static_map_elements: dict) -> tuple[list, np.ndarray, dict, np.ndarray]:
+def _extract_lane_centers(static_map_elements: dict) -> tuple[list, np.ndarray, dict, np.ndarray]:
     """Extract lane center information as numpy arrays for vectorized operations.
 
     Args:

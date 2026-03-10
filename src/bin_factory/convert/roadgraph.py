@@ -21,7 +21,7 @@ def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "")
         layer = element_data["layer"]
         element_type = element_data["type"]
 
-        if not element_type:
+        if element_data is None or element_type is None:
             raise ValueError(f"Map element {element_id} has unset type")
 
         # Convert element type to int

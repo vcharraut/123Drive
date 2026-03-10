@@ -26,14 +26,14 @@ def convert_to_puffer_dict(py123d_dict: dict, min_route_valid_points: int = 0, r
     traffic_control_elements = traffic_controls.convert_traffic_control_elements(
         py123d_dict["traffic_lights"],
         py123d_dict["map"],
-        py123d_dict.get("scenario_length", 0),
+        py123d_dict["scenario_length"],
     )
 
     puffer_metadata = {
-        "dataset_name": py123d_dict.get("dataset_name", ""),
-        "scenario_length": py123d_dict.get("scenario_length", 0),
+        "dataset_name": py123d_dict["dataset_name"],
+        "scenario_length": py123d_dict["scenario_length"],
         "sdc_index": sdc_index,
-        "timestep_seconds": py123d_dict.get("timestep_seconds", 0.0),
+        "timestep_seconds": py123d_dict["timestep_seconds"],
         "objects_of_interests": [],
         "tracks_to_predict": [],
     }

@@ -9,9 +9,9 @@ from bin_factory import logger_utils
 from bin_factory.convert.pufferdrive import convert_to_puffer_dict
 from bin_factory.loader.extractor import convert_py123d_scenario
 from bin_factory.loader.load import get_py123d_scenarios
+from bin_factory.serialize import puffer_dict_to_binary
 from bin_factory.transforms.polyline import process_polylines
 from bin_factory.transforms.validation import validate_puffer_dict
-from src.bin_factory.serialize import puffer_dict_to_binary
 
 
 logger = logger_utils.get_logger(__name__)
@@ -62,7 +62,7 @@ def _safe_process(raw_scenario, **kwargs):
     try:
         return process_one_scenario(raw_scenario, **kwargs)
     except Exception as e:
-        logger.error(f"Scenario failed: {e}")
+        logger.exception(f"Scenario failed: {e}")
         return None
 
 

@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FFMpegWriter
 from matplotlib.axes import Axes
-from matplotlib.patches import Circle
+from matplotlib.patches import Circle, FancyBboxPatch, RegularPolygon
 from matplotlib.transforms import Affine2D
 
 
@@ -86,6 +86,12 @@ TRAFFIC_LIGHT_STATES = {
     8: "flashing_caution",
 }
 
+TRAFFIC_CONTROL_TYPES = {
+    1: "traffic_light",
+    2: "stop_sign",
+    3: "yield_sign",
+}
+
 TRAFFIC_LIGHT_COLORS = {
     0: "#808080",  # Unknown - gray
     1: "#FF0000",  # Arrow red
@@ -151,8 +157,8 @@ def render_scenario_png(
     if show_routes:
         _render_routes(ax, puffer_scenario)
 
-    # 3. Render traffic lights
-    _render_traffic_lights(ax, puffer_scenario, timestep)
+    # 3. Render traffic controls
+    _render_traffic_controls(ax, puffer_scenario, timestep)
 
     # 4. Render dynamic agents
     _render_agents(ax, puffer_scenario, timestep, show_future)
@@ -254,7 +260,7 @@ def render_scenario_video(
             if show_routes:
                 _render_routes(ax, puffer_scenario)
 
-            _render_traffic_lights(ax, puffer_scenario, timestep)
+            _render_traffic_controls(ax, puffer_scenario, timestep)
             _render_agents(ax, puffer_scenario, timestep, show_future)
 
             # Set view bounds (zoom or auto-scale)
@@ -422,8 +428,8 @@ def _render_routes(ax: Axes, puffer_scenario: dict) -> None:
             )
 
 
-def _render_traffic_lights(ax: Axes, puffer_scenario: dict, timestep: int) -> None:
-    """Render traffic lights with their states at the given timestep."""
+def _render_traffic_controls(ax: Axes, puffer_scenario: dict, timestep: int) -> None:
+    """Render traffic control elements with type-specific shapes."""
     traffic_elements = puffer_scenario.get("traffic_control_elements", [])
 
     for element in traffic_elements:
@@ -432,26 +438,44 @@ def _render_traffic_lights(ax: Axes, puffer_scenario: dict, timestep: int) -> No
             continue
 
         x, y = xyz[0], xyz[1]
+        tc_type = element.get("type", 1)
 
-        # Get state at timestep
-        states = element.get("states", np.array([]))
-        state = 0 if len(states) == 0 or timestep >= len(states) else int(states[timestep])
-
-        # Get color based on state
-        color = TRAFFIC_LIGHT_COLORS.get(state, "#808080")
-
-        # Draw traffic light as a circle
-        ax.add_patch(
-            Circle(
-                (x, y),
-                radius=0.6,
-                alpha=0.9,
-                facecolor=color,
-                edgecolor="black",
-                linewidth=0.5,
-                zorder=15,
-            ),
-        )
+        if tc_type == 1:
+            # Traffic light — circle with dynamic state color
+            states = element.get("states", np.array([]))
+            state = 0 if len(states) == 0 or timestep >= len(states) else int(states[timestep])
+            color = TRAFFIC_LIGHT_COLORS.get(state, "#808080")
+            ax.add_patch(
+                Circle((x, y), radius=0.6, alpha=0.9, facecolor=color, edgecolor="black", linewidth=0.5, zorder=15),
+            )
+        elif tc_type == 2:
+            # Stop sign — red square
+            ax.add_patch(
+                FancyBboxPatch(
+                    (x - 0.5, y - 0.5),
+                    1.0,
+                    1.0,
+                    alpha=0.9,
+                    facecolor="#DC2626",
+                    edgecolor="black",
+                    linewidth=0.5,
+                    zorder=15,
+                ),
+            )
+        elif tc_type == 3:
+            # Yield sign — yellow triangle
+            ax.add_patch(
+                RegularPolygon(
+                    (x, y),
+                    numVertices=3,
+                    radius=0.7,
+                    alpha=0.9,
+                    facecolor="#EAB308",
+                    edgecolor="black",
+                    linewidth=0.5,
+                    zorder=15,
+                ),
+            )
 
 
 def _render_agents(ax: Axes, puffer_scenario: dict, timestep: int, show_future: bool) -> None:
