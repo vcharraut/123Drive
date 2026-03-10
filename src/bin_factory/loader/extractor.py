@@ -75,7 +75,7 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
             positions[frame_idx] = [float(ego_state.center_se3.x), float(ego_state.center_se3.y)]
             valid[frame_idx] = 1
 
-        valid_positions = positions[valid]
+        valid_positions = positions[valid > 0]
         if len(valid_positions) > 0:
             centroid = valid_positions.mean(axis=0)
 
@@ -241,8 +241,6 @@ def _extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) 
 
         if len(connected_types) == 1:
             lane["type"] = connected_types.pop()
-        else:
-            pass
 
     # NOTE: BANDAGE for nuPlan map issues
     # Flip entry/exit lane directions if they are reverse of lane geometry direction.

@@ -11,6 +11,13 @@ from bin_factory.convert import types as puffer_types
 
 logger = logger_utils.get_logger(__name__)
 
+_AGENT_TYPE_MAP = {
+    DefaultBoxDetectionLabel.EGO: puffer_types.AgentType.VEHICLE,
+    DefaultBoxDetectionLabel.VEHICLE: puffer_types.AgentType.VEHICLE,
+    DefaultBoxDetectionLabel.PERSON: puffer_types.AgentType.PEDESTRIAN,
+    DefaultBoxDetectionLabel.BICYCLE: puffer_types.AgentType.CYCLIST,
+}
+
 
 def convert_agents(
     dynamic_agents: dict,
@@ -55,7 +62,7 @@ def convert_agents(
             sdc_index = idx
 
         # Convert agent type to int
-        agent_type_int = _convert_agent_type_to_int(agent_data["type"])
+        agent_type_int = _AGENT_TYPE_MAP.get(agent_data["type"], puffer_types.AgentType.OTHER)
 
         route = routes.compute_agent_route(
             agent_data=(
@@ -91,16 +98,6 @@ def convert_agents(
         puffer_agents.append(puffer_agent)
 
     return puffer_agents, sdc_index
-
-
-def _convert_agent_type_to_int(agent_type) -> int:
-    type_map = {
-        DefaultBoxDetectionLabel.EGO: puffer_types.AgentType.VEHICLE,
-        DefaultBoxDetectionLabel.VEHICLE: puffer_types.AgentType.VEHICLE,
-        DefaultBoxDetectionLabel.PERSON: puffer_types.AgentType.PEDESTRIAN,
-        DefaultBoxDetectionLabel.BICYCLE: puffer_types.AgentType.CYCLIST,
-    }
-    return type_map.get(agent_type, puffer_types.AgentType.OTHER)
 
 
 def _extract_lane_centers(static_map_elements: dict) -> tuple[list, np.ndarray, dict, np.ndarray]:

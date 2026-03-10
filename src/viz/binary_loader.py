@@ -152,7 +152,7 @@ def _read_dynamic_agent(f) -> dict:
     if num_route_ints > 0:
         route = list(struct.unpack(f"{num_route_ints}i", f.read(4 * num_route_ints)))
 
-    f.read(16)
+    f.read(16)  # skip goal_xyz (3 floats) + mark_as_expert (1 int)
 
     return {
         "id": agent_id,
@@ -174,21 +174,30 @@ def _read_object(f) -> dict:
     }
 
 
+def _read_float_array(f, n):
+    return np.frombuffer(f.read(4 * n), dtype=np.float32).copy()
+
+
+def _read_int_array(f, n):
+    return np.frombuffer(f.read(4 * n), dtype=np.int32).copy()
+
+
 def _read_dynamic_states(f, trajectory_length: int) -> dict:
-    traj_x = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    traj_y = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    traj_z = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+    n = trajectory_length
+    traj_x = _read_float_array(f, n)
+    traj_y = _read_float_array(f, n)
+    traj_z = _read_float_array(f, n)
     xyz = np.stack([traj_x, traj_y, traj_z], axis=1)
 
-    heading = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    vel_x = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    vel_y = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+    heading = _read_float_array(f, n)
+    vel_x = _read_float_array(f, n)
+    vel_y = _read_float_array(f, n)
     velocity = np.stack([vel_x, vel_y], axis=1)
 
-    length = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    width = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    height = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    valid = np.array(struct.unpack(f"{trajectory_length}i", f.read(4 * trajectory_length)))
+    length = _read_float_array(f, n)
+    width = _read_float_array(f, n)
+    height = _read_float_array(f, n)
+    valid = _read_int_array(f, n)
 
     return {
         "xyz": xyz,
@@ -211,9 +220,9 @@ def _read_road_map_element(f) -> dict:
     segment_length = struct.unpack("i", f.read(4))[0]
 
     # Read geometry - TRANSPOSED
-    x = np.array(struct.unpack(f"{segment_length}f", f.read(4 * segment_length)))
-    y = np.array(struct.unpack(f"{segment_length}f", f.read(4 * segment_length)))
-    z = np.array(struct.unpack(f"{segment_length}f", f.read(4 * segment_length)))
+    x = _read_float_array(f, segment_length)
+    y = _read_float_array(f, segment_length)
+    z = _read_float_array(f, segment_length)
 
     # Combine into (N, 3) array
     xyz = np.stack([x, y, z], axis=1)
