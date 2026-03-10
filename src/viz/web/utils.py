@@ -15,11 +15,9 @@ AGENT_TYPE_NAMES = {
 # Road map element type mapping (from src/encoder/roadgraph.py)
 ROAD_ELEMENT_TYPES = {
     0: "lane_unknown",
-    # Lanes (1-9)
     1: "lane_freeway",
     2: "lane_surface_street",
     3: "lane_bike",
-    # Road lines (10-19)
     10: "road_line_unknown",
     11: "road_line_broken_white",
     12: "road_line_solid_white",
@@ -29,12 +27,10 @@ ROAD_ELEMENT_TYPES = {
     16: "road_line_solid_yellow",
     17: "road_line_solid_double_yellow",
     18: "road_line_passing_yellow",
-    # Road edges (20-29)
     20: "road_edge_unknown",
     21: "road_edge_boundary",
     22: "road_edge_median",
     23: "road_edge_sidewalk",
-    # Other features (31+)
     31: "crosswalk",
     32: "speed_bump",
     33: "driveway",
