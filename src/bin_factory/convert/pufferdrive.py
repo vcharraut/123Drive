@@ -5,7 +5,12 @@ from bin_factory.convert import agents, objects, roadgraph, traffic_controls
 logger = logger_utils.get_logger(__name__)
 
 
-def convert_to_puffer_dict(py123d_dict: dict, min_route_valid_points: int = 0, route_check_timestep: int = 0) -> dict:
+def convert_to_puffer_dict(
+    py123d_dict: dict,
+    min_route_valid_points: int = 0,
+    route_check_timestep: int = 0,
+    reindex_id: bool = False,
+) -> dict:
     if not isinstance(py123d_dict, dict):
         raise TypeError(f"Expected dict, got {type(py123d_dict).__name__}")
 
@@ -39,7 +44,7 @@ def convert_to_puffer_dict(py123d_dict: dict, min_route_valid_points: int = 0, r
         "tracks_to_predict": [],
     }
 
-    return {
+    puffer_dict = {
         "scenario_id": py123d_dict["id"],
         "agents": puffer_agents,
         "road_map_elements": road_map_elements,
@@ -47,3 +52,32 @@ def convert_to_puffer_dict(py123d_dict: dict, min_route_valid_points: int = 0, r
         "objects": puffer_objects,
         "metadata": puffer_metadata,
     }
+
+    if reindex_id:
+        puffer_dict = _reindex_puffer_dict(puffer_dict)
+
+    return puffer_dict
+
+
+def _reindex_puffer_dict(puffer_dict):
+    road_id_map = {r["id"]: i for i, r in enumerate(puffer_dict["road_map_elements"])}
+
+    for i, road in enumerate(puffer_dict["road_map_elements"]):
+        road["id"] = i
+        if "entry_lanes" in road:
+            road["entry_lanes"] = [road_id_map[lid] for lid in road["entry_lanes"]]
+        if "exit_lanes" in road:
+            road["exit_lanes"] = [road_id_map[lid] for lid in road["exit_lanes"]]
+
+    for i, agent in enumerate(puffer_dict["agents"]):
+        agent["id"] = i
+        agent["route"] = [road_id_map[lid] for lid in agent["route"]]
+
+    for i, tc in enumerate(puffer_dict["traffic_control_elements"]):
+        tc["id"] = i
+        tc["controlled_lanes"] = [road_id_map[lid] for lid in tc["controlled_lanes"]]
+
+    for i, obj in enumerate(puffer_dict["objects"]):
+        obj["id"] = i
+
+    return puffer_dict

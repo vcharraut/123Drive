@@ -27,6 +27,7 @@ def process_one_scenario(
     dist_threshold=10.0,
     min_route_valid_points=0,
     route_check_timestep=0,
+    reindex_id=False,
 ):
     py123d_dict = convert_py123d_scenario(raw_scenario)
     py123d_dict = process_polylines(
@@ -39,6 +40,7 @@ def process_one_scenario(
         py123d_dict,
         min_route_valid_points=min_route_valid_points,
         route_check_timestep=route_check_timestep,
+        reindex_id=reindex_id,
     )
     errors = []
     if validate_level > 0:
@@ -163,6 +165,11 @@ def main():
         default=0,
         help="Timestep at which agent must be valid for route computation",
     )
+    parser.add_argument(
+        "--reindex_id",
+        action="store_true",
+        help="Reindex all element IDs to contiguous range(0, n)",
+    )
 
     args = parser.parse_args()
 
@@ -202,6 +209,7 @@ def main():
                 dist_threshold=args.dist_threshold,
                 min_route_valid_points=args.min_route_valid_points,
                 route_check_timestep=args.route_check_timestep,
+                reindex_id=args.reindex_id,
             )
             for i, scenario in tqdm(enumerate(scenarios), total=len(scenarios))
         )
