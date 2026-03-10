@@ -59,7 +59,7 @@
       <div class="info-row"><span class="info-label">Vel XY</span><span class="info-val">${escapeHtml(vx)}, ${escapeHtml(vy)}</span></div>
       <div class="info-row"><span class="info-label">L×W×H</span><span class="info-val">${escapeHtml(l)}×${escapeHtml(w)}×${escapeHtml(ht)}</span></div>
       <div class="info-row"><span class="info-label">Route lanes</span><span class="info-val" style="font-size:9px">${routeLanes}</span></div>
-      <details><summary>Trajectory (50 steps)</summary>
+      <details><summary>Trajectory</summary>
         <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th><th>V</th></tr></thead>
         <tbody>${trajRows}</tbody></table>
       </details>`;
@@ -87,7 +87,7 @@
       <div class="info-row"><span class="info-label">Entry</span><span class="info-val" style="font-size:9px">${entry}</span></div>
       <div class="info-row"><span class="info-label">Exit</span><span class="info-val" style="font-size:9px">${exit}</span></div>
       <div class="info-row"><span class="info-label">Speed lim</span><span class="info-val">${escapeHtml(sl)}</span></div>
-      <details><summary>Polyline (30 pts)</summary>
+      <details><summary>Polyline</summary>
         <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th></tr></thead>
         <tbody>${ptRows}</tbody></table>
       </details>`;
