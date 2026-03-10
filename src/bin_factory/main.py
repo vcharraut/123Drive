@@ -7,11 +7,11 @@ from tqdm import tqdm
 
 from bin_factory import logger_utils
 from bin_factory.convert.pufferdrive import convert_to_puffer_dict
-from bin_factory.convert.serialize import puffer_dict_to_binary
 from bin_factory.loader.extractor import convert_py123d_scenario
 from bin_factory.loader.load import get_py123d_scenarios
 from bin_factory.transforms.polyline import process_polylines
 from bin_factory.transforms.validation import validate_puffer_dict
+from src.serialize import puffer_dict_to_binary
 
 
 logger = logger_utils.get_logger(__name__)
