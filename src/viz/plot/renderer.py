@@ -14,23 +14,25 @@ from matplotlib.axes import Axes
 from matplotlib.patches import Circle, FancyBboxPatch, RegularPolygon
 from matplotlib.transforms import Affine2D
 
+from bin_factory.convert.types import TL_STATE_COLORS
 
-# Color scheme for visualization
+
+# Color scheme for visualization (render-specific styling, not type definitions)
 COLORS = {
-    "ego": "#FF0000",  # Red
-    "vehicle": "#1F77B4",  # Blue
-    "pedestrian": "#2CA02C",  # Green
-    "cyclist": "#FF7F0E",  # Orange
-    "road_line": "#808080",  # Grey
-    "road_edge": "#000000",  # Black
-    "lane": "#D3D3D3",  # Light gray
-    "lane_unknown": "#00BFFF",  # Deep sky blue
-    "road_line_unknown": "#FF00FF",  # Magenta
-    "road_edge_unknown": "#00FFFF",  # Cyan
-    "crosswalk": "#FFD700",  # Gold
-    "speed_bump": "#FF69B4",  # Pink
-    "stop_sign": "#FF0000",  # Red
-    "traffic_light": "#00FF00",  # Green (default)
+    "ego": "#FF0000",
+    "vehicle": "#1F77B4",
+    "pedestrian": "#2CA02C",
+    "cyclist": "#FF7F0E",
+    "road_line": "#808080",
+    "road_edge": "#000000",
+    "lane": "#D3D3D3",
+    "lane_unknown": "#00BFFF",
+    "road_line_unknown": "#FF00FF",
+    "road_edge_unknown": "#00FFFF",
+    "crosswalk": "#FFD700",
+    "speed_bump": "#FF69B4",
+    "stop_sign": "#FF0000",
+    "traffic_light": "#00FF00",
 }
 
 # Color palette for vehicles (distinct colors for each agent)
@@ -57,52 +59,9 @@ VEHICLE_COLORS = [
 
 
 def get_agent_color(agent_id: int, is_ego: bool) -> str:
-    """Get consistent color for an agent based on ID."""
     if is_ego:
-        return VEHICLE_COLORS[0]  # Red for ego
-    # Use modulo to cycle through colors if more agents than colors
+        return VEHICLE_COLORS[0]
     return VEHICLE_COLORS[(agent_id % (len(VEHICLE_COLORS) - 1)) + 1]
-
-
-# Puffer agent type mapping
-AGENT_TYPE_NAMES = {
-    0: "unset",
-    1: "vehicle",
-    2: "pedestrian",
-    3: "cyclist",
-    4: "other",
-}
-
-# Traffic light state mapping
-TRAFFIC_LIGHT_STATES = {
-    0: "unknown",
-    1: "arrow_stop",
-    2: "arrow_caution",
-    3: "arrow_go",
-    4: "stop",
-    5: "caution",
-    6: "go",
-    7: "flashing_stop",
-    8: "flashing_caution",
-}
-
-TRAFFIC_CONTROL_TYPES = {
-    1: "traffic_light",
-    2: "stop_sign",
-    3: "yield_sign",
-}
-
-TRAFFIC_LIGHT_COLORS = {
-    0: "#808080",  # Unknown - gray
-    1: "#FF0000",  # Arrow red
-    2: "#FFFF00",  # Arrow yellow
-    3: "#00FF00",  # Arrow green
-    4: "#FF0000",  # Red
-    5: "#FFFF00",  # Yellow
-    6: "#00FF00",  # Green
-    7: "#FF6600",  # Flashing red
-    8: "#FFFF00",  # Flashing yellow
-}
 
 
 def render_scenario_png(
@@ -444,7 +403,7 @@ def _render_traffic_controls(ax: Axes, puffer_scenario: dict, timestep: int) -> 
             # Traffic light — circle with dynamic state color
             states = element.get("states", np.array([]))
             state = 0 if len(states) == 0 or timestep >= len(states) else int(states[timestep])
-            color = TRAFFIC_LIGHT_COLORS.get(state, "#808080")
+            color = TL_STATE_COLORS.get(state, "#808080")
             ax.add_patch(
                 Circle((x, y), radius=0.6, alpha=0.9, facecolor=color, edgecolor="black", linewidth=0.5, zorder=15),
             )

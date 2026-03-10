@@ -11,17 +11,17 @@ from bin_factory.convert import types as puffer_types
 logger = logger_utils.get_logger(__name__)
 
 PY123D_TO_PUFFER_TL = {
-    TrafficLightStatus.GREEN: puffer_types.TL_STATE_GREEN,
-    TrafficLightStatus.YELLOW: puffer_types.TL_STATE_YELLOW,
-    TrafficLightStatus.RED: puffer_types.TL_STATE_RED,
-    TrafficLightStatus.OFF: puffer_types.TL_STATE_OFF,
-    TrafficLightStatus.UNKNOWN: puffer_types.TL_STATE_UNKNOWN,
+    TrafficLightStatus.GREEN: puffer_types.TLState.GREEN,
+    TrafficLightStatus.YELLOW: puffer_types.TLState.YELLOW,
+    TrafficLightStatus.RED: puffer_types.TLState.RED,
+    TrafficLightStatus.OFF: puffer_types.TLState.OFF,
+    TrafficLightStatus.UNKNOWN: puffer_types.TLState.UNKNOWN,
 }
 
 STOP_ZONE_TO_PUFFER = {
-    StopZoneType.TRAFFIC_LIGHT: puffer_types.TRAFFIC_LIGHT,
-    StopZoneType.STOP_SIGN: puffer_types.STOP_SIGN,
-    StopZoneType.YIELD_SIGN: puffer_types.YIELD_SIGN,
+    StopZoneType.TRAFFIC_LIGHT: puffer_types.TCType.TRAFFIC_LIGHT,
+    StopZoneType.STOP_SIGN: puffer_types.TCType.STOP_SIGN,
+    StopZoneType.YIELD_SIGN: puffer_types.TCType.YIELD_SIGN,
 }
 
 
@@ -54,7 +54,7 @@ def _convert_observed_traffic_lights(traffic_lights: dict) -> tuple[list[dict], 
         puffer_elements.append(
             {
                 "id": int(element_id),
-                "type": puffer_types.TRAFFIC_LIGHT,
+                "type": puffer_types.TCType.TRAFFIC_LIGHT,
                 "xyz": element_data["position"],
                 "states": _traffic_light_states(element_data["states"]),
                 "controlled_lanes": controlled_lanes,

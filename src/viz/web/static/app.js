@@ -59,25 +59,32 @@ const ROUTELESS_COLOR = [148, 163, 184]; // slate-400
 const ROUTE_COLOR = [116, 136, 160, 88];
 const EGO_ROUTE_COLOR = [220, 38, 38, 96];
 
-const AGENT_TYPE_NAMES = {0:'unset', 1:'vehicle', 2:'pedestrian', 3:'cyclist', 4:'other'};
-
-const ROAD_TYPE_NAMES = {
-  0:'lane_unknown', 1:'lane_freeway', 2:'lane_surface_street', 3:'lane_bike',
-  10:'road_line_unknown', 11:'road_line_broken_white', 12:'road_line_solid_white',
-  13:'road_line_double_white', 14:'road_line_broken_yellow', 15:'road_line_double_yellow',
-  16:'road_line_solid_yellow', 17:'road_line_solid_double_yellow', 18:'road_line_passing_yellow',
-  20:'road_edge_unknown', 21:'road_edge_boundary', 22:'road_edge_median', 23:'road_edge_sidewalk',
-  31:'crosswalk', 32:'speed_bump', 33:'stop_sign',
+// Type constants — loaded from /api/types, fallbacks until fetched
+window.TYPES = {
+  AGENT_TYPE_NAMES: {0:'unset', 1:'vehicle', 2:'pedestrian', 3:'cyclist', 4:'other'},
+  ROAD_TYPE_NAMES: {},
+  TC_TYPE_NAMES: {1:'traffic_light', 2:'stop_sign', 3:'yield_sign'},
+  TL_STATE_NAMES: {0:'green', 1:'yellow', 2:'red', 3:'off', 4:'unknown'},
+  TL_STATE_COLORS: {0:'#00FF00', 1:'#FFFF00', 2:'#FF0000', 3:'#808080', 4:'#808080'},
+  LANE_RANGE: [0, 9],
+  ROAD_LINE_RANGE: [10, 19],
+  ROAD_EDGE_RANGE: [20, 29],
+  ROAD_COLORS: {},
 };
-
-const TC_TYPE_NAMES = {1:'traffic_light', 2:'stop_sign', 3:'yield_sign'};
 const TC_TYPE_COLORS = {2:[220,38,38], 3:[234,179,8]};
 
-const TL_STATE_NAMES = {0:'unknown',1:'arrow_stop',2:'arrow_caution',3:'arrow_go',4:'stop',5:'caution',6:'go',7:'flashing_stop',8:'flashing_caution'};
-const TL_STATE_COLORS = {
-  0:[156,163,175], 1:[220,38,38],  2:[234,179,8],  3:[22,163,74],
-  4:[220,38,38],   5:[234,179,8],  6:[22,163,74],  7:[234,88,12], 8:[234,179,8]
-};
+// RGB versions of TL_STATE_COLORS for deck.gl layers
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return [r, g, b];
+}
+function getTlStateColorRgb(state) {
+  const hex = window.TYPES.TL_STATE_COLORS[state] || '#808080';
+  return hexToRgb(hex);
+}
+
 
 const SPEED_MS = {0.5: 200, 1: 100, 2: 50, 4: 25};
 
@@ -679,7 +686,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     if (tlElems.length) {
       const tlData = tlElems.map(tl => {
         const s = t < tl.states.length ? tl.states[t] : 0;
-        return {pos: tl.xyz, color: TL_STATE_COLORS[s] || [128,128,128], state: s, tl};
+        return {pos: tl.xyz, color: getTlStateColorRgb(s), state: s, tl};
       });
       layers.push(new ScatterplotLayer({
         id: 'traffic-lights', data: tlData,
@@ -918,11 +925,11 @@ function renderElementInfo(type, data) {
   const html = renderElementInfoHtml(type, data, {
     t: state.timestep,
     scenario: state.scenario,
-    AGENT_TYPE_NAMES,
-    ROAD_TYPE_NAMES,
-    TC_TYPE_NAMES,
-    TL_STATE_NAMES,
-    TL_STATE_COLORS,
+    AGENT_TYPE_NAMES: window.TYPES.AGENT_TYPE_NAMES,
+    ROAD_TYPE_NAMES: window.TYPES.ROAD_TYPE_NAMES,
+    TC_TYPE_NAMES: window.TYPES.TC_TYPE_NAMES,
+    TL_STATE_NAMES: window.TYPES.TL_STATE_NAMES,
+    TL_STATE_COLORS: window.TYPES.TL_STATE_COLORS,
     escapeHtml,
     safeIdList,
     getObjectsOfInterest,
@@ -1030,8 +1037,16 @@ function fitView() {
 let allScenarios = [];
 let activeScenario = null;
 
+async function fetchTypes() {
+  try {
+    const resp = await fetch('/api/types');
+    if (resp.ok) Object.assign(window.TYPES, await resp.json());
+  } catch (_) { /* use fallbacks */ }
+}
+
 async function loadScenarioList() {
   try {
+    await fetchTypes();
     const resp = await fetch('/api/scenarios');
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}`);

@@ -109,8 +109,7 @@
     if (tcType === 1) {
       const stateNow = t < data.states.length ? data.states[t] : 0;
       const stateName = TL_STATE_NAMES[stateNow] || 'unknown';
-      const col = TL_STATE_COLORS[stateNow] || [128, 128, 128];
-      const colStr = `rgb(${col[0]},${col[1]},${col[2]})`;
+      const colStr = TL_STATE_COLORS[stateNow] || '#808080';
 
       let prev = -1;
       const transitions = data.states.reduce((acc, s, i) => {

@@ -95,12 +95,12 @@ def convert_agents(
 
 def _convert_agent_type_to_int(agent_type) -> int:
     type_map = {
-        DefaultBoxDetectionLabel.EGO: puffer_types.VEHICLE,
-        DefaultBoxDetectionLabel.VEHICLE: puffer_types.VEHICLE,
-        DefaultBoxDetectionLabel.PERSON: puffer_types.PEDESTRIAN,
-        DefaultBoxDetectionLabel.BICYCLE: puffer_types.CYCLIST,
+        DefaultBoxDetectionLabel.EGO: puffer_types.AgentType.VEHICLE,
+        DefaultBoxDetectionLabel.VEHICLE: puffer_types.AgentType.VEHICLE,
+        DefaultBoxDetectionLabel.PERSON: puffer_types.AgentType.PEDESTRIAN,
+        DefaultBoxDetectionLabel.BICYCLE: puffer_types.AgentType.CYCLIST,
     }
-    return type_map.get(agent_type, puffer_types.OTHER)
+    return type_map.get(agent_type, puffer_types.AgentType.OTHER)
 
 
 def _extract_lane_centers(static_map_elements: dict) -> tuple[list, np.ndarray, dict, np.ndarray]:

@@ -87,11 +87,12 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
 
     if scene is not None:
         agents = _extract_objects(scene, centroid)
-        # filter to agent-like labels only
+        # Filter to agent-like labels only
         agents = {oid: obj for oid, obj in agents.items() if obj["type"] in _AGENT_LABELS}
 
         py123d_dict["agents"] = agents
-        py123d_dict["traffic_lights"] = _extract_traffic_lights(scene, map_api, centroid)
+        map_lane_ids = {eid for eid, el in py123d_dict["map"].items() if el.get("layer") == MapLayer.LANE}
+        py123d_dict["traffic_lights"] = _extract_traffic_lights(scene, map_api, centroid, map_lane_ids)
         py123d_dict["scenario_length"] = scene.number_of_iterations
         py123d_dict["timestep_seconds"] = scene.log_metadata.timestep_seconds
 
@@ -104,7 +105,7 @@ def _extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
     objects: dict[int, dict] = {0: _make_empty_agent(episode_length, DefaultBoxDetectionLabel.EGO)}
     tokens_to_object_id: dict[str, int] = {}
 
-    # -- ego track --
+    # Ego agent is always object ID 0, built from ego state and box detections
     ego = objects[0]
     timestep = scene.log_metadata.timestep_seconds
 
@@ -126,7 +127,7 @@ def _extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
         delta_pos = ego["position"][frame_idx, :2] - ego["position"][frame_idx - 1, :2]
         ego["velocity"][frame_idx] = delta_pos / timestep
 
-    # -- detection tracks --
+    # Detections for all other agents
     next_object_id = 0
     for frame_idx in range(episode_length):
         detections = scene.get_box_detections_se3_at_iteration(frame_idx)
@@ -156,7 +157,7 @@ def _extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
     return objects
 
 
-def _extract_traffic_lights(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarray) -> dict[int, dict]:
+def _extract_traffic_lights(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarray, lane_ids: set[int]) -> dict[int, dict]:
     """Extract dynamic traffic light states from py123d logs."""
     episode_length = scene.number_of_iterations
     elements: dict[int, dict] = {}
@@ -168,14 +169,10 @@ def _extract_traffic_lights(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarr
 
         for detection in traffic_lights:
             lane_id = int(detection.lane_id)
+            if lane_id not in lane_ids:
+                continue
             if lane_id not in elements:
-                try:
-                    position = _get_lane_position(map_api, lane_id, centroid)
-                except ValueError:
-                    # Some traffic light detections can be on map borders where lane geometry is missing;
-                    # skip these with a warning.
-                    # NOTE: This happens on Waymo maps due to weird map filtering
-                    continue
+                position = _get_lane_position(map_api, lane_id, centroid)
                 elements[lane_id] = {
                     "position": np.array(position, dtype=np.float64),
                     "states": [None] * episode_length,
@@ -221,8 +218,9 @@ def _extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) 
         else:
             non_lane_objects.append(obj)
 
+    # NOTE: BANDAGE for nuPlan map issues
     # Infer undefined lane types based on connected lanes if possible
-    # NOTE: Problem exists in nuPlan where some lanes in intersections are marked as UNDEFINED but are actually drivable
+    # Problem exists in nuPlan where some lanes in intersections are marked as UNDEFINED but are actually drivable
     for lane_id in undefined_lane:
         lane = result[lane_id]
         entry_types = {result[entry_id]["type"] for entry_id in lane.get("entry_lanes", []) if entry_id in result}
@@ -234,6 +232,7 @@ def _extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) 
         else:
             pass
 
+    # NOTE: BANDAGE for nuPlan map issues
     # Flip entry/exit lane directions if they are reverse of lane geometry direction.
     # Entry lanes should connect to lane start; exit lanes should connect to lane end.
     for lane in result.values():
@@ -266,7 +265,7 @@ def _extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) 
                 lane["entry_lanes"].append(exit_id)
 
     # Filter dangling lane topology references
-    # NOTE: Happens on nuPlan after filtering to map objects within a radius.
+    # Happens on nuPlan after filtering to map objects within a radius.
     lane_ids = set(result.keys())
     for element in result.values():
         element["entry_lanes"] = [lid for lid in element["entry_lanes"] if lid in lane_ids]

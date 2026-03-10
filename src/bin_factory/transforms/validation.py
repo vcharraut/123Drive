@@ -15,7 +15,7 @@ VALIDATION_SEMANTIC = "semantic"
 
 VALID_AGENT_TYPES = {1, 2, 3, 4}
 LANE_TYPES = set(range(10))
-VALID_TL_STATES = {0, 2, 3, 4}
+VALID_TL_STATES = {0, 1, 2, 3, 4}
 
 REQUIRED_TOP_LEVEL_KEYS = {
     "scenario_id",
@@ -37,6 +37,10 @@ REQUIRED_AGENT_STATE_KEYS = {"xyz", "heading", "velocity", "length", "width", "h
 REQUIRED_ROAD_KEYS = {"id", "type", "xyz"}
 REQUIRED_LANE_KEYS = {"entry_lanes", "exit_lanes", "speed_limit"}
 REQUIRED_TRAFFIC_CONTROL_KEYS = {"id", "type", "xyz", "states", "controlled_lanes"}
+
+
+class ValidationError(Exception):
+    pass
 
 
 def validate_puffer_dict(

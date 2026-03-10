@@ -112,7 +112,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     const zArr = f32arr(S);
 
     let entry_lanes = [], exit_lanes = [], speed_limit = 0;
-    if (type >= 0 && type <= 9) {
+    if (type >= TYPES.LANE_RANGE[0] && type <= TYPES.LANE_RANGE[1]) {
       entry_lanes = intList();
       exit_lanes = intList();
       speed_limit = f32();

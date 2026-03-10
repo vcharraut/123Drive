@@ -67,42 +67,42 @@ def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "")
 def _convert_map_element_type_to_int(layer: MapLayer, element_type) -> int:
     if layer == MapLayer.LANE:
         lane_type_map = {
-            LaneType.UNDEFINED: puffer_types.LANE_UNKNOWN,
-            LaneType.FREEWAY: puffer_types.LANE_FREEWAY,
-            LaneType.SURFACE_STREET: puffer_types.LANE_SURFACE_STREET,
-            LaneType.BIKE_LANE: puffer_types.LANE_BIKE_LANE,
+            LaneType.UNDEFINED: puffer_types.LaneType.UNKNOWN,
+            LaneType.FREEWAY: puffer_types.LaneType.FREEWAY,
+            LaneType.SURFACE_STREET: puffer_types.LaneType.SURFACE_STREET,
+            LaneType.BIKE_LANE: puffer_types.LaneType.BIKE_LANE,
         }
-        return lane_type_map.get(element_type, puffer_types.LANE_UNKNOWN)
+        return lane_type_map.get(element_type, puffer_types.LaneType.UNKNOWN)
 
     if layer == MapLayer.ROAD_LINE:
         road_line_type_map = {
-            RoadLineType.UNKNOWN: puffer_types.ROAD_LINE_UNKNOWN,
-            RoadLineType.DASHED_WHITE: puffer_types.ROAD_LINE_BROKEN_SINGLE_WHITE,
-            RoadLineType.SOLID_WHITE: puffer_types.ROAD_LINE_SOLID_SINGLE_WHITE,
-            RoadLineType.DOUBLE_SOLID_WHITE: puffer_types.ROAD_LINE_SOLID_DOUBLE_WHITE,
-            RoadLineType.DASHED_YELLOW: puffer_types.ROAD_LINE_BROKEN_SINGLE_YELLOW,
-            RoadLineType.DOUBLE_DASH_YELLOW: puffer_types.ROAD_LINE_BROKEN_DOUBLE_YELLOW,
-            RoadLineType.SOLID_YELLOW: puffer_types.ROAD_LINE_SOLID_SINGLE_YELLOW,
-            RoadLineType.DOUBLE_SOLID_YELLOW: puffer_types.ROAD_LINE_SOLID_DOUBLE_YELLOW,
-            RoadLineType.DASH_SOLID_YELLOW: puffer_types.ROAD_LINE_PASSING_DOUBLE_YELLOW,
-            RoadLineType.SOLID_DASH_YELLOW: puffer_types.ROAD_LINE_PASSING_DOUBLE_YELLOW,
+            RoadLineType.UNKNOWN: puffer_types.RoadLineType.UNKNOWN,
+            RoadLineType.DASHED_WHITE: puffer_types.RoadLineType.BROKEN_SINGLE_WHITE,
+            RoadLineType.SOLID_WHITE: puffer_types.RoadLineType.SOLID_SINGLE_WHITE,
+            RoadLineType.DOUBLE_SOLID_WHITE: puffer_types.RoadLineType.SOLID_DOUBLE_WHITE,
+            RoadLineType.DASHED_YELLOW: puffer_types.RoadLineType.BROKEN_SINGLE_YELLOW,
+            RoadLineType.DOUBLE_DASH_YELLOW: puffer_types.RoadLineType.BROKEN_DOUBLE_YELLOW,
+            RoadLineType.SOLID_YELLOW: puffer_types.RoadLineType.SOLID_SINGLE_YELLOW,
+            RoadLineType.DOUBLE_SOLID_YELLOW: puffer_types.RoadLineType.SOLID_DOUBLE_YELLOW,
+            RoadLineType.DASH_SOLID_YELLOW: puffer_types.RoadLineType.PASSING_DOUBLE_YELLOW,
+            RoadLineType.SOLID_DASH_YELLOW: puffer_types.RoadLineType.PASSING_DOUBLE_YELLOW,
             # Collapsed types
-            RoadLineType.DOUBLE_DASH_WHITE: puffer_types.ROAD_LINE_BROKEN_SINGLE_WHITE,
-            RoadLineType.DASH_SOLID_WHITE: puffer_types.ROAD_LINE_SOLID_SINGLE_WHITE,
-            RoadLineType.SOLID_DASH_WHITE: puffer_types.ROAD_LINE_SOLID_SINGLE_WHITE,
-            RoadLineType.SOLID_BLUE: puffer_types.ROAD_LINE_SOLID_SINGLE_WHITE,
+            RoadLineType.DOUBLE_DASH_WHITE: puffer_types.RoadLineType.BROKEN_SINGLE_WHITE,
+            RoadLineType.DASH_SOLID_WHITE: puffer_types.RoadLineType.SOLID_SINGLE_WHITE,
+            RoadLineType.SOLID_DASH_WHITE: puffer_types.RoadLineType.SOLID_SINGLE_WHITE,
+            RoadLineType.SOLID_BLUE: puffer_types.RoadLineType.SOLID_SINGLE_WHITE,
         }
-        return road_line_type_map.get(element_type, puffer_types.ROAD_LINE_UNKNOWN)
+        return road_line_type_map.get(element_type, puffer_types.RoadLineType.UNKNOWN)
 
     if layer == MapLayer.ROAD_EDGE:
         road_edge_type_map = {
-            RoadEdgeType.UNKNOWN: puffer_types.ROAD_EDGE_UNKNOWN,
-            RoadEdgeType.ROAD_EDGE_BOUNDARY: puffer_types.ROAD_EDGE_BOUNDARY,
-            RoadEdgeType.ROAD_EDGE_MEDIAN: puffer_types.ROAD_EDGE_MEDIAN,
+            RoadEdgeType.UNKNOWN: puffer_types.RoadEdgeType.UNKNOWN,
+            RoadEdgeType.ROAD_EDGE_BOUNDARY: puffer_types.RoadEdgeType.BOUNDARY,
+            RoadEdgeType.ROAD_EDGE_MEDIAN: puffer_types.RoadEdgeType.MEDIAN,
         }
-        return road_edge_type_map.get(element_type, puffer_types.ROAD_EDGE_UNKNOWN)
+        return road_edge_type_map.get(element_type, puffer_types.RoadEdgeType.UNKNOWN)
 
     if layer == MapLayer.CROSSWALK:
-        return puffer_types.CROSSWALK
+        return puffer_types.MiscRoadType.CROSSWALK
 
     return -1

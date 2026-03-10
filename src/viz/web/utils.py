@@ -2,65 +2,20 @@
 
 import numpy as np
 
-
-# Agent type mapping
-AGENT_TYPE_NAMES = {
-    0: "unset",
-    1: "vehicle",
-    2: "pedestrian",
-    3: "cyclist",
-    4: "other",
-}
-
-# Road map element type mapping (from src/encoder/roadgraph.py)
-ROAD_ELEMENT_TYPES = {
-    0: "lane_unknown",
-    1: "lane_freeway",
-    2: "lane_surface_street",
-    3: "lane_bike",
-    10: "road_line_unknown",
-    11: "road_line_broken_white",
-    12: "road_line_solid_white",
-    13: "road_line_double_white",
-    14: "road_line_broken_yellow",
-    15: "road_line_double_yellow",
-    16: "road_line_solid_yellow",
-    17: "road_line_solid_double_yellow",
-    18: "road_line_passing_yellow",
-    20: "road_edge_unknown",
-    21: "road_edge_boundary",
-    22: "road_edge_median",
-    23: "road_edge_sidewalk",
-    31: "crosswalk",
-    32: "speed_bump",
-    33: "driveway",
-}
-
-# Traffic light state mapping
-TRAFFIC_LIGHT_STATES = {
-    0: "unknown",
-    1: "arrow_stop",
-    2: "arrow_caution",
-    3: "arrow_go",
-    4: "stop",
-    5: "caution",
-    6: "go",
-    7: "flashing_stop",
-    8: "flashing_caution",
-}
-
-# Traffic light colors
-TRAFFIC_LIGHT_COLORS = {
-    0: "#808080",  # Unknown - gray
-    1: "#FF0000",  # Arrow red
-    2: "#FFFF00",  # Arrow yellow
-    3: "#00FF00",  # Arrow green
-    4: "#FF0000",  # Red
-    5: "#FFFF00",  # Yellow
-    6: "#00FF00",  # Green
-    7: "#FF6600",  # Flashing red
-    8: "#FFFF00",  # Flashing yellow
-}
+from bin_factory.convert.types import (
+    AGENT_TYPE_NAMES,
+    ROAD_COLORS,
+    ROAD_TYPE_NAMES,
+    TL_STATE_COLORS,
+    TL_STATE_NAMES,
+    LaneType,
+    MiscRoadType,
+    RoadEdgeType,
+    RoadLineType,
+    is_road_edge,
+    is_road_lane,
+    is_road_line,
+)
 
 # Vehicle colors palette
 VEHICLE_COLORS = [
@@ -84,21 +39,6 @@ VEHICLE_COLORS = [
     "#9EDAE5",  # Light cyan
 ]
 
-# Road element styling
-ROAD_COLORS = {
-    "lane": "#E0E0E0",
-    "lane_unknown": "#00BFFF",
-    "road_line_white": "#AAAAAA",
-    "road_line_yellow": "#D4AA00",
-    "road_line_unknown": "#FF00FF",
-    "road_edge": "#333333",
-    "road_edge_unknown": "#00FFFF",
-    "crosswalk": "#FFD700",
-    "stop_sign": "#FF0000",
-    "speed_bump": "#FF69B4",
-}
-
-
 def get_agent_color(agent_id, is_ego=False):
     """Get consistent color for an agent based on ID."""
     if is_ego:
@@ -111,70 +51,47 @@ def get_agent_type_name(type_id):
 
 
 def get_road_type_name(type_id):
-    return ROAD_ELEMENT_TYPES.get(type_id, f"unknown ({type_id})")
+    return ROAD_TYPE_NAMES.get(type_id, f"unknown ({type_id})")
 
 
 def get_traffic_state_name(state_id):
-    return TRAFFIC_LIGHT_STATES.get(state_id, f"unknown ({state_id})")
+    return TL_STATE_NAMES.get(state_id, f"unknown ({state_id})")
 
 
 def get_traffic_state_color(state_id):
-    return TRAFFIC_LIGHT_COLORS.get(state_id, "#808080")
+    return TL_STATE_COLORS.get(state_id, "#808080")
 
 
-def is_lane(road_type):
-    return 0 <= road_type <= 9
+is_yellow_line = lambda t: t in (
+    RoadLineType.BROKEN_SINGLE_YELLOW, RoadLineType.BROKEN_DOUBLE_YELLOW,
+    RoadLineType.SOLID_SINGLE_YELLOW, RoadLineType.SOLID_DOUBLE_YELLOW,
+    RoadLineType.PASSING_DOUBLE_YELLOW,
+)
 
-
-def is_road_line(road_type):
-    return 10 <= road_type <= 19
-
-
-def is_road_edge(road_type):
-    return 20 <= road_type <= 29
-
-
-def is_unknown_lane(road_type):
-    return road_type == 0
-
-
-def is_unknown_road_line(road_type):
-    return road_type == 10
-
-
-def is_unknown_road_edge(road_type):
-    return road_type == 20
-
-
-def is_yellow_line(road_type):
-    return road_type in [14, 15, 16, 17, 18]
-
-
-def is_broken_line(road_type):
-    return road_type in [11, 14]
+is_broken_line = lambda t: t in (RoadLineType.BROKEN_SINGLE_WHITE, RoadLineType.BROKEN_SINGLE_YELLOW)
 
 
 def get_road_styling(road_type):
     """Get color and dash style for road element."""
-    if is_lane(road_type):
-        if is_unknown_lane(road_type):
+    if is_road_lane(road_type):
+        if road_type == LaneType.UNKNOWN:
             return ROAD_COLORS["lane_unknown"], None, 2.0
         return ROAD_COLORS["lane"], None, 1.5
     if is_road_line(road_type):
-        if is_unknown_road_line(road_type):
+        if road_type == RoadLineType.UNKNOWN:
             return ROAD_COLORS["road_line_unknown"], "dash", 2.0
         color = ROAD_COLORS["road_line_yellow"] if is_yellow_line(road_type) else ROAD_COLORS["road_line_white"]
         dash = "dot" if is_broken_line(road_type) else "solid"
         return color, dash, 1.5
     if is_road_edge(road_type):
-        if is_unknown_road_edge(road_type):
+        if road_type == RoadEdgeType.UNKNOWN:
             return ROAD_COLORS["road_edge_unknown"], "solid", 3.0
         return ROAD_COLORS["road_edge"], "solid", 2.5
-    if road_type == 31:
+    if road_type == MiscRoadType.CROSSWALK:
         return ROAD_COLORS["crosswalk"], "solid", 3
-    if road_type == 32:
+    if road_type == MiscRoadType.SPEED_BUMP:
         return ROAD_COLORS["speed_bump"], "solid", 3
-    if road_type == 33:
+    if road_type == MiscRoadType.DRIVEWAY:
         return ROAD_COLORS["stop_sign"], None, 3
     return "#888888", None, 1
 
@@ -236,7 +153,7 @@ def build_lane_map(road_elements):
     """Build dict mapping lane ID to xyz array."""
     lane_map = {}
     for elem in road_elements:
-        if is_lane(elem.get("type", 0)):
+        if is_road_lane(elem.get("type", 0)):
             lane_map[elem["id"]] = elem.get("xyz", np.array([]))
     return lane_map
 

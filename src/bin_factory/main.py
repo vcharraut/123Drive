@@ -11,7 +11,7 @@ from bin_factory.loader.extractor import convert_py123d_scenario
 from bin_factory.loader.load import get_py123d_scenarios
 from bin_factory.serialize import puffer_dict_to_binary
 from bin_factory.transforms.polyline import process_polylines
-from bin_factory.transforms.validation import validate_puffer_dict
+from bin_factory.transforms.validation import ValidationError, validate_puffer_dict
 
 
 logger = logger_utils.get_logger(__name__)
@@ -50,7 +50,7 @@ def process_one_scenario(
 
     if errors:
         scenario_id = puffer_dict.get("scenario_id", "unknown")
-        raise ValueError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
+        raise ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
     binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
     output_path = Path(output) / f"map_{map_id:03d}.bin"
@@ -61,6 +61,9 @@ def process_one_scenario(
 def _safe_process(raw_scenario, **kwargs):
     try:
         return process_one_scenario(raw_scenario, **kwargs)
+    except ValidationError as ve:
+        logger.error(f"Validation error: {ve}")
+        return None
     except Exception as e:
         logger.exception(f"Scenario failed: {e}")
         return None
