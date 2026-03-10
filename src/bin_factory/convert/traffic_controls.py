@@ -2,13 +2,27 @@
 
 import numpy as np
 from py123d.datatypes.detections import TrafficLightStatus
-from py123d.datatypes.map_objects import StopZoneType
+from py123d.datatypes.map_objects import MapLayer, StopZoneType
 
 from bin_factory import logger_utils
 from bin_factory.convert import types as puffer_types
 
 
 logger = logger_utils.get_logger(__name__)
+
+PY123D_TO_PUFFER_TL = {
+    TrafficLightStatus.GREEN: puffer_types.TL_STATE_GREEN,
+    TrafficLightStatus.YELLOW: puffer_types.TL_STATE_YELLOW,
+    TrafficLightStatus.RED: puffer_types.TL_STATE_RED,
+    TrafficLightStatus.OFF: puffer_types.TL_STATE_OFF,
+    TrafficLightStatus.UNKNOWN: puffer_types.TL_STATE_UNKNOWN,
+}
+
+STOP_ZONE_TO_PUFFER = {
+    StopZoneType.TRAFFIC_LIGHT: puffer_types.TRAFFIC_LIGHT,
+    StopZoneType.STOP_SIGN: puffer_types.STOP_SIGN,
+    StopZoneType.YIELD_SIGN: puffer_types.YIELD_SIGN,
+}
 
 
 def convert_traffic_control_elements(traffic_lights: dict, map_data: dict, scenario_length: int = 0) -> list[dict]:
@@ -58,12 +72,15 @@ def _convert_map_traffic_lights(
     unique_groups = []
 
     for element_data in map_data.values():
-        if element_data.get("type") != StopZoneType.TRAFFIC_LIGHT:
+        if element_data["layer"] != MapLayer.STOP_ZONE:
             continue
 
-        controlled_lanes = [
-            lane_id for lane_id in element_data.get("controlled_lanes", []) if lane_id not in covered_lanes
-        ]
+        stop_zone_type = element_data["type"]
+        puffer_type = STOP_ZONE_TO_PUFFER.get(stop_zone_type)
+        if puffer_type is None:
+            continue
+
+        controlled_lanes = [lane_id for lane_id in element_data["controlled_lanes"] if lane_id not in covered_lanes]
         if not controlled_lanes:
             continue
 
@@ -71,27 +88,18 @@ def _convert_map_traffic_lights(
             group_key = tuple(grouped_lanes)
             if group_key not in seen_groups:
                 seen_groups.add(group_key)
-                unique_groups.append(grouped_lanes)
+                unique_groups.append((puffer_type, grouped_lanes))
 
     return [
         {
             "id": element_id,
-            "type": puffer_types.TRAFFIC_LIGHT,
+            "type": puffer_type,
             "xyz": np.asarray(map_data[grouped_lanes[0]]["polyline"][0], dtype=np.float64),
             "states": np.zeros((scenario_length,), dtype=np.int64),
             "controlled_lanes": grouped_lanes,
         }
-        for element_id, grouped_lanes in enumerate(unique_groups, start=next_id)
+        for element_id, (puffer_type, grouped_lanes) in enumerate(unique_groups, start=next_id)
     ]
-
-
-PY123D_TO_PUFFER_TL = {
-    TrafficLightStatus.RED: puffer_types.TL_STATE_RED,
-    TrafficLightStatus.GREEN: puffer_types.TL_STATE_GREEN,
-    TrafficLightStatus.YELLOW: puffer_types.TL_STATE_YELLOW,
-    TrafficLightStatus.OFF: puffer_types.TL_STATE_UNKNOWN,
-    TrafficLightStatus.UNKNOWN: puffer_types.TL_STATE_UNKNOWN,
-}
 
 
 def _traffic_light_states(states):
