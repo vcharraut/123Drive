@@ -4,20 +4,45 @@ import numpy as np
 
 from bin_factory.convert.types import (
     AGENT_TYPE_NAMES,
-    ROAD_COLORS,
+    LANE_RANGE,
+    OBJECT_TYPE_NAMES,
+    ROAD_EDGE_RANGE,
+    ROAD_LINE_RANGE,
     ROAD_TYPE_NAMES,
-    TL_STATE_COLORS,
+    TC_TYPE_NAMES,
     TL_STATE_NAMES,
     LaneType,
     MiscRoadType,
     RoadEdgeType,
     RoadLineType,
+    TLState,
     is_road_edge,
     is_road_lane,
     is_road_line,
 )
 
-# Vehicle colors palette
+
+TL_STATE_COLORS = {
+    TLState.GREEN: "#00FF00",
+    TLState.YELLOW: "#FFFF00",
+    TLState.RED: "#FF0000",
+    TLState.OFF: "#808080",
+    TLState.UNKNOWN: "#808080",
+}
+
+ROAD_COLORS = {
+    "lane": "#E0E0E0",
+    "lane_unknown": "#00BFFF",
+    "road_line_white": "#AAAAAA",
+    "road_line_yellow": "#D4AA00",
+    "road_line_unknown": "#FF00FF",
+    "road_edge": "#333333",
+    "road_edge_unknown": "#00FFFF",
+    "crosswalk": "#FFD700",
+    "speed_bump": "#FF69B4",
+    "stop_sign": "#FF0000",
+}
+
 VEHICLE_COLORS = [
     "#FF0000",  # Red (ego)
     "#1F77B4",  # Blue
@@ -38,6 +63,22 @@ VEHICLE_COLORS = [
     "#DBDB8D",  # Light yellow-green
     "#9EDAE5",  # Light cyan
 ]
+
+
+def as_json_dict():
+    return {
+        "AGENT_TYPE_NAMES": AGENT_TYPE_NAMES,
+        "ROAD_TYPE_NAMES": ROAD_TYPE_NAMES,
+        "TL_STATE_NAMES": TL_STATE_NAMES,
+        "TL_STATE_COLORS": dict(TL_STATE_COLORS.items()),
+        "TC_TYPE_NAMES": TC_TYPE_NAMES,
+        "OBJECT_TYPE_NAMES": OBJECT_TYPE_NAMES,
+        "LANE_RANGE": LANE_RANGE,
+        "ROAD_LINE_RANGE": ROAD_LINE_RANGE,
+        "ROAD_EDGE_RANGE": ROAD_EDGE_RANGE,
+        "ROAD_COLORS": ROAD_COLORS,
+    }
+
 
 def get_agent_color(agent_id, is_ego=False):
     """Get consistent color for an agent based on ID."""
@@ -62,13 +103,18 @@ def get_traffic_state_color(state_id):
     return TL_STATE_COLORS.get(state_id, "#808080")
 
 
-is_yellow_line = lambda t: t in (
-    RoadLineType.BROKEN_SINGLE_YELLOW, RoadLineType.BROKEN_DOUBLE_YELLOW,
-    RoadLineType.SOLID_SINGLE_YELLOW, RoadLineType.SOLID_DOUBLE_YELLOW,
-    RoadLineType.PASSING_DOUBLE_YELLOW,
-)
+def is_yellow_line(t):
+    return t in (
+        RoadLineType.BROKEN_SINGLE_YELLOW,
+        RoadLineType.BROKEN_DOUBLE_YELLOW,
+        RoadLineType.SOLID_SINGLE_YELLOW,
+        RoadLineType.SOLID_DOUBLE_YELLOW,
+        RoadLineType.PASSING_DOUBLE_YELLOW,
+    )
 
-is_broken_line = lambda t: t in (RoadLineType.BROKEN_SINGLE_WHITE, RoadLineType.BROKEN_SINGLE_YELLOW)
+
+def is_broken_line(t):
+    return t in (RoadLineType.BROKEN_SINGLE_WHITE, RoadLineType.BROKEN_SINGLE_YELLOW)
 
 
 def get_road_styling(road_type):

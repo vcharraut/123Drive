@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from bin_factory.convert.types import as_json_dict
+from viz.utils import as_json_dict
 
 
 app = FastAPI()

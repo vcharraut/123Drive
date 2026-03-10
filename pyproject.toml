@@ -40,7 +40,7 @@ all = ["ruff", "fastapi", "uvicorn[standard]", "orjson"]
 convert = "bin_factory.main:main"
 py123d-docker = "py123d_docker.cli:main"
 web = "viz.server:main"
-viz = "viz.video:main"
+viz = "viz.plot:main"
 
 [tool.setuptools.packages.find]
 where = ["src", "."]
