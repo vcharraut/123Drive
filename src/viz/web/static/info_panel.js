@@ -93,38 +93,46 @@
       </details>`;
   }
 
-  function renderTrafficLightInfo(data, context) {
-    const {t, TL_STATE_NAMES, TL_STATE_COLORS, escapeHtml, safeIdList} = context;
-    const stateNow = t < data.states.length ? data.states[t] : 0;
-    const stateName = TL_STATE_NAMES[stateNow] || 'unknown';
-    const col = TL_STATE_COLORS[stateNow] || [128, 128, 128];
-    const colStr = `rgb(${col[0]},${col[1]},${col[2]})`;
+  function renderTrafficControlInfo(data, context) {
+    const {t, TC_TYPE_NAMES, TL_STATE_NAMES, TL_STATE_COLORS, escapeHtml, safeIdList} = context;
+    const tcType = data.type || 1;
+    const typeName = TC_TYPE_NAMES[tcType] || `type_${tcType}`;
     const controlled = data.controlled_lanes.length ? safeIdList(data.controlled_lanes) : '—';
 
-    let prev = -1;
-    const transitions = data.states.reduce((acc, s, i) => {
-      if (s !== prev) {
-        acc.push({t: i, state: s});
-        prev = s;
-      }
-      return acc;
-    }, []);
-
-    const transRows = transitions.map(tr =>
-      `<tr><td>${tr.t}</td><td>${escapeHtml(TL_STATE_NAMES[tr.state] || tr.state)}</td></tr>`).join('');
-
-    const fullRows = data.states.map((s, i) => {
-      const cls = i === t ? 'class="current-row"' : '';
-      return `<tr ${cls}><td>${i}</td><td>${escapeHtml(TL_STATE_NAMES[s] || s)}</td></tr>`;
-    }).join('');
-
-    return `
+    let html = `
       <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>
+      <div class="info-row"><span class="info-label">Type</span><span class="info-val">${escapeHtml(typeName)}</span></div>
       <div class="info-row"><span class="info-label">Pos</span><span class="info-val">${escapeHtml(data.xyz[0].toFixed(2))}, ${escapeHtml(data.xyz[1].toFixed(2))}</span></div>
+      <div class="info-row"><span class="info-label">Lanes</span><span class="info-val" style="font-size:9px">${controlled}</span></div>`;
+
+    // Only show state timeline for traffic lights (type=1)
+    if (tcType === 1) {
+      const stateNow = t < data.states.length ? data.states[t] : 0;
+      const stateName = TL_STATE_NAMES[stateNow] || 'unknown';
+      const col = TL_STATE_COLORS[stateNow] || [128, 128, 128];
+      const colStr = `rgb(${col[0]},${col[1]},${col[2]})`;
+
+      let prev = -1;
+      const transitions = data.states.reduce((acc, s, i) => {
+        if (s !== prev) {
+          acc.push({t: i, state: s});
+          prev = s;
+        }
+        return acc;
+      }, []);
+
+      const transRows = transitions.map(tr =>
+        `<tr><td>${tr.t}</td><td>${escapeHtml(TL_STATE_NAMES[tr.state] || tr.state)}</td></tr>`).join('');
+
+      const fullRows = data.states.map((s, i) => {
+        const cls = i === t ? 'class="current-row"' : '';
+        return `<tr ${cls}><td>${i}</td><td>${escapeHtml(TL_STATE_NAMES[s] || s)}</td></tr>`;
+      }).join('');
+
+      html += `
       <div class="info-row"><span class="info-label">State @${t}</span><span class="info-val">
         <span class="tl-dot" style="background:${colStr}"></span>${escapeHtml(stateName)}
       </span></div>
-      <div class="info-row"><span class="info-label">Lanes</span><span class="info-val" style="font-size:9px">${controlled}</span></div>
       <div style="margin-top:6px;font-size:10px;color:#888">Transitions (${transitions.length})</div>
       <table class="traj-table"><thead><tr><th>@t</th><th>State</th></tr></thead>
         <tbody>${transRows}</tbody></table>
@@ -132,12 +140,15 @@
         <table class="traj-table"><thead><tr><th>#</th><th>State</th></tr></thead>
         <tbody>${fullRows}</tbody></table>
       </details>`;
+    }
+
+    return html;
   }
 
   function renderElementInfoHtml(type, data, context) {
     if (type === 'agent') return renderAgentInfo(data, context);
     if (type === 'road') return renderRoadInfo(data, context);
-    if (type === 'traffic_light') return renderTrafficLightInfo(data, context);
+    if (type === 'traffic_control') return renderTrafficControlInfo(data, context);
     return '<span class="empty-state">Click an element to inspect.</span>';
   }
 

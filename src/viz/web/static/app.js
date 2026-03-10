@@ -70,6 +70,9 @@ const ROAD_TYPE_NAMES = {
   31:'crosswalk', 32:'speed_bump', 33:'stop_sign',
 };
 
+const TC_TYPE_NAMES = {1:'traffic_light', 2:'stop_sign', 3:'yield_sign'};
+const TC_TYPE_COLORS = {2:[220,38,38], 3:[234,179,8]};
+
 const TL_STATE_NAMES = {0:'unknown',1:'arrow_stop',2:'arrow_caution',3:'arrow_go',4:'stop',5:'caution',6:'go',7:'flashing_stop',8:'flashing_caution'};
 const TL_STATE_COLORS = {
   0:[156,163,175], 1:[220,38,38],  2:[234,179,8],  3:[22,163,74],
@@ -91,7 +94,7 @@ const state = {
   followEgo: false,
   layers: {
     lanes: true, road_lines: true, road_edges: true, crosswalks: true,
-    agents: true, routes: true, trajectories: true, traffic_lights: true, agent_ids: true,
+    agents: true, routes: true, trajectories: true, traffic_controls: true, agent_ids: true,
     unknowns: false,
     scatter_roads: false,
   },
@@ -667,23 +670,52 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     }));
   }
 
-  // Traffic lights
-  if (layerFlags.traffic_lights && scenario.traffic_control_elements.length) {
-    const tlData = scenario.traffic_control_elements.map(tl => {
-      const s = t < tl.states.length ? tl.states[t] : 0;
-      return {pos: tl.xyz, color: TL_STATE_COLORS[s] || [128,128,128], state: s, tl};
-    });
-    layers.push(new ScatterplotLayer({
-      id: 'traffic-lights', data: tlData,
-      getPosition: d => [d.pos[0], d.pos[1]],
-      getRadius: 4, radiusUnits: 'pixels',
-      getFillColor: d => d.color,
-      getLineColor: [255,255,255,200],
-      stroked: true, lineWidthUnits: 'pixels', getLineWidth: 1,
-      pickable: true, onClick: ({object}, event) => object
-        ? handleSelectableClick(event, () => selectElement('traffic_light', object.tl))
-        : false,
-    }));
+  // Traffic controls
+  if (layerFlags.traffic_controls && scenario.traffic_control_elements.length) {
+    const tlElems = scenario.traffic_control_elements.filter(tc => (tc.type || 1) === 1);
+    const signElems = scenario.traffic_control_elements.filter(tc => (tc.type || 1) !== 1);
+
+    // Traffic lights — dynamic state color
+    if (tlElems.length) {
+      const tlData = tlElems.map(tl => {
+        const s = t < tl.states.length ? tl.states[t] : 0;
+        return {pos: tl.xyz, color: TL_STATE_COLORS[s] || [128,128,128], state: s, tl};
+      });
+      layers.push(new ScatterplotLayer({
+        id: 'traffic-lights', data: tlData,
+        getPosition: d => [d.pos[0], d.pos[1]],
+        getRadius: 4, radiusUnits: 'pixels',
+        getFillColor: d => d.color,
+        getLineColor: [255,255,255,200],
+        stroked: true, lineWidthUnits: 'pixels', getLineWidth: 1,
+        pickable: true, onClick: ({object}, event) => object
+          ? handleSelectableClick(event, () => selectElement('traffic_control', object.tl))
+          : false,
+      }));
+    }
+
+    // Stop/yield signs — square (stop) / triangle (yield) via PolygonLayer
+    if (signElems.length) {
+      const R = 0.8;
+      const sqVerts = (x, y) => [[x-R,y-R],[x+R,y-R],[x+R,y+R],[x-R,y+R],[x-R,y-R]];
+      const triVerts = (x, y) => [[x,y+R],[x-R,y-R*0.6],[x+R,y-R*0.6],[x,y+R]];
+      const signData = signElems.map(tc => ({
+        polygon: tc.type === 3 ? triVerts(tc.xyz[0], tc.xyz[1]) : sqVerts(tc.xyz[0], tc.xyz[1]),
+        color: TC_TYPE_COLORS[tc.type] || [128,128,128],
+        tc,
+      }));
+      layers.push(new PolygonLayer({
+        id: 'traffic-signs', data: signData,
+        getPolygon: d => d.polygon,
+        getFillColor: d => [...d.color, 230],
+        getLineColor: [255,255,255,200],
+        stroked: true, lineWidthUnits: 'pixels', getLineWidth: 1.5,
+        filled: true,
+        pickable: true, onClick: ({object}, event) => object
+          ? handleSelectableClick(event, () => selectElement('traffic_control', object.tc))
+          : false,
+      }));
+    }
   }
 
   // ── Selection highlights ──────────────────────────────────────────────────
@@ -785,7 +817,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         }));
       }
 
-    } else if (selected.type === 'traffic_light') {
+    } else if (selected.type === 'traffic_control') {
       const tl = selected.data;
 
       // TL dot ring
@@ -858,7 +890,7 @@ function render() {
   if (state.selected && state.selected.type === 'agent') {
     renderElementInfo(state.selected.type, state.selected.data);
   }
-  if (state.selected && state.selected.type === 'traffic_light') {
+  if (state.selected && state.selected.type === 'traffic_control') {
     renderElementInfo(state.selected.type, state.selected.data);
   }
 }
@@ -888,6 +920,7 @@ function renderElementInfo(type, data) {
     scenario: state.scenario,
     AGENT_TYPE_NAMES,
     ROAD_TYPE_NAMES,
+    TC_TYPE_NAMES,
     TL_STATE_NAMES,
     TL_STATE_COLORS,
     escapeHtml,
@@ -951,7 +984,7 @@ function renderScenarioMeta(data) {
     <div class="info-row"><span class="info-label">Length</span><span class="info-val">${escapeHtml(m.scenario_length)}</span></div>
     <div class="info-row"><span class="info-label">Agents</span><span class="info-val">${escapeHtml(data.agents.length)}</span></div>
     <div class="info-row"><span class="info-label">Roads</span><span class="info-val">${escapeHtml(data.road_map_elements.length)}</span></div>
-    <div class="info-row"><span class="info-label">TLs</span><span class="info-val">${escapeHtml(data.traffic_control_elements.length)}</span></div>
+    <div class="info-row"><span class="info-label">TCs</span><span class="info-val">${escapeHtml(data.traffic_control_elements.length)}</span></div>
     <div class="info-row"><span class="info-label">SDC idx</span><span class="info-val">${escapeHtml(m.sdc_index)}</span></div>
     <div class="info-row"><span class="info-label">OOI</span><span class="info-val">${safeIdList(ooi)}</span></div>
     <div class="info-row"><span class="info-label">TTP</span><span class="info-val">${safeIdList(m.tracks_to_predict)}</span></div>`;
@@ -1179,9 +1212,9 @@ document.getElementById('btn-search-go').addEventListener('click', () => {
   } else if (type === 'road') {
     const r = state.scenario.road_map_elements.find(r => r.id === id);
     if (r) selectElement('road', r);
-  } else if (type === 'traffic_light') {
-    const tl = state.scenario.traffic_control_elements.find(t => t.id === id);
-    if (tl) selectElement('traffic_light', tl);
+  } else if (type === 'traffic_control') {
+    const tc = state.scenario.traffic_control_elements.find(t => t.id === id);
+    if (tc) selectElement('traffic_control', tc);
   }
 });
 
