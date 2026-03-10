@@ -8,7 +8,6 @@ from py123d.datatypes.detections import DefaultBoxDetectionLabel
 from py123d.datatypes.map_objects import Lane, LaneType, MapLayer
 from py123d.geometry import Point2D
 
-from bin_factory import types
 from bin_factory.loader.load import MapOnlyScenario
 
 
