@@ -1,5 +1,5 @@
 from bin_factory import logger_utils
-from bin_factory.convert import agents, objects, roadgraph, traffic_controls
+from bin_factory.convert import agents, graph, objects, roadgraph, traffic_controls
 
 
 logger = logger_utils.get_logger(__name__)
@@ -55,6 +55,9 @@ def convert_to_puffer_dict(
 
     if reindex_id:
         puffer_dict = _reindex_puffer_dict(puffer_dict)
+
+    lane_graph_data = graph.build_lane_distance_matrix(puffer_dict["road_map_elements"])
+    puffer_dict["lane_graph_distances"] = lane_graph_data
 
     return puffer_dict
 

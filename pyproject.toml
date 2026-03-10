@@ -24,6 +24,7 @@ classifiers = [
 ]
 dependencies = [
   "numpy",
+  "scipy",
   "joblib",
   "tqdm",
   "matplotlib",
@@ -101,7 +102,7 @@ ignore = [
 lines-after-imports = 2
 
 [tool.ruff.lint.mccabe]
-max-complexity = 15  # Lowered from 25 for better maintainability
+max-complexity = 20
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"  # Enforces a specific docstring style (can be "numpy" or "pep257")

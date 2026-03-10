@@ -119,6 +119,17 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
         buffer.extend(struct.pack("ii", object_id, object_type))
         _pack_dynamic_states(buffer, obj["states"])
 
+    # Lane Graph Distance Matrix
+    lane_graph = puffer_dict.get("lane_graph_distances")
+    if lane_graph:
+        n = len(lane_graph["lane_ids"])
+        buffer.extend(struct.pack("i", n))
+        buffer.extend(struct.pack(f"{n}i", *lane_graph["lane_ids"]))
+        buffer.extend(np.asarray(lane_graph["lane_lengths"], dtype=np.float32).tobytes())
+        buffer.extend(np.asarray(lane_graph["distances"], dtype=np.float32).tobytes())
+    else:
+        buffer.extend(struct.pack("i", 0))
+
     # Metadata
     scenario_id = puffer_dict["scenario_id"][:128]
     buffer.extend(scenario_id.encode("utf-8").ljust(128, b"\0"))

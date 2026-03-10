@@ -94,6 +94,17 @@ Each agent is laid out sequentially:
 | 7 | FLASHING_RED |
 | 8 | FLASHING_YELLOW |
 
+## Lane Graph Distances
+
+All-pairs shortest lane-to-lane distances precomputed via Dijkstra on FREEWAY and SURFACE_STREET lanes. Edge weight = source lane arc length. Unreachable pairs stored as IEEE 754 `inf`.
+
+| Type | Field | Notes |
+|------|-------|-------|
+| int32 | `n_lanes_graph` | Number of lane nodes (0 = no graph data) |
+| int32 × n | `lane_ids` | Lane IDs in matrix row/col order |
+| float32 × n | `lane_lengths` | Arc length of each lane's polyline |
+| float32 × n² | `distances` | Row-major shortest path matrix |
+
 ## Metadata (tail of file)
 
 | Type | Field | Notes |

@@ -17,6 +17,8 @@
  *              x[T](f32), y[T](f32), z[T](f32),
  *              heading[T](f32), vx[T](f32), vy[T](f32),
  *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32)
+ *   LaneGraph: n_lanes_graph(i32),
+ *              [if n>0: lane_ids[n](i32), lane_lengths[n](f32), distances[n*n](f32)]
  *   Metadata:  scenario_id(char[128]), map_id(i32), dataset_name(char[64]),
  *              scenario_length(i32), sdc_index(i32),
  *              n_ooi(i32), ooi[](i32), n_ttp(i32), ttp[](i32)
@@ -153,6 +155,16 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     objects[o] = { id, type, ...readDynamicStateArrays(T) };
   }
 
+  // --- Lane Graph Distances ---
+  const nGraphLanes = i32();
+  let lane_graph = null;
+  if (nGraphLanes > 0) {
+    const graphLaneIds = Array.from(i32arr(nGraphLanes));
+    const laneLengths = Array.from(f32arr(nGraphLanes));
+    const distances = f32arr(nGraphLanes * nGraphLanes);
+    lane_graph = { lane_ids: graphLaneIds, lane_lengths: laneLengths, distances, n: nGraphLanes };
+  }
+
   // --- Metadata ---
   const scenario_id = str(128);
   const map_id = i32();
@@ -168,6 +180,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     road_map_elements,
     traffic_control_elements,
     objects,
+    lane_graph,
     metadata: { map_id, dataset_name, scenario_length, sdc_index, num_objects: numObjects, objects_of_interest, tracks_to_predict },
   };
 };

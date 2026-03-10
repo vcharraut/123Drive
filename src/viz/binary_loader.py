@@ -14,6 +14,7 @@ Followed by:
     - RoadMapElements (variable size)
     - TrafficControlElements (variable size)
     - Objects (variable size)
+    - LaneGraphDistances (variable size)
     - Metadata (variable length):
         - scenario_id (char[128])
         - map_id (int32)
@@ -80,6 +81,19 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
             obj = _read_object(f)
             objects.append(obj)
 
+        # Lane graph distances
+        lane_graph_distances = None
+        n_graph = struct.unpack("i", f.read(4))[0]
+        if n_graph > 0:
+            graph_lane_ids = list(struct.unpack(f"{n_graph}i", f.read(4 * n_graph)))
+            lane_lengths = np.frombuffer(f.read(4 * n_graph), dtype=np.float32).copy()
+            distances = np.frombuffer(f.read(4 * n_graph * n_graph), dtype=np.float32).copy()
+            lane_graph_distances = {
+                "lane_ids": graph_lane_ids,
+                "lane_lengths": lane_lengths,
+                "distances": distances.reshape(n_graph, n_graph),
+            }
+
         # Read metadata
         scenario_id_bytes = f.read(128)
         scenario_id = scenario_id_bytes.rstrip(b"\0").decode("utf-8")
@@ -104,7 +118,6 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
         if num_ttp > 0:
             tracks_to_predict = list(struct.unpack(f"{num_ttp}i", f.read(4 * num_ttp)))
 
-    # Build scenario dict
     return {
         "scenario_id": scenario_id,
         "agents": dynamic_agents,
@@ -122,6 +135,7 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
             "sdc_index": sdc_index,
             "objects_of_interest": objects_of_interest,
             "tracks_to_predict": tracks_to_predict,
+            "lane_graph_distances": lane_graph_distances,
         },
     }
 

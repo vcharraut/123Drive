@@ -114,6 +114,7 @@ const state = {
     scatter_roads: false,
   },
   selected: null,
+  pathFinder: { active: false, source: null, dest: null, path: null, distance: null },
   staticLayerCache: null,
   staticLayerCacheKey: null,
   playTimer: null,
@@ -184,6 +185,41 @@ function buildValidSegments(xyz, valid, start, end, color) {
 
 function buildRoadMap(roadMapElements) {
   return new Map(roadMapElements.map(road => [road.id, road]));
+}
+
+function reconstructPath(scenario, srcId, dstId) {
+  const lg = scenario.lane_graph;
+  if (!lg) return null;
+  const idToIdx = new Map(lg.lane_ids.map((id, i) => [id, i]));
+  const srcIdx = idToIdx.get(srcId);
+  const dstIdx = idToIdx.get(dstId);
+  if (srcIdx === undefined || dstIdx === undefined) return null;
+
+  const dist = (i, j) => lg.distances[i * lg.n + j];
+  const totalDist = dist(srcIdx, dstIdx);
+  if (!isFinite(totalDist)) return null;
+
+  const roadMap = buildRoadMap(scenario.road_map_elements);
+  const path = [srcId];
+  let curIdx = srcIdx;
+  let curId = srcId;
+  const MAX_HOPS = lg.n;
+  let hops = 0;
+  while (curId !== dstId) {
+    if (++hops > MAX_HOPS) return null;
+    const lane = roadMap.get(curId);
+    if (!lane) return null;
+    const exits = (lane.exit_lanes || []).filter(eid => idToIdx.has(eid));
+    const next = exits.find(eid => {
+      const eidx = idToIdx.get(eid);
+      return Math.abs(lg.lane_lengths[curIdx] + dist(eidx, dstIdx) - dist(curIdx, dstIdx)) < 0.01;
+    });
+    if (next === undefined) return null;
+    path.push(next);
+    curIdx = idToIdx.get(next);
+    curId = next;
+  }
+  return { laneIds: path, distance: totalDist };
 }
 
 function getAgentRouteStart(agent) {
@@ -990,6 +1026,66 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     }
   }
 
+  // ── Path finder highlights ───────────────────────────────────────────────
+  const pf = state.pathFinder;
+  if (pf.active || pf.path) {
+    const roadMap = (selected && selected.type === 'road')
+      ? null  // already built above, but we need our own reference
+      : null;
+    const pfRoadMap = buildRoadMap(scenario.road_map_elements);
+    const SRC_COLOR  = [16, 185, 129]; // green
+    const DST_COLOR  = [239, 68, 68];  // red
+    const PATH_COLOR = [6, 182, 212];  // cyan/teal
+
+    if (pf.source) {
+      const srcElem = pfRoadMap.get(pf.source);
+      if (srcElem) layers.push(new PathLayer({
+        id: 'pf-source', data: [srcElem], getPath: toXY,
+        getColor: [...SRC_COLOR, 255], getWidth: 3, widthUnits: 'pixels',
+        jointRounded: true, capRounded: true,
+      }));
+    }
+    if (pf.dest) {
+      const dstElem = pfRoadMap.get(pf.dest);
+      if (dstElem) layers.push(new PathLayer({
+        id: 'pf-dest', data: [dstElem], getPath: toXY,
+        getColor: [...DST_COLOR, 255], getWidth: 3, widthUnits: 'pixels',
+        jointRounded: true, capRounded: true,
+      }));
+    }
+    if (pf.path) {
+      const pathElems = pf.path.laneIds
+        .filter(id => id !== pf.source && id !== pf.dest)
+        .map(id => pfRoadMap.get(id))
+        .filter(Boolean);
+      if (pathElems.length) layers.push(new PathLayer({
+        id: 'pf-path', data: pathElems, getPath: toXY,
+        getColor: [...PATH_COLOR, 230], getWidth: 2.5, widthUnits: 'pixels',
+        jointRounded: true, capRounded: true,
+      }));
+
+      // Connector lines between consecutive path lanes
+      const connectors = [];
+      const allIds = pf.path.laneIds;
+      for (let i = 0; i < allIds.length - 1; i++) {
+        const cur = pfRoadMap.get(allIds[i]);
+        const nxt = pfRoadMap.get(allIds[i + 1]);
+        if (cur && nxt && cur.xyz.length && nxt.xyz.length) {
+          const lastPt = cur.xyz[cur.xyz.length - 1];
+          const firstPt = nxt.xyz[0];
+          connectors.push({ path: [[lastPt[0], lastPt[1]], [firstPt[0], firstPt[1]]] });
+        }
+      }
+      if (connectors.length) layers.push(new PathLayer({
+        id: 'pf-connectors', data: connectors,
+        getPath: d => d.path,
+        getColor: [...PATH_COLOR, 150], getWidth: 1.5, widthUnits: 'pixels',
+        getDashArray: [4, 3], dashJustified: true,
+        extensions: [new PathStyleExtension({ dash: true })],
+      }));
+    }
+  }
+
   return layers;
 }
 
@@ -1045,7 +1141,60 @@ function render() {
 
 // ── Selection & info panel ─────────────────────────────────────────────────
 
+function isLaneType(roadType) {
+  return roadType >= TYPES.LANE_RANGE[0] && roadType <= TYPES.LANE_RANGE[1];
+}
+
+function handlePathFinderClick(laneId) {
+  const pf = state.pathFinder;
+  const el = document.getElementById('element-detail');
+
+  if (!pf.source) {
+    // Set source
+    pf.source = laneId;
+    pf.dest = null;
+    pf.path = null;
+    pf.distance = null;
+    el.innerHTML = `<div class="info-row"><span class="info-label">Path Finder</span><span class="info-val">Source: ${laneId}</span></div>
+      <div class="info-row"><span class="info-label">Status</span><span class="info-val">Click destination lane</span></div>`;
+    setAppStatus('Path Finder: click destination lane', 'info');
+  } else if (!pf.dest) {
+    // Set destination and compute
+    pf.dest = laneId;
+    const result = reconstructPath(state.scenario, pf.source, pf.dest);
+    if (result) {
+      pf.path = result;
+      pf.distance = result.distance;
+      el.innerHTML = `<div class="info-row"><span class="info-label">Path Finder</span><span class="info-val">${pf.source} → ${pf.dest}</span></div>
+        <div class="info-row"><span class="info-label">Distance</span><span class="info-val">${result.distance.toFixed(1)} m</span></div>
+        <div class="info-row"><span class="info-label">Lanes</span><span class="info-val">${result.laneIds.length} (${result.laneIds.join(' → ')})</span></div>`;
+      setAppStatus(`Path: ${result.distance.toFixed(1)} m, ${result.laneIds.length} lanes`, 'ok');
+    } else {
+      pf.path = null;
+      pf.distance = null;
+      el.innerHTML = `<div class="info-row"><span class="info-label">Path Finder</span><span class="info-val">${pf.source} → ${pf.dest}</span></div>
+        <div class="info-row"><span class="info-label">Status</span><span class="info-val" style="color:var(--red)">No path found</span></div>`;
+      setAppStatus('Path Finder: no path between these lanes', 'error');
+    }
+  } else {
+    // Reset — new source
+    pf.source = laneId;
+    pf.dest = null;
+    pf.path = null;
+    pf.distance = null;
+    el.innerHTML = `<div class="info-row"><span class="info-label">Path Finder</span><span class="info-val">Source: ${laneId}</span></div>
+      <div class="info-row"><span class="info-label">Status</span><span class="info-val">Click destination lane</span></div>`;
+    setAppStatus('Path Finder: click destination lane', 'info');
+  }
+  render();
+}
+
 function selectElement(type, data) {
+  // Intercept lane clicks in path finder mode
+  if (state.pathFinder.active && type === 'road' && isLaneType(data.type)) {
+    handlePathFinderClick(data.id);
+    return;
+  }
   state.selected = {type, data};
   renderElementInfo(type, data);
   render();
@@ -1094,6 +1243,8 @@ async function loadScenario(filename) {
     state.scenario = data;
     state.timestep = 0;
     state.selected = null;
+    state.pathFinder = { active: false, source: null, dest: null, path: null, distance: null };
+    document.getElementById('btn-pathfinder').classList.remove('active');
     state.staticLayerCacheKey = null;
     setFollowEgo(false);
 
@@ -1272,6 +1423,30 @@ document.getElementById('btn-follow').addEventListener('click', () => {
   render();
 });
 
+document.getElementById('btn-pathfinder').addEventListener('click', () => {
+  const pf = state.pathFinder;
+  pf.active = !pf.active;
+  const btn = document.getElementById('btn-pathfinder');
+  btn.classList.toggle('active', pf.active);
+  if (pf.active) {
+    pf.source = null;
+    pf.dest = null;
+    pf.path = null;
+    pf.distance = null;
+    setAppStatus('Path Finder: click source lane', 'info');
+    document.getElementById('element-detail').innerHTML =
+      '<div class="info-row"><span class="info-label">Path Finder</span><span class="info-val">Click a lane to set source</span></div>';
+  } else {
+    pf.source = null;
+    pf.dest = null;
+    pf.path = null;
+    pf.distance = null;
+    setAppStatus('', 'ok');
+    document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
+  }
+  render();
+});
+
 document.getElementById('btn-scatter').addEventListener('click', () => {
   state.layers.scatter_roads = !state.layers.scatter_roads;
   document.getElementById('btn-scatter').textContent = state.layers.scatter_roads ? '· Scatter' : '⬤ Lines';
@@ -1409,6 +1584,10 @@ document.addEventListener('keydown', e => {
     case '-':           zoomBy(-ZOOM_STEP); break;
     case 'f': case 'F': fitView(); break;
     case ' ': e.preventDefault(); togglePlay(); break;
+    case 'p': case 'P': document.getElementById('btn-pathfinder').click(); break;
+    case 'Escape':
+      if (state.pathFinder.active) { document.getElementById('btn-pathfinder').click(); }
+      break;
   }
 });
 
