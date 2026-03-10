@@ -105,24 +105,41 @@
     const {ROAD_TYPE_NAMES, escapeHtml, safeIdList} = context;
     const typeName = ROAD_TYPE_NAMES[data.type] || `type_${data.type}`;
     const npts = data.xyz.length;
-    const entry = data.entry_lanes.length ? safeIdList(data.entry_lanes) : '—';
-    const exit = data.exit_lanes.length ? safeIdList(data.exit_lanes) : '—';
-    const sl = data.speed_limit ? data.speed_limit.toFixed(1) + ' m/s' : '—';
+    const isLane = data.type >= 0 && data.type <= 9;
+    const isLine = data.type >= 10 && data.type <= 19;
+    const isEdge = data.type >= 20 && data.type <= 29;
 
     const ptRows = data.xyz.slice(0, 30).map(([x, y], i) =>
       `<tr><td>${i}</td><td>${x.toFixed(2)}</td><td>${y.toFixed(2)}</td></tr>`).join('');
 
-    return `
+    let category = 'misc';
+    if (isLane) category = 'lane';
+    else if (isLine) category = 'road line';
+    else if (isEdge) category = 'road edge';
+
+    let html = `
       <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>
+      <div class="info-row"><span class="info-label">Category</span><span class="info-val">${escapeHtml(category)}</span></div>
       <div class="info-row"><span class="info-label">Type</span><span class="info-val">${escapeHtml(typeName)}</span></div>
-      <div class="info-row"><span class="info-label">Points</span><span class="info-val">${escapeHtml(npts)}</span></div>
+      <div class="info-row"><span class="info-label">Points</span><span class="info-val">${escapeHtml(npts)}</span></div>`;
+
+    if (isLane) {
+      const entry = data.entry_lanes.length ? safeIdList(data.entry_lanes) : '—';
+      const exit = data.exit_lanes.length ? safeIdList(data.exit_lanes) : '—';
+      const sl = data.speed_limit ? data.speed_limit.toFixed(1) + ' m/s' : '—';
+      html += `
       <div class="info-row"><span class="info-label">Entry</span><span class="info-val" style="font-size:9px">${entry}</span></div>
       <div class="info-row"><span class="info-label">Exit</span><span class="info-val" style="font-size:9px">${exit}</span></div>
-      <div class="info-row"><span class="info-label">Speed lim</span><span class="info-val">${escapeHtml(sl)}</span></div>
+      <div class="info-row"><span class="info-label">Speed lim</span><span class="info-val">${escapeHtml(sl)}</span></div>`;
+    }
+
+    html += `
       <details><summary>Polyline</summary>
         <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th></tr></thead>
         <tbody>${ptRows}</tbody></table>
       </details>`;
+
+    return html;
   }
 
   function renderTrafficControlInfo(data, context) {
