@@ -173,6 +173,11 @@ def main():
 
     args = parser.parse_args()
 
+    args.datasets = _normalize_optional_list(args.datasets)
+    args.split_types = _normalize_optional_list(args.split_types)
+    args.split_names = _normalize_optional_list(args.split_names)
+    args.log_names = _normalize_optional_list(args.log_names)
+
     py123_data_root = args.py123d_path or os.environ.get("PY123D_DATA_ROOT")
     if not py123_data_root:
         parser.error("--py123d_path is required (or set PY123D_DATA_ROOT environment variable)")
@@ -215,6 +220,22 @@ def main():
         )
 
     logger.info("Conversion complete.")
+
+
+def _normalize_optional_list(values: list[str] | None) -> list[str] | None:
+    """Normalize optional list arguments by stripping whitespace and filtering out empty values.
+    Used for debugging command-line arguments.
+
+    Args:
+        values: List of strings or None.
+
+    Returns:
+        Cleaned list of strings or None if input was None or empty after cleaning.
+    """
+    if not values:
+        return None
+    cleaned = [v.strip() for v in values if v and v.strip()]
+    return cleaned or None
 
 
 if __name__ == "__main__":
