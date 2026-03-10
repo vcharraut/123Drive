@@ -28,15 +28,15 @@ def process_one_scenario(
     min_route_valid_points=0,
     route_check_timestep=0,
 ):
-    scenario = convert_py123d_scenario(raw_scenario)
-    scenario = process_polylines(
-        scenario,
+    py123d_dict = convert_py123d_scenario(raw_scenario)
+    py123d_dict = process_polylines(
+        py123d_dict,
         max_segment_length=max_segment_length,
         area_threshold=area_threshold,
         dist_threshold=dist_threshold,
     )
     puffer_dict = convert_to_puffer_dict(
-        scenario,
+        py123d_dict,
         min_route_valid_points=min_route_valid_points,
         route_check_timestep=route_check_timestep,
     )

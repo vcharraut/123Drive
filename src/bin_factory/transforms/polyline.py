@@ -6,10 +6,10 @@ from bin_factory import logger_utils
 logger = logger_utils.get_logger(__name__)
 
 
-def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1, dist_threshold=10.0):
-    map_elements = scenario.get("map", {})
+def process_polylines(py123d_dict, max_segment_length=2.0, area_threshold=0.1, dist_threshold=10.0):
+    map_elements = py123d_dict.get("map", {})
     if not map_elements:
-        return scenario
+        return py123d_dict
 
     for element_id, element in map_elements.items():
         if "polyline" not in element:
@@ -33,7 +33,7 @@ def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1, dist
 
         element["polyline"] = polyline
 
-    return scenario
+    return py123d_dict
 
 
 def validate_polyline(polyline, element_id=""):
