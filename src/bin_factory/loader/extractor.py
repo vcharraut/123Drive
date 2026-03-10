@@ -296,6 +296,7 @@ def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> d
         else:
             speed_limit_mps = float(map_object.speed_limit_mps)
         return {
+            "layer": map_object.layer,
             "type": map_object.lane_type,
             "polyline": polyline,
             "speed_limit_mps": speed_limit_mps,
@@ -306,6 +307,7 @@ def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> d
     if map_object.layer == MapLayer.ROAD_LINE:
         polyline = _centered_array(map_object.polyline_3d.array, centroid)
         return {
+            "layer": map_object.layer,
             "type": map_object.road_line_type,
             "polyline": polyline,
         }
@@ -313,6 +315,7 @@ def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> d
     if map_object.layer == MapLayer.ROAD_EDGE:
         polyline = _centered_array(map_object.polyline_3d.array, centroid)
         return {
+            "layer": map_object.layer,
             "type": map_object.road_edge_type,
             "polyline": polyline,
         }
@@ -320,13 +323,15 @@ def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> d
     if map_object.layer == MapLayer.CROSSWALK:
         polygon = _centered_array(map_object.outline_3d.array, centroid)
         return {
-            "type": types.CROSSWALK,
+            "layer": map_object.layer,
+            "type": 0,
             "polygon": polygon,
         }
 
     if map_object.layer == MapLayer.STOP_ZONE:
         polygon = _centered_array(map_object.outline_3d.array, centroid)
         return {
+            "layer": map_object.layer,
             "type": map_object.stop_zone_type,
             "polygon": polygon,
             "controlled_lanes": map_object.lane_ids,
