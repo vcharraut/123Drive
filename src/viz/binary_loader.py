@@ -29,6 +29,8 @@ from pathlib import Path
 
 import numpy as np
 
+from bin_factory.convert.types import is_road_lane
+
 
 def load_puffer_binary(binary_path: str | Path) -> dict:
     """Load Puffer binary file and convert to dict format for visualization.
@@ -194,7 +196,7 @@ def _read_road_map_element(f) -> dict:
     exit_lanes = []
     speed_limit = 0.0
 
-    if 0 <= road_type <= 9:
+    if is_road_lane(road_type):
         # Read entry lanes
         num_entry = struct.unpack("i", f.read(4))[0]
         if num_entry > 0:

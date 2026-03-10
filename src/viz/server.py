@@ -9,6 +9,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from bin_factory.convert.types import as_json_dict
+
 
 app = FastAPI()
 app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -39,6 +41,11 @@ def _resolve_scenario_path(filename: str) -> Path:
     if path.parent != base or path.suffix != ".bin":
         raise HTTPException(status_code=400, detail="Invalid scenario filename")
     return path
+
+
+@app.get("/api/types")
+def get_types():
+    return as_json_dict()
 
 
 @app.get("/api/scenarios")
