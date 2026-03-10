@@ -14,12 +14,14 @@ VALIDATION_SCHEMA = "schema"
 VALIDATION_SEMANTIC = "semantic"
 
 VALID_AGENT_TYPES = {1, 2, 3, 4}
+VALID_OBJECT_TYPES = {1, 2, 3, 4, 5}
 LANE_TYPES = set(range(10))
 VALID_TL_STATES = {0, 1, 2, 3, 4}
 
 REQUIRED_TOP_LEVEL_KEYS = {
     "scenario_id",
     "agents",
+    "objects",
     "road_map_elements",
     "traffic_control_elements",
     "metadata",
@@ -33,6 +35,7 @@ REQUIRED_METADATA_KEYS = {
     "tracks_to_predict",
 }
 REQUIRED_AGENT_KEYS = {"id", "type", "states", "route"}
+REQUIRED_OBJECT_KEYS = {"id", "type", "states"}
 REQUIRED_AGENT_STATE_KEYS = {"xyz", "heading", "velocity", "length", "width", "height", "valid"}
 REQUIRED_ROAD_KEYS = {"id", "type", "xyz"}
 REQUIRED_LANE_KEYS = {"entry_lanes", "exit_lanes", "speed_limit"}
@@ -67,23 +70,27 @@ def _validate_schema(puffer_dict: dict) -> tuple[list[str], dict]:
 
     metadata = puffer_dict.get("metadata", {})
     agents = puffer_dict.get("agents", [])
+    objects = puffer_dict.get("objects", [])
     roads = puffer_dict.get("road_map_elements", [])
     traffic_controls = puffer_dict.get("traffic_control_elements", [])
 
     expected_length = _validate_metadata_schema(metadata, errors)
     lane_ids = _validate_roads_schema(roads, errors)
     agent_ids = _validate_agents_schema(agents, expected_length, errors)
+    object_ids = _validate_objects_schema(objects, expected_length, errors)
     traffic_control_ids = _validate_traffic_controls_schema(traffic_controls, expected_length, errors)
 
     context = {
         "puffer_dict": puffer_dict,
         "metadata": metadata,
         "agents": agents,
+        "objects": objects,
         "roads": roads,
         "traffic_controls": traffic_controls,
         "expected_length": expected_length,
         "lane_ids": lane_ids,
         "agent_ids": agent_ids,
+        "object_ids": object_ids,
         "traffic_control_ids": traffic_control_ids,
     }
     return errors, context
@@ -99,6 +106,7 @@ def _validate_top_level_schema(puffer_dict: dict, errors: list[str]):
 
     for key, expected_type in [
         ("agents", list),
+        ("objects", list),
         ("road_map_elements", list),
         ("traffic_control_elements", list),
         ("metadata", dict),
@@ -171,34 +179,64 @@ def _validate_agents_schema(agents: list, expected_length: int, errors: list[str
                 errors.append(f"Agent {agent_id} has invalid type {agent_type}")
 
         if "states" in agent:
-            _validate_agent_states_schema(agent_id, agent["states"], expected_length, errors)
+            _validate_dynamic_states_schema("Agent", agent_id, agent["states"], expected_length, errors)
         if "route" in agent:
             _validate_route_schema(agent_id, agent["route"], errors)
 
     return seen_ids
 
 
-def _validate_agent_states_schema(agent_id, states: dict, expected_length: int, errors: list[str]):
+def _validate_objects_schema(objects: list, expected_length: int, errors: list[str]) -> set[int]:
+    if not isinstance(objects, list):
+        errors.append(f"'objects' must be list, got {type(objects).__name__}")
+        return set()
+
+    seen_ids = set()
+    for index, obj in enumerate(objects):
+        if not isinstance(obj, dict):
+            errors.append(f"Object at index {index} must be dict")
+            continue
+
+        for key in REQUIRED_OBJECT_KEYS:
+            if key not in obj:
+                errors.append(f"Object {index} missing key: '{key}'")
+
+        object_id = _check_id(obj, index, seen_ids, errors, "Object")
+
+        if "type" in obj:
+            object_type = obj["type"]
+            if not _is_int_like(object_type):
+                errors.append(f"Object {object_id} type must be int, got {type(object_type).__name__}")
+            elif object_type not in VALID_OBJECT_TYPES:
+                errors.append(f"Object {object_id} has invalid type {object_type}")
+
+        if "states" in obj:
+            _validate_dynamic_states_schema("Object", object_id, obj["states"], expected_length, errors)
+
+    return seen_ids
+
+
+def _validate_dynamic_states_schema(prefix: str, item_id, states: dict, expected_length: int, errors: list[str]):
     if not isinstance(states, dict):
-        errors.append(f"Agent {agent_id} states must be dict, got {type(states).__name__}")
+        errors.append(f"{prefix} {item_id} states must be dict, got {type(states).__name__}")
         return
 
     for key in REQUIRED_AGENT_STATE_KEYS:
         if key not in states:
-            errors.append(f"Agent {agent_id} states missing key: '{key}'")
+            errors.append(f"{prefix} {item_id} states missing key: '{key}'")
 
     lengths = {}
-    lengths |= _validate_array(states, agent_id, "xyz", ndim=2, shape1=3, errors=errors)
-    lengths |= _validate_array(states, agent_id, "velocity", ndim=2, shape1=2, errors=errors)
+    lengths |= _validate_array(states, item_id, "xyz", ndim=2, shape1=3, errors=errors, prefix=prefix)
+    lengths |= _validate_array(states, item_id, "velocity", ndim=2, shape1=2, errors=errors, prefix=prefix)
     for key in ["heading", "length", "width", "height", "valid"]:
-        lengths |= _validate_array(states, agent_id, key, ndim=1, errors=errors)
+        lengths |= _validate_array(states, item_id, key, ndim=1, errors=errors, prefix=prefix)
 
     if len(set(lengths.values())) > 1:
-        errors.append(f"Agent {agent_id} has inconsistent state array lengths: {lengths}")
+        errors.append(f"{prefix} {item_id} has inconsistent state array lengths: {lengths}")
     if expected_length > 0:
         for key, length in lengths.items():
             if length != expected_length:
-                errors.append(f"Agent {agent_id} state '{key}' has length {length}, expected {expected_length}")
+                errors.append(f"{prefix} {item_id} state '{key}' has length {length}, expected {expected_length}")
 
 
 def _validate_route_schema(agent_id, route, errors: list[str]):
@@ -325,6 +363,7 @@ def _validate_semantics(context: dict, position_jump_threshold: float) -> list[s
     errors = []
     metadata = context["metadata"]
     agents = context["agents"]
+    objects = context["objects"]
     lane_ids = context["lane_ids"]
     roads = context["roads"]
     traffic_controls = context["traffic_controls"]
@@ -333,7 +372,7 @@ def _validate_semantics(context: dict, position_jump_threshold: float) -> list[s
     _validate_lane_topology(roads, lane_ids, errors)
     _validate_agent_routes(agents, lane_ids, errors)
     _validate_traffic_control_links(traffic_controls, lane_ids, errors)
-    _validate_finite_values(agents, roads, traffic_controls, errors)
+    _validate_finite_values(agents, objects, roads, traffic_controls, errors)
     _validate_road_geometry(roads, errors)
     _validate_traffic_control_states(traffic_controls, errors)
     _validate_ego_semantics(metadata, agents, position_jump_threshold, errors)
@@ -402,13 +441,20 @@ def _validate_traffic_control_links(traffic_controls: list, lane_ids: set[int], 
                 errors.append(f"Traffic control {control_id} references non-existent lane {lane_id}")
 
 
-def _validate_finite_values(agents: list, roads: list, traffic_controls: list, errors: list[str]):
+def _validate_finite_values(agents: list, objects: list, roads: list, traffic_controls: list, errors: list[str]):
     for agent in agents:
         agent_id = agent.get("id", "?")
         states = agent.get("states", {})
         for key in REQUIRED_AGENT_STATE_KEYS:
             if key in states and not _is_finite_array(states[key]):
                 errors.append(f"Agent {agent_id} states.{key} contains NaN or Inf")
+
+    for obj in objects:
+        object_id = obj.get("id", "?")
+        states = obj.get("states", {})
+        for key in REQUIRED_AGENT_STATE_KEYS:
+            if key in states and not _is_finite_array(states[key]):
+                errors.append(f"Object {object_id} states.{key} contains NaN or Inf")
 
     for road in roads:
         road_id = road.get("id", "?")

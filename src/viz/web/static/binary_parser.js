@@ -1,7 +1,7 @@
 /* Parse PufferDrive .bin format into the scenario object expected by app.js.
  *
  * Binary layout (all little-endian):
- *   Header: num_agents(i32), num_roads(i32), num_traffic(i32)
+ *   Header: num_agents(i32), num_roads(i32), num_traffic(i32), num_objects(i32)
  *   Agents[]:  id(i32), type(i32), T(i32),
  *              x[T](f32), y[T](f32), z[T](f32),
  *              heading[T](f32), vx[T](f32), vy[T](f32),
@@ -13,6 +13,10 @@
  *              [if lane (type 0-9): n_entry(i32), entry[](i32), n_exit(i32), exit[](i32), speed_limit(f32)]
  *   Traffic[]: id(i32), type(i32), x(f32), y(f32), z(f32),
  *              n_states(i32), states[](i32), n_ctrl(i32), ctrl[](i32)
+ *   Objects[]: id(i32), type(i32), T(i32),
+ *              x[T](f32), y[T](f32), z[T](f32),
+ *              heading[T](f32), vx[T](f32), vy[T](f32),
+ *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32)
  *   Metadata:  scenario_id(char[128]), map_id(i32), dataset_name(char[64]),
  *              scenario_length(i32), sdc_index(i32),
  *              n_ooi(i32), ooi[](i32), n_ttp(i32), ttp[](i32)
@@ -60,18 +64,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     return rows;
   };
 
-  // --- Header ---
-  const numAgents = i32();
-  const numRoads = i32();
-  const numTraffic = i32();
-
-  // --- Agents ---
-  const agents = new Array(numAgents);
-  for (let a = 0; a < numAgents; a++) {
-    const id = i32();
-    const type = i32();
-    const T = i32();
-
+  const readDynamicStateArrays = (T) => {
     const xArr = f32arr(T);
     const yArr = f32arr(T);
     const zArr = f32arr(T);
@@ -82,12 +75,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     const width = f32arr(T);
     const height = f32arr(T);
     const valid = i32arr(T);
-    const route = intList();
-    const goalX = f32(), goalY = f32(), goalZ = f32();
-    i32(); // mark_as_expert (unused in viz)
-
-    agents[a] = {
-      id, type,
+    return {
       xyz: colsToRows([xArr, yArr, zArr]),
       heading: Array.from(heading),
       velocity: colsToRows([vxArr, vyArr]),
@@ -95,6 +83,29 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       width: Array.from(width),
       height: Array.from(height),
       valid: Array.from(valid),
+    };
+  };
+
+  // --- Header ---
+  const numAgents = i32();
+  const numRoads = i32();
+  const numTraffic = i32();
+  const numObjects = i32();
+
+  // --- Agents ---
+  const agents = new Array(numAgents);
+  for (let a = 0; a < numAgents; a++) {
+    const id = i32();
+    const type = i32();
+    const T = i32();
+    const states = readDynamicStateArrays(T);
+    const route = intList();
+    const goalX = f32(), goalY = f32(), goalZ = f32();
+    i32(); // mark_as_expert (unused in viz)
+
+    agents[a] = {
+      id, type,
+      ...states,
       route,
       route_polyline: null,
     };
@@ -133,6 +144,15 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     traffic_control_elements[t] = { id, type, xyz: [x, y, z], states, controlled_lanes };
   }
 
+  // --- Objects ---
+  const objects = new Array(numObjects);
+  for (let o = 0; o < numObjects; o++) {
+    const id = i32();
+    const type = i32();
+    const T = i32();
+    objects[o] = { id, type, ...readDynamicStateArrays(T) };
+  }
+
   // --- Metadata ---
   const scenario_id = str(128);
   const map_id = i32();
@@ -147,6 +167,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     agents,
     road_map_elements,
     traffic_control_elements,
-    metadata: { map_id, dataset_name, scenario_length, sdc_index, objects_of_interest, tracks_to_predict },
+    objects,
+    metadata: { map_id, dataset_name, scenario_length, sdc_index, num_objects: numObjects, objects_of_interest, tracks_to_predict },
   };
 };

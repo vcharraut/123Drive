@@ -54,6 +54,13 @@ const AGENT_COLORS = {
   3: [217, 119,  6],    // cyclist – amber-600
   4: [107, 114, 128],   // other   – gray-500
 };
+const OBJECT_COLORS = {
+  1: [220, 38, 38],
+  2: [234, 88, 12],
+  3: [22, 163, 74],
+  4: [71, 85, 105],
+  5: [8, 145, 178],
+};
 const EGO_COLOR = [220, 38, 38]; // red-600
 const ROUTELESS_COLOR = [148, 163, 184]; // slate-400
 const ROUTE_COLOR = [116, 136, 160, 88];
@@ -64,6 +71,7 @@ window.TYPES = {
   AGENT_TYPE_NAMES: {0:'unset', 1:'vehicle', 2:'pedestrian', 3:'cyclist', 4:'other'},
   ROAD_TYPE_NAMES: {},
   TC_TYPE_NAMES: {1:'traffic_light', 2:'stop_sign', 3:'yield_sign'},
+  OBJECT_TYPE_NAMES: {1:'traffic_sign', 2:'traffic_cone', 3:'traffic_light', 4:'barrier', 5:'generic_object'},
   TL_STATE_NAMES: {0:'green', 1:'yellow', 2:'red', 3:'off', 4:'unknown'},
   TL_STATE_COLORS: {0:'#00FF00', 1:'#FFFF00', 2:'#FF0000', 3:'#808080', 4:'#808080'},
   LANE_RANGE: [0, 9],
@@ -101,7 +109,7 @@ const state = {
   followEgo: false,
   layers: {
     lanes: true, road_lines: true, road_edges: true, crosswalks: true,
-    agents: true, routes: true, trajectories: true, traffic_controls: true, agent_ids: true,
+    agents: true, objects: true, routes: true, trajectories: true, traffic_controls: true, agent_ids: true,
     unknowns: false,
     scatter_roads: false,
   },
@@ -153,6 +161,10 @@ function getAgentDisplayColor(agent, egoId) {
   if (agent.id === egoId) return EGO_COLOR;
   if (!agentHasRoute(agent)) return ROUTELESS_COLOR;
   return AGENT_COLORS[agent.type] || ROUTELESS_COLOR;
+}
+
+function getObjectDisplayColor(object) {
+  return OBJECT_COLORS[object.type] || OBJECT_COLORS[5];
 }
 
 function buildValidSegments(xyz, valid, start, end, color) {
@@ -554,7 +566,88 @@ function getStaticLayers(scenario, layerFlags) {
 function getDynamicLayers(scenario, t, layerFlags, selected) {
   const egoId = getEgoAgentId(scenario);
   const ttp = new Set(scenario.metadata.tracks_to_predict || []);
+  const objects = scenario.objects || [];
   const layers = [];
+
+  if (layerFlags.objects && objects.length) {
+    if (layerFlags.trajectories) {
+      const objectHistData = objects.flatMap(o => {
+        if (!o.xyz.length) return [];
+        const color = [...getObjectDisplayColor(o), 180];
+        return buildValidSegments(o.xyz, o.valid, 0, t + 1, color);
+      });
+
+      if (objectHistData.length) layers.push(new PathLayer({
+        id: 'object-traj-history', data: objectHistData,
+        getPath: d => d.path, getColor: d => d.color,
+        getWidth: 1.25, widthUnits: 'pixels',
+        jointRounded: true, capRounded: true,
+      }));
+
+      const objectFutureData = objects.flatMap(o => {
+        if (!o.xyz.length || t >= o.xyz.length - 1) return [];
+        const color = [...getObjectDisplayColor(o), 80];
+        return buildValidSegments(o.xyz, o.valid, t, o.xyz.length, color);
+      });
+
+      if (objectFutureData.length) layers.push(new PathLayer({
+        id: 'object-traj-future', data: objectFutureData,
+        getPath: d => d.path, getColor: d => d.color,
+        getWidth: 1, widthUnits: 'pixels',
+        jointRounded: true, capRounded: true,
+        getDashArray: [4, 4], dashJustified: true,
+        extensions: [new PathStyleExtension({ dash: true })],
+      }));
+    }
+
+    const validObjects = objects.filter(o => t < o.valid.length && o.valid[t]);
+
+    if (state.viewMode === '2d') {
+      const boxData = validObjects.map(o => ({
+        corners: getVehicleCorners(o.xyz[t][0], o.xyz[t][1], o.heading[t], o.length[t] || 1.0, o.width[t] || 1.0),
+        color: getObjectDisplayColor(o),
+      }));
+      if (boxData.length) layers.push(new PolygonLayer({
+        id: 'objects-2d', data: boxData,
+        getPolygon: d => d.corners,
+        getFillColor: d => [...d.color, 170],
+        getLineColor: d => [...d.color, 255],
+        getLineWidth: 1, lineWidthUnits: 'pixels',
+        stroked: true, filled: true, extruded: false,
+        pickable: true, onClick: ({object, index}, event) => object
+          ? handleSelectableClick(event, () => selectElement('object', validObjects[index]))
+          : false,
+      }));
+    } else {
+      const boxData3d = validObjects.map(o => ({
+        corners: getVehicleCorners(o.xyz[t][0], o.xyz[t][1], o.heading[t], o.length[t] || 1.0, o.width[t] || 1.0),
+        height: o.height[t] || 1.0,
+        color: getObjectDisplayColor(o),
+      }));
+      if (boxData3d.length) layers.push(new PolygonLayer({
+        id: 'objects-3d', data: boxData3d,
+        getPolygon: d => d.corners,
+        getFillColor: d => [...d.color, 170],
+        getLineColor: d => [...d.color, 255],
+        getElevation: d => d.height,
+        stroked: true, filled: true, extruded: true,
+        pickable: true, onClick: ({object, index}, event) => object
+          ? handleSelectableClick(event, () => selectElement('object', validObjects[index]))
+          : false,
+      }));
+    }
+
+    const arrowData = validObjects.map(o => ({
+      path: getHeadingArrow(o.xyz[t][0], o.xyz[t][1], o.heading[t], Math.max(o.length[t] || 1.0, 0.8)),
+      color: [...getObjectDisplayColor(o), 220],
+    }));
+    if (arrowData.length) layers.push(new PathLayer({
+      id: 'object-arrows', data: arrowData,
+      getPath: d => d.path, getColor: d => d.color,
+      getWidth: 1, widthUnits: 'pixels',
+      capRounded: true,
+    }));
+  }
 
   if (layerFlags.agents) {
     // Trajectory history + future — split at validity gaps to avoid teleportation lines
@@ -824,6 +917,51 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         }));
       }
 
+    } else if (selected.type === 'object') {
+      const o = selected.data;
+      const historySegments = buildValidSegments(o.xyz, o.valid, 0, Math.min(t + 1, o.xyz.length), [...BLUE, 255]);
+      const futureSegments = buildValidSegments(o.xyz, o.valid, t, o.xyz.length, [...BLUE, 180]);
+
+      if (historySegments.length) {
+        layers.push(new PathLayer({
+          id: 'sel-object-history', data: historySegments,
+          getPath: d => d.path,
+          getColor: d => d.color,
+          getWidth: 2.5, widthUnits: 'pixels',
+          jointRounded: true, capRounded: true,
+        }));
+      }
+
+      if (futureSegments.length) {
+        layers.push(new PathLayer({
+          id: 'sel-object-future', data: futureSegments,
+          getPath: d => d.path,
+          getColor: d => d.color,
+          getWidth: 2.5, widthUnits: 'pixels',
+          getDashArray: [6, 4], dashJustified: true,
+          extensions: [new PathStyleExtension({ dash: true })],
+          jointRounded: true, capRounded: true,
+        }));
+      }
+
+      if (t < o.xyz.length && o.valid[t]) {
+        const corners = getVehicleCorners(
+          o.xyz[t][0], o.xyz[t][1], o.heading[t],
+          o.length[t] || 1.0, o.width[t] || 1.0
+        );
+        layers.push(new PolygonLayer({
+          id: 'sel-object',
+          data: [{corners, height: o.height[t] || 1.0}],
+          getPolygon: d => d.corners,
+          getElevation: d => d.height,
+          getFillColor: [...BLUE, 55],
+          getLineColor: [...BLUE, 255],
+          getLineWidth: 3, lineWidthUnits: 'pixels',
+          stroked: true, filled: true,
+          extruded: state.viewMode === '3d',
+        }));
+      }
+
     } else if (selected.type === 'traffic_control') {
       const tl = selected.data;
 
@@ -897,6 +1035,9 @@ function render() {
   if (state.selected && state.selected.type === 'agent') {
     renderElementInfo(state.selected.type, state.selected.data);
   }
+  if (state.selected && state.selected.type === 'object') {
+    renderElementInfo(state.selected.type, state.selected.data);
+  }
   if (state.selected && state.selected.type === 'traffic_control') {
     renderElementInfo(state.selected.type, state.selected.data);
   }
@@ -926,6 +1067,7 @@ function renderElementInfo(type, data) {
     t: state.timestep,
     scenario: state.scenario,
     AGENT_TYPE_NAMES: window.TYPES.AGENT_TYPE_NAMES,
+    OBJECT_TYPE_NAMES: window.TYPES.OBJECT_TYPE_NAMES,
     ROAD_TYPE_NAMES: window.TYPES.ROAD_TYPE_NAMES,
     TC_TYPE_NAMES: window.TYPES.TC_TYPE_NAMES,
     TL_STATE_NAMES: window.TYPES.TL_STATE_NAMES,
@@ -992,6 +1134,7 @@ function renderScenarioMeta(data) {
     <div class="info-row"><span class="info-label">Agents</span><span class="info-val">${escapeHtml(data.agents.length)}</span></div>
     <div class="info-row"><span class="info-label">Roads</span><span class="info-val">${escapeHtml(data.road_map_elements.length)}</span></div>
     <div class="info-row"><span class="info-label">TCs</span><span class="info-val">${escapeHtml(data.traffic_control_elements.length)}</span></div>
+    <div class="info-row"><span class="info-label">Objects</span><span class="info-val">${escapeHtml((data.objects || []).length)}</span></div>
     <div class="info-row"><span class="info-label">SDC idx</span><span class="info-val">${escapeHtml(m.sdc_index)}</span></div>
     <div class="info-row"><span class="info-label">OOI</span><span class="info-val">${safeIdList(ooi)}</span></div>
     <div class="info-row"><span class="info-label">TTP</span><span class="info-val">${safeIdList(m.tracks_to_predict)}</span></div>`;
@@ -1224,6 +1367,9 @@ document.getElementById('btn-search-go').addEventListener('click', () => {
   if (type === 'agent') {
     const a = state.scenario.agents.find(a => a.id === id);
     if (a) selectElement('agent', a);
+  } else if (type === 'object') {
+    const o = (state.scenario.objects || []).find(o => o.id === id);
+    if (o) selectElement('object', o);
   } else if (type === 'road') {
     const r = state.scenario.road_map_elements.find(r => r.id === id);
     if (r) selectElement('road', r);

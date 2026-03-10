@@ -23,6 +23,14 @@ _AGENT_LABELS = {
     # DefaultBoxDetectionLabel.ANIMAL,
 }
 
+_OBJECT_LABELS = {
+    DefaultBoxDetectionLabel.TRAFFIC_SIGN,
+    DefaultBoxDetectionLabel.TRAFFIC_CONE,
+    DefaultBoxDetectionLabel.TRAFFIC_LIGHT,
+    DefaultBoxDetectionLabel.BARRIER,
+    DefaultBoxDetectionLabel.GENERIC_OBJECT,
+}
+
 
 def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     """Convert py123d SceneAPI or MapOnlyScenario to intermediate format."""
@@ -45,6 +53,7 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
         "id": scenario_id,
         "agents": {},
         "map": {},
+        "objects": {},
         "traffic_lights": {},
         "dataset_name": dataset_name,
         "scenario_length": 0,
@@ -86,11 +95,14 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
     py123d_dict["map"] = _extract_map(map_api, centroid, map_only)
 
     if scene is not None:
-        agents = _extract_objects(scene, centroid)
-        # Filter to agent-like labels only
-        agents = {oid: obj for oid, obj in agents.items() if obj["type"] in _AGENT_LABELS}
+        objects = _extract_objects(scene, centroid)
+        # Split agents and objects based on label, and filter to only supported labels
+        for oid, obj in objects.items():
+            if obj["type"] in _AGENT_LABELS:
+                py123d_dict["agents"][oid] = obj
+            elif obj["type"] in _OBJECT_LABELS:
+                py123d_dict["objects"][oid] = obj
 
-        py123d_dict["agents"] = agents
         map_lane_ids = {eid for eid, el in py123d_dict["map"].items() if el.get("layer") == MapLayer.LANE}
         py123d_dict["traffic_lights"] = _extract_traffic_lights(scene, map_api, centroid, map_lane_ids)
         py123d_dict["scenario_length"] = scene.number_of_iterations

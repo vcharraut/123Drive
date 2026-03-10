@@ -65,6 +65,42 @@
       </details>`;
   }
 
+  function renderObjectInfo(data, context) {
+    const {t, OBJECT_TYPE_NAMES, escapeHtml} = context;
+    const typeName = OBJECT_TYPE_NAMES[data.type] || `type_${data.type}`;
+    const validAt = t < data.valid.length ? data.valid[t] : false;
+    const x = validAt ? data.xyz[t][0].toFixed(2) : '—';
+    const y = validAt ? data.xyz[t][1].toFixed(2) : '—';
+    const z = validAt ? data.xyz[t][2].toFixed(2) : '—';
+    const h = validAt ? ((data.heading[t] * 180 / Math.PI) % 360).toFixed(1) + '°' : '—';
+    const vx = validAt && data.velocity[t] ? data.velocity[t][0].toFixed(2) : '—';
+    const vy = validAt && data.velocity[t] ? data.velocity[t][1].toFixed(2) : '—';
+    const vmag = validAt && data.velocity[t] ? Math.sqrt(data.velocity[t][0] ** 2 + data.velocity[t][1] ** 2).toFixed(2) : '—';
+    const l = validAt ? (data.length[t] || 0).toFixed(2) : '—';
+    const w = validAt ? (data.width[t] || 0).toFixed(2) : '—';
+    const ht = validAt ? (data.height[t] || 0).toFixed(2) : '—';
+
+    const trajRows = data.xyz.slice(0, 50).map((pos, i) => {
+      const cls = i === t ? 'class="current-row"' : '';
+      const valid = data.valid[i] ? '✓' : '✗';
+      return `<tr ${cls}><td>${i}</td><td>${escapeHtml(pos[0].toFixed(1))}</td><td>${escapeHtml(pos[1].toFixed(1))}</td><td>${valid}</td></tr>`;
+    }).join('');
+
+    return `
+      <span class="badge badge-${escapeHtml(typeName)}">${escapeHtml(typeName)}</span>
+      <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>
+      <div class="info-row"><span class="info-label">Valid</span><span class="info-val">${validAt ? '✓' : '✗'}</span></div>
+      <div class="info-row"><span class="info-label">X,Y,Z</span><span class="info-val">${escapeHtml(x)}, ${escapeHtml(y)}, ${escapeHtml(z)}</span></div>
+      <div class="info-row"><span class="info-label">Heading</span><span class="info-val">${escapeHtml(h)}</span></div>
+      <div class="info-row"><span class="info-label">Speed</span><span class="info-val">${escapeHtml(vmag)} m/s</span></div>
+      <div class="info-row"><span class="info-label">Vel XY</span><span class="info-val">${escapeHtml(vx)}, ${escapeHtml(vy)}</span></div>
+      <div class="info-row"><span class="info-label">L×W×H</span><span class="info-val">${escapeHtml(l)}×${escapeHtml(w)}×${escapeHtml(ht)}</span></div>
+      <details><summary>Trajectory</summary>
+        <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th><th>V</th></tr></thead>
+        <tbody>${trajRows}</tbody></table>
+      </details>`;
+  }
+
   function renderRoadInfo(data, context) {
     const {ROAD_TYPE_NAMES, escapeHtml, safeIdList} = context;
     const typeName = ROAD_TYPE_NAMES[data.type] || `type_${data.type}`;
@@ -146,6 +182,7 @@
 
   function renderElementInfoHtml(type, data, context) {
     if (type === 'agent') return renderAgentInfo(data, context);
+    if (type === 'object') return renderObjectInfo(data, context);
     if (type === 'road') return renderRoadInfo(data, context);
     if (type === 'traffic_control') return renderTrafficControlInfo(data, context);
     return '<span class="empty-state">Click an element to inspect.</span>';

@@ -1,5 +1,5 @@
 from bin_factory import logger_utils
-from bin_factory.convert import agents, roadgraph, traffic_controls
+from bin_factory.convert import agents, objects, roadgraph, traffic_controls
 
 
 logger = logger_utils.get_logger(__name__)
@@ -9,7 +9,7 @@ def convert_to_puffer_dict(py123d_dict: dict, min_route_valid_points: int = 0, r
     if not isinstance(py123d_dict, dict):
         raise TypeError(f"Expected dict, got {type(py123d_dict).__name__}")
 
-    required_fields = ["id", "agents", "map", "traffic_lights"]
+    required_fields = ["id", "agents", "map", "objects", "traffic_lights"]
     missing = [f for f in required_fields if f not in py123d_dict]
     if missing:
         raise ValueError(f"py123d dict missing required fields: {missing}")
@@ -28,6 +28,7 @@ def convert_to_puffer_dict(py123d_dict: dict, min_route_valid_points: int = 0, r
         py123d_dict["map"],
         py123d_dict["scenario_length"],
     )
+    puffer_objects = objects.convert_objects(py123d_dict["objects"])
 
     puffer_metadata = {
         "dataset_name": py123d_dict["dataset_name"],
@@ -43,5 +44,6 @@ def convert_to_puffer_dict(py123d_dict: dict, min_route_valid_points: int = 0, r
         "agents": puffer_agents,
         "road_map_elements": road_map_elements,
         "traffic_control_elements": traffic_control_elements,
+        "objects": puffer_objects,
         "metadata": puffer_metadata,
     }

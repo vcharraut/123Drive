@@ -54,6 +54,14 @@ class TCType(IntEnum):
     YIELD_SIGN = 3
 
 
+class ObjectType(IntEnum):
+    TRAFFIC_SIGN = 1
+    TRAFFIC_CONE = 2
+    TRAFFIC_LIGHT = 3
+    BARRIER = 4
+    GENERIC_OBJECT = 5
+
+
 # Derived name dicts (int -> str)
 AGENT_TYPE_NAMES = {0: "unset", **{t.value: t.name.lower() for t in AgentType}}
 ROAD_TYPE_NAMES = {
@@ -61,6 +69,7 @@ ROAD_TYPE_NAMES = {
 }
 TL_STATE_NAMES = {t.value: t.name.lower() for t in TLState}
 TC_TYPE_NAMES = {t.value: t.name.lower() for t in TCType}
+OBJECT_TYPE_NAMES = {t.value: t.name.lower() for t in ObjectType}
 
 # Range checks
 LANE_RANGE = (0, 9)
@@ -110,6 +119,7 @@ def as_json_dict():
         "TL_STATE_NAMES": TL_STATE_NAMES,
         "TL_STATE_COLORS": dict(TL_STATE_COLORS.items()),
         "TC_TYPE_NAMES": TC_TYPE_NAMES,
+        "OBJECT_TYPE_NAMES": OBJECT_TYPE_NAMES,
         "LANE_RANGE": LANE_RANGE,
         "ROAD_LINE_RANGE": ROAD_LINE_RANGE,
         "ROAD_EDGE_RANGE": ROAD_EDGE_RANGE,

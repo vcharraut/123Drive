@@ -3,15 +3,17 @@
 Binary Format Structure (see binary_converter.py for full details):
 ====================================================================
 
-Header (12 bytes):
+Header (16 bytes):
     - num_agents (int32)
     - num_road_elements (int32)
     - num_traffic_controls (int32)
+    - num_objects (int32)
 
 Followed by:
     - DynamicAgents (variable size)
     - RoadMapElements (variable size)
     - TrafficControlElements (variable size)
+    - Objects (variable size)
     - Metadata (variable length):
         - scenario_id (char[128])
         - map_id (int32)
@@ -44,6 +46,7 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
             - dynamic_agents: list of agent dicts
             - road_map_elements: list of road dicts
             - traffic_control_elements: list of traffic dicts
+            - objects: list of object dicts
             - metadata: dict
     """
     with Path(binary_path).open("rb") as f:
@@ -51,6 +54,7 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
         num_agents = struct.unpack("i", f.read(4))[0]
         num_roads = struct.unpack("i", f.read(4))[0]
         num_traffic = struct.unpack("i", f.read(4))[0]
+        num_objects = struct.unpack("i", f.read(4))[0]
 
         # Read agents
         dynamic_agents = []
@@ -69,6 +73,12 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
         for _ in range(num_traffic):
             traffic = _read_traffic_control_element(f)
             traffic_control_elements.append(traffic)
+
+        # Read objects
+        objects = []
+        for _ in range(num_objects):
+            obj = _read_object(f)
+            objects.append(obj)
 
         # Read metadata
         scenario_id_bytes = f.read(128)
@@ -100,10 +110,12 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
         "agents": dynamic_agents,
         "road_map_elements": road_map_elements,
         "traffic_control_elements": traffic_control_elements,
+        "objects": objects,
         "metadata": {
             "num_agents": num_agents,
             "num_roads": num_roads,
             "num_traffic": num_traffic,
+            "num_objects": num_objects,
             "map_id": map_id,
             "dataset_name": dataset_name,
             "scenario_length": length,
@@ -116,61 +128,62 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
 
 def _read_dynamic_agent(f) -> dict:
     """Read a DynamicAgent from binary file."""
-    # Read ID and type
     agent_id = struct.unpack("i", f.read(4))[0]
     agent_type = struct.unpack("i", f.read(4))[0]
-
-    # Read trajectory length
     trajectory_length = struct.unpack("i", f.read(4))[0]
+    states = _read_dynamic_states(f, trajectory_length)
 
-    # Read trajectory data - TRANSPOSED format
-    traj_x = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    traj_y = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    traj_z = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-
-    # Combine into (N, 3) array
-    xyz = np.stack([traj_x, traj_y, traj_z], axis=1)
-
-    # Read heading
-    heading = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-
-    # Read velocity - TRANSPOSED
-    vel_x = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    vel_y = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-
-    # Combine into (N, 2) array
-    velocity = np.stack([vel_x, vel_y], axis=1)
-
-    # Read dimensions
-    length = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    width = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    height = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-
-    # Read valid
-    valid = np.array(struct.unpack(f"{trajectory_length}i", f.read(4 * trajectory_length)))
-
-    # Read route lane ids
     num_route_ints = struct.unpack("i", f.read(4))[0]
     route = []
     if num_route_ints > 0:
         route = list(struct.unpack(f"{num_route_ints}i", f.read(4 * num_route_ints)))
 
-    # Skip goal_position (3x float32) + mark_as_expert (int32) = 16 bytes
     f.read(16)
 
     return {
         "id": agent_id,
         "type": agent_type,
-        "states": {
-            "xyz": xyz,
-            "heading": heading,
-            "velocity": velocity,
-            "length": length,
-            "width": width,
-            "height": height,
-            "valid": valid,
-        },
+        "states": states,
         "route": route,
+    }
+
+
+def _read_object(f) -> dict:
+    """Read an Object from binary file."""
+    object_id = struct.unpack("i", f.read(4))[0]
+    object_type = struct.unpack("i", f.read(4))[0]
+    trajectory_length = struct.unpack("i", f.read(4))[0]
+    return {
+        "id": object_id,
+        "type": object_type,
+        "states": _read_dynamic_states(f, trajectory_length),
+    }
+
+
+def _read_dynamic_states(f, trajectory_length: int) -> dict:
+    traj_x = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+    traj_y = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+    traj_z = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+    xyz = np.stack([traj_x, traj_y, traj_z], axis=1)
+
+    heading = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+    vel_x = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+    vel_y = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+    velocity = np.stack([vel_x, vel_y], axis=1)
+
+    length = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+    width = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+    height = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+    valid = np.array(struct.unpack(f"{trajectory_length}i", f.read(4 * trajectory_length)))
+
+    return {
+        "xyz": xyz,
+        "heading": heading,
+        "velocity": velocity,
+        "length": length,
+        "width": width,
+        "height": height,
+        "valid": valid,
     }
 
 
