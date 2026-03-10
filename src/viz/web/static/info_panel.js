@@ -1,4 +1,4 @@
-/* Puffer Viz — selection/info panel renderer */
+/* 123Drive Viz — selection/info panel renderer */
 'use strict';
 
 (function initVizInfoPanel(globalScope) {

@@ -66,7 +66,7 @@ def get_scenario(filename: str):
 def main():
     import uvicorn
 
-    parser = argparse.ArgumentParser(description="Puffer Viz Server")
+    parser = argparse.ArgumentParser(description="123Drive Server")
     parser.add_argument("--dir", required=True, help="Directory with .bin scenario files")
     parser.add_argument("--port", type=int, default=8080, help="Port to run on")
     args = parser.parse_args()

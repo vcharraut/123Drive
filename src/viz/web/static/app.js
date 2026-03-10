@@ -1,4 +1,4 @@
-/* Puffer Viz — deck.gl client-side renderer */
+/* 123Drive Viz — deck.gl client-side renderer */
 'use strict';
 
 const {DeckGL, OrthographicView, OrbitView, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer, PathStyleExtension, LinearInterpolator, COORDINATE_SYSTEM} = window.deck;
