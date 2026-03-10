@@ -67,13 +67,13 @@ def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "")
 def _convert_map_element_type_to_int(element_type: SerialIntEnum) -> int:
     # Lane types (0-9 range)
     lane_type_map = {
-        LaneType.UNDEFINED: 0,
+        LaneType.UNDEFINED: puffer_types.LANE_UNKNOWN,
         LaneType.FREEWAY: puffer_types.LANE_FREEWAY,
         LaneType.SURFACE_STREET: puffer_types.LANE_SURFACE_STREET,
         LaneType.BIKE_LANE: puffer_types.LANE_BIKE_LANE,
     }
     if isinstance(element_type, LaneType):
-        return lane_type_map.get(element_type, 0)
+        return lane_type_map.get(element_type, puffer_types.LANE_UNKNOWN)
 
     # Road line types (10-19 range)
     road_line_type_map = {

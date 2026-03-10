@@ -77,24 +77,25 @@ def build_route_cache(static_map_elements: dict, lane_data: tuple) -> dict:
     }
 
 
-def compute_agent_route(agent_data: tuple, route_cache: dict, route_check_timestep: int = 0) -> list[int]:
+def compute_agent_route(
+    agent_data: tuple,
+    route_cache: dict,
+    route_check_timestep: int = 0,
+    min_route_valid_points: int = 0,
+) -> list[int]:
     """Return the best lane sequence for one agent, or an empty list."""
-    agent_id, positions, headings, valid, lengths, widths = agent_data
+    agent_id, positions, headings, valid, lengths, widths, agent_type, is_sdc = agent_data
     positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
     valid = np.asarray(valid, dtype=bool)
     trajectory = positions_2d[valid]
     heading_valid = headings[valid]
-
-    agent_str = f"Agent {agent_id}" if agent_id is not None else "Agent"
-
-    if len(trajectory) == 0 or len(route_cache["lane_ids"]) == 0:
-        return []
 
     agent_dirs = np.stack([np.cos(heading_valid), np.sin(heading_valid)], axis=1)
     sample_indices = np.linspace(0, len(trajectory) - 1, min(10, len(trajectory)), dtype=int)
 
     agent_context = {
         "id": agent_id,
+        "type": agent_type,
         "positions_2d": positions_2d,
         "headings": headings,
         "valid": valid,
@@ -106,8 +107,16 @@ def compute_agent_route(agent_data: tuple, route_cache: dict, route_check_timest
         "sample_agent_dirs": agent_dirs[sample_indices],
     }
 
-    if _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep):
-        logger.debug(f"{agent_str}: Off-road at timestep {route_check_timestep}")
+    agent_str = f"Agent {agent_id}" if agent_id is not None else "Agent"
+
+    if not _can_compute_route(
+        agent_context,
+        route_cache,
+        is_sdc,
+        route_check_timestep,
+        min_route_valid_points,
+    ):
+        logger.debug(f"{agent_str}: Skipping route computation due to insufficient valid data or offroad start")
         return []
 
     root_candidates = _select_root_lane_candidates(agent_context, route_cache)
@@ -121,6 +130,35 @@ def compute_agent_route(agent_data: tuple, route_cache: dict, route_check_timest
         return []
 
     return best_route
+
+
+def _can_compute_route(
+    agent_context: dict,
+    route_cache: dict,
+    is_sdc: bool,
+    route_check_timestep: int = 0,
+    min_route_valid_points: int = 0,
+) -> bool:
+    """Check if route computation is likely to succeed for this agent."""
+    if is_sdc:
+        return True  # Always attempt route for SDC to provide feedback, even if it may fail
+
+    if agent_context["type"] != 1:  # Only compute routes for VEHICLE type
+        return False
+
+    if len(agent_context["trajectory"]) == 0 or len(route_cache["lane_ids"]) == 0:
+        return False
+
+    if route_check_timestep >= len(agent_context["valid"]):
+        return False
+
+    if not agent_context["valid"][route_check_timestep]:
+        return False
+
+    if np.sum(agent_context["valid"]) < min_route_valid_points:
+        return False
+
+    return not _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep)
 
 
 def _search_route_beam(

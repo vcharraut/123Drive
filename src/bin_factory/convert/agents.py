@@ -57,25 +57,21 @@ def convert_agents(
         # Convert agent type to int
         agent_type_int = _convert_agent_type_to_int(agent_data["type"])
 
-        # Routes are computed only for:
-        # 1. VEHICLE type (type == 1)
-        # 2. Agents valid at route_check_timestep (configurable, default: 0)
-        # 3. Agents with sufficient valid trajectory points (configurable, default: 0)
-        should_compute_routes = (
-            agent_type_int == puffer_types.VEHICLE
-            and route_check_timestep < len(valid)
-            and valid[route_check_timestep]
-            and np.sum(valid) >= min_route_valid_points
+        route = routes.compute_agent_route(
+            agent_data=(
+                agent_id,
+                position,
+                heading,
+                valid,
+                length,
+                width,
+                agent_type_int,
+                agent_data["type"] == DefaultBoxDetectionLabel.EGO,
+            ),
+            route_cache=route_cache,
+            route_check_timestep=route_check_timestep,
+            min_route_valid_points=min_route_valid_points,
         )
-
-        if should_compute_routes:
-            route = routes.compute_agent_route(
-                agent_data=(agent_id, position, heading, valid, length, width),
-                route_cache=route_cache,
-                route_check_timestep=route_check_timestep,
-            )
-        else:
-            route = []
 
         puffer_agent = {
             "id": agent_id,
