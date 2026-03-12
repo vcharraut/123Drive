@@ -258,19 +258,16 @@ def _read_road_map_element(f) -> dict:
 
 def _read_traffic_control_element(f) -> dict:
     """Read a TrafficControlElement from binary file."""
-    # Read ID and type
     traffic_id = struct.unpack("i", f.read(4))[0]
     traffic_type = struct.unpack("i", f.read(4))[0]
 
-    # Read position
-    x = struct.unpack("f", f.read(4))[0]
-    y = struct.unpack("f", f.read(4))[0]
-    z = struct.unpack("f", f.read(4))[0]
-
-    # Read state length
-    state_length = struct.unpack("i", f.read(4))[0]
+    # Read stop line (2 points x 3 coords)
+    x1, y1, z1 = struct.unpack("fff", f.read(12))
+    x2, y2, z2 = struct.unpack("fff", f.read(12))
+    heading = struct.unpack("f", f.read(4))[0]
 
     # Read states
+    state_length = struct.unpack("i", f.read(4))[0]
     states = list(struct.unpack(f"{state_length}i", f.read(4 * state_length))) if state_length > 0 else []
 
     # Read controlled lanes
@@ -282,7 +279,8 @@ def _read_traffic_control_element(f) -> dict:
     return {
         "id": traffic_id,
         "type": traffic_type,
-        "xyz": np.array([x, y, z]),
+        "stop_line": np.array([[x1, y1, z1], [x2, y2, z2]]),
+        "heading": heading,
         "states": states,
         "controlled_lanes": controlled_lanes,
     }

@@ -39,7 +39,7 @@ REQUIRED_OBJECT_KEYS = {"id", "type", "states"}
 REQUIRED_AGENT_STATE_KEYS = {"xyz", "heading", "velocity", "length", "width", "height", "valid"}
 REQUIRED_ROAD_KEYS = {"id", "type", "xyz"}
 REQUIRED_LANE_KEYS = {"entry_lanes", "exit_lanes", "speed_limit"}
-REQUIRED_TRAFFIC_CONTROL_KEYS = {"id", "type", "xyz", "states", "controlled_lanes"}
+REQUIRED_TRAFFIC_CONTROL_KEYS = {"id", "type", "stop_line", "heading", "states", "controlled_lanes"}
 
 
 class ValidationError(Exception):
@@ -309,10 +309,17 @@ def _validate_traffic_controls_schema(traffic_controls: list, expected_length: i
         if "type" in control and not _is_int_like(control["type"]):
             errors.append(f"Traffic control {control_id} type must be int, got {type(control['type']).__name__}")
 
-        xyz_lengths = _validate_array(control, control_id, "xyz", ndim=1, errors=errors, prefix="Traffic control")
-        if "xyz" in xyz_lengths and xyz_lengths["xyz"] != 3:
+        sl_lengths = _validate_array(
+            control, control_id, "stop_line", ndim=2, shape1=3, errors=errors, prefix="Traffic control"
+        )
+        if "stop_line" in sl_lengths and sl_lengths["stop_line"] != 2:
             errors.append(
-                f"Traffic control {control_id} xyz must be shape (3,), got {np.asarray(control['xyz']).shape}"
+                f"Traffic control {control_id} stop_line must be shape (2,3), got {np.asarray(control['stop_line']).shape}",
+            )
+
+        if "heading" in control and not _is_number(control["heading"]):
+            errors.append(
+                f"Traffic control {control_id} heading must be numeric, got {type(control['heading']).__name__}"
             )
 
         states_lengths = _validate_array(control, control_id, "states", ndim=1, errors=errors, prefix="Traffic control")
@@ -465,9 +472,11 @@ def _validate_finite_values(agents: list, objects: list, roads: list, traffic_co
 
     for control in traffic_controls:
         control_id = control.get("id", "?")
-        for key in ["xyz", "states"]:
+        for key in ["stop_line", "states"]:
             if key in control and not _is_finite_array(control[key]):
                 errors.append(f"Traffic control {control_id} {key} contains NaN or Inf")
+        if "heading" in control and not _is_finite_scalar(control["heading"]):
+            errors.append(f"Traffic control {control_id} heading contains NaN or Inf")
 
 
 def _validate_road_geometry(roads: list, errors: list[str]):

@@ -806,47 +806,48 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     }));
   }
 
-  // Traffic controls
+  // Traffic controls — rendered as stop lines
   if (layerFlags.traffic_controls && scenario.traffic_control_elements.length) {
     const tlElems = scenario.traffic_control_elements.filter(tc => (tc.type || 1) === 1);
     const signElems = scenario.traffic_control_elements.filter(tc => (tc.type || 1) !== 1);
 
-    // Traffic lights — dynamic state color
+    // Traffic lights — stop line with dynamic state color
     if (tlElems.length) {
       const tlData = tlElems.map(tl => {
-        const s = t < tl.states.length ? tl.states[t] : 0;
-        return {pos: tl.xyz, color: getTlStateColorRgb(s), state: s, tl};
+        const s = tl.states.length && t < tl.states.length ? tl.states[t] : 4;
+        return {path: [tl.stop_line[0].slice(0,2), tl.stop_line[1].slice(0,2)], color: getTlStateColorRgb(s), state: s, tl};
       });
-      layers.push(new ScatterplotLayer({
+      layers.push(new PathLayer({
         id: 'traffic-lights', data: tlData,
-        getPosition: d => [d.pos[0], d.pos[1]],
-        getRadius: 4, radiusUnits: 'pixels',
-        getFillColor: d => d.color,
-        getLineColor: [255,255,255,200],
-        stroked: true, lineWidthUnits: 'pixels', getLineWidth: 1,
+        getPath: d => d.path,
+        getColor: d => [...d.color, 230],
+        getWidth: 3, widthUnits: 'pixels',
+        capRounded: true,
         pickable: true, onClick: ({object}, event) => object
           ? handleSelectableClick(event, () => selectElement('traffic_control', object.tl))
           : false,
       }));
     }
 
-    // Stop/yield signs — square (stop) / triangle (yield) via PolygonLayer
+    // Stop/yield signs — striped stop line
     if (signElems.length) {
-      const R = 0.8;
-      const sqVerts = (x, y) => [[x-R,y-R],[x+R,y-R],[x+R,y+R],[x-R,y+R],[x-R,y-R]];
-      const triVerts = (x, y) => [[x,y+R],[x-R,y-R*0.6],[x+R,y-R*0.6],[x,y+R]];
-      const signData = signElems.map(tc => ({
-        polygon: tc.type === 3 ? triVerts(tc.xyz[0], tc.xyz[1]) : sqVerts(tc.xyz[0], tc.xyz[1]),
-        color: TC_TYPE_COLORS[tc.type] || [128,128,128],
-        tc,
-      }));
-      layers.push(new PolygonLayer({
-        id: 'traffic-signs', data: signData,
-        getPolygon: d => d.polygon,
-        getFillColor: d => [...d.color, 230],
-        getLineColor: [255,255,255,200],
-        stroked: true, lineWidthUnits: 'pixels', getLineWidth: 1.5,
-        filled: true,
+      const SIGN_COLORS = {2: [[220,38,38], [30,30,30]], 3: [[234,160,8], [30,30,30]]};
+      const NUM_STRIPES = 8;
+      const stripeSegments = signElems.flatMap(tc => {
+        const [a, b] = [tc.stop_line[0].slice(0,2), tc.stop_line[1].slice(0,2)];
+        const colors = SIGN_COLORS[tc.type] || [[128,128,128],[30,30,30]];
+        return Array.from({length: NUM_STRIPES}, (_, i) => {
+          const t0 = i / NUM_STRIPES, t1 = (i + 1) / NUM_STRIPES;
+          const p0 = [a[0] + (b[0]-a[0])*t0, a[1] + (b[1]-a[1])*t0];
+          const p1 = [a[0] + (b[0]-a[0])*t1, a[1] + (b[1]-a[1])*t1];
+          return {path: [p0, p1], color: [...colors[i % 2], 230], tc};
+        });
+      });
+      layers.push(new PathLayer({
+        id: 'traffic-signs', data: stripeSegments,
+        getPath: d => d.path,
+        getColor: d => d.color,
+        getWidth: 3, widthUnits: 'pixels',
         pickable: true, onClick: ({object}, event) => object
           ? handleSelectableClick(event, () => selectElement('traffic_control', object.tc))
           : false,
@@ -1001,13 +1002,13 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     } else if (selected.type === 'traffic_control') {
       const tl = selected.data;
 
-      // TL dot ring
-      layers.push(new ScatterplotLayer({
+      // Stop line highlight
+      layers.push(new PathLayer({
         id: 'sel-tl', data: [tl],
-        getPosition: d => [d.xyz[0], d.xyz[1]],
-        getRadius: 9, radiusUnits: 'pixels',
-        getFillColor: [0,0,0,0], getLineColor: [...BLUE, 255],
-        stroked: true, lineWidthUnits: 'pixels', getLineWidth: 2,
+        getPath: d => [d.stop_line[0].slice(0,2), d.stop_line[1].slice(0,2)],
+        getColor: [...BLUE, 255],
+        getWidth: 5, widthUnits: 'pixels',
+        capRounded: true,
       }));
 
       // Controlled lanes

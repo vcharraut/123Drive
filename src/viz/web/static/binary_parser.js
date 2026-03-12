@@ -11,7 +11,7 @@
  *   Roads[]:   id(i32), type(i32), S(i32),
  *              x[S](f32), y[S](f32), z[S](f32),
  *              [if lane (type 0-9): n_entry(i32), entry[](i32), n_exit(i32), exit[](i32), speed_limit(f32)]
- *   Traffic[]: id(i32), type(i32), x(f32), y(f32), z(f32),
+ *   Traffic[]: id(i32), type(i32), stop_line(6xf32), heading(f32),
  *              n_states(i32), states[](i32), n_ctrl(i32), ctrl[](i32)
  *   Objects[]: id(i32), type(i32), T(i32),
  *              x[T](f32), y[T](f32), z[T](f32),
@@ -139,11 +139,13 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
   for (let t = 0; t < numTraffic; t++) {
     const id = i32();
     const type = i32();
-    const x = f32(), y = f32(), z = f32();
+    const x1 = f32(), y1 = f32(), z1 = f32();
+    const x2 = f32(), y2 = f32(), z2 = f32();
+    const heading = f32();
     const states = intList();
     const controlled_lanes = intList();
 
-    traffic_control_elements[t] = { id, type, xyz: [x, y, z], states, controlled_lanes };
+    traffic_control_elements[t] = { id, type, stop_line: [[x1,y1,z1],[x2,y2,z2]], heading, states, controlled_lanes };
   }
 
   // --- Objects ---

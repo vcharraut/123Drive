@@ -151,11 +151,12 @@
     let html = `
       <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>
       <div class="info-row"><span class="info-label">Type</span><span class="info-val">${escapeHtml(typeName)}</span></div>
-      <div class="info-row"><span class="info-label">Pos</span><span class="info-val">${escapeHtml(data.xyz[0].toFixed(2))}, ${escapeHtml(data.xyz[1].toFixed(2))}</span></div>
+      <div class="info-row"><span class="info-label">Stop line</span><span class="info-val">(${data.stop_line[0][0].toFixed(1)},${data.stop_line[0][1].toFixed(1)}) → (${data.stop_line[1][0].toFixed(1)},${data.stop_line[1][1].toFixed(1)})</span></div>
+      <div class="info-row"><span class="info-label">Heading</span><span class="info-val">${(data.heading * 180 / Math.PI).toFixed(1)}°</span></div>
       <div class="info-row"><span class="info-label">Lanes</span><span class="info-val" style="font-size:9px">${controlled}</span></div>`;
 
-    // Only show state timeline for traffic lights (type=1)
-    if (tcType === 1) {
+    // Only show state timeline for traffic lights (type=1) with states
+    if (tcType === 1 && data.states.length > 0) {
       const stateNow = t < data.states.length ? data.states[t] : 0;
       const stateName = TL_STATE_NAMES[stateNow] || 'unknown';
       const colStr = TL_STATE_COLORS[stateNow] || '#808080';

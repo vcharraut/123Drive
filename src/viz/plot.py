@@ -8,7 +8,6 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FFMpegWriter
-from matplotlib.patches import Circle, FancyBboxPatch, RegularPolygon
 from matplotlib.transforms import Affine2D
 from tqdm import tqdm
 
@@ -153,14 +152,12 @@ def _build_scene(puffer_scenario, show_routes):
 
     traffic_controls = [
         {
-            "x": float(xyz[0]),
-            "y": float(xyz[1]),
+            "stop_line": np.asarray(element["stop_line"]),
             "type": element.get("type", TCType.TRAFFIC_LIGHT),
             "states": np.asarray(element.get("states", np.array([]))),
         }
         for element in puffer_scenario.get("traffic_control_elements", [])
-        for xyz in [np.asarray(element.get("xyz", np.array([])))]
-        if len(xyz) >= 3
+        if "stop_line" in element
     ]
 
     return {
@@ -214,44 +211,25 @@ def _render_frame(ax, scene, timestep, show_future, zoom_center, zoom_radius, fo
         ax.plot(x, y, color=route["color"], linewidth=2.0, alpha=0.6, linestyle="--", zorder=5)
 
     for control in scene["traffic_controls"]:
+        sl = control["stop_line"]
         if control["type"] == TCType.TRAFFIC_LIGHT:
             state = 0 if timestep >= len(control["states"]) else int(control["states"][timestep])
-            ax.add_patch(
-                Circle(
-                    (control["x"], control["y"]),
-                    radius=0.6,
-                    alpha=0.9,
-                    facecolor=get_traffic_state_color(state),
-                    edgecolor="black",
-                    linewidth=0.5,
-                    zorder=15,
-                ),
+            ax.plot(
+                [sl[0, 0], sl[1, 0]], [sl[0, 1], sl[1, 1]],
+                color=get_traffic_state_color(state), linewidth=2.5, solid_capstyle="round",
+                alpha=0.9, zorder=15,
             )
         elif control["type"] == TCType.STOP_SIGN:
-            ax.add_patch(
-                FancyBboxPatch(
-                    (control["x"] - 0.5, control["y"] - 0.5),
-                    1.0,
-                    1.0,
-                    alpha=0.9,
-                    facecolor="#DC2626",
-                    edgecolor="black",
-                    linewidth=0.5,
-                    zorder=15,
-                ),
+            ax.plot(
+                [sl[0, 0], sl[1, 0]], [sl[0, 1], sl[1, 1]],
+                color="#DC2626", linewidth=2.5, solid_capstyle="round",
+                alpha=0.9, zorder=15,
             )
         elif control["type"] == TCType.YIELD_SIGN:
-            ax.add_patch(
-                RegularPolygon(
-                    (control["x"], control["y"]),
-                    numVertices=3,
-                    radius=0.7,
-                    alpha=0.9,
-                    facecolor="#EAB308",
-                    edgecolor="black",
-                    linewidth=0.5,
-                    zorder=15,
-                ),
+            ax.plot(
+                [sl[0, 0], sl[1, 0]], [sl[0, 1], sl[1, 1]],
+                color="#EAB308", linewidth=2.5, solid_capstyle="round",
+                alpha=0.9, zorder=15,
             )
 
     for agent in scene["agent_items"]:

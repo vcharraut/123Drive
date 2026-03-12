@@ -298,7 +298,6 @@ def _extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) 
 def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> dict | None:
     """Convert py123d map object to unified static element dict."""
     if map_object.layer == MapLayer.LANE:
-        polyline = _centered_array(map_object.centerline.array, centroid)
         if not map_object.speed_limit_mps or np.isnan(map_object.speed_limit_mps):
             speed_limit_mps = -1.0
         else:
@@ -306,42 +305,42 @@ def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> d
         return {
             "layer": map_object.layer,
             "type": map_object.lane_type,
-            "polyline": polyline,
+            "polyline": _centered_array(map_object.centerline.array, centroid),
             "speed_limit_mps": speed_limit_mps,
             "entry_lanes": map_object.predecessor_ids,
             "exit_lanes": map_object.successor_ids,
+            "left_boundary": map_object.left_boundary,
+            "right_boundary": map_object.right_boundary,
+            "left_lane": map_object.left_lane,
+            "right_lane": map_object.right_lane,
         }
 
     if map_object.layer == MapLayer.ROAD_LINE:
-        polyline = _centered_array(map_object.polyline_3d.array, centroid)
         return {
             "layer": map_object.layer,
             "type": map_object.road_line_type,
-            "polyline": polyline,
+            "polyline": _centered_array(map_object.polyline_3d.array, centroid),
         }
 
     if map_object.layer == MapLayer.ROAD_EDGE:
-        polyline = _centered_array(map_object.polyline_3d.array, centroid)
         return {
             "layer": map_object.layer,
             "type": map_object.road_edge_type,
-            "polyline": polyline,
+            "polyline":  _centered_array(map_object.polyline_3d.array, centroid),
         }
 
     if map_object.layer == MapLayer.CROSSWALK:
-        polygon = _centered_array(map_object.outline_3d.array, centroid)
         return {
             "layer": map_object.layer,
             "type": 0,
-            "polygon": polygon,
+            "polygon": _centered_array(map_object.outline_3d.array, centroid),
         }
 
     if map_object.layer == MapLayer.STOP_ZONE:
-        polygon = _centered_array(map_object.outline_3d.array, centroid)
         return {
             "layer": map_object.layer,
             "type": map_object.stop_zone_type,
-            "polygon": polygon,
+            "polygon": _centered_array(map_object.outline_3d.array, centroid),
             "controlled_lanes": map_object.lane_ids,
         }
 

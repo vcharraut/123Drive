@@ -100,14 +100,10 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
         traffic_type = int(element["type"])
         buffer.extend(struct.pack("ii", traffic_id, traffic_type))
 
-        xyz = element["xyz"]
-        if isinstance(xyz, list):
-            xyz = np.array(xyz)
-
-        x = float(xyz[0]) if len(xyz) > 0 else 0.0
-        y = float(xyz[1]) if len(xyz) > 1 else 0.0
-        z = float(xyz[2]) if len(xyz) > 2 else 0.0
-        buffer.extend(struct.pack("fff", x, y, z))
+        stop_line = np.asarray(element["stop_line"], dtype=np.float32)
+        buffer.extend(struct.pack("fff", float(stop_line[0, 0]), float(stop_line[0, 1]), float(stop_line[0, 2])))
+        buffer.extend(struct.pack("fff", float(stop_line[1, 0]), float(stop_line[1, 1]), float(stop_line[1, 2])))
+        buffer.extend(struct.pack("f", float(element["heading"])))
 
         _pack_int_list(buffer, element["states"])
         _pack_int_list(buffer, element["controlled_lanes"])
