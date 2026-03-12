@@ -187,6 +187,10 @@ def main():
 
     logger.info(f"Starting conversion: {py123_data_root} -> {args.output}")
 
+    if "opendrive" in args.datasets and not args.map_only:
+        logger.warning("Dataset 'opendrive' selected with --map_only=False. Forcing --map_only=True.")
+        args.map_only = True
+
     scenarios = get_py123d_scenarios(
         py123_data_root=py123_data_root,
         num_scenes=args.num_scenes,
