@@ -45,7 +45,7 @@ def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "")
                 xyz = xyz[::-1]
 
         else:
-            xyz = element_data["polygon"]
+            xyz = _interpolate_polygon(element_data["polygon"], spacing=3.0)
 
         puffer_element = {
             "id": element_id,
@@ -62,6 +62,33 @@ def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "")
         puffer_elements.append(puffer_element)
 
     return puffer_elements
+
+
+def _interpolate_polygon(xyz: np.ndarray, spacing: int) -> np.ndarray:
+    # Close polygon if not already closed
+    if not np.allclose(xyz[0], xyz[-1]):
+        xyz = np.vstack([xyz, xyz[0:1]])
+
+    diffs = np.diff(xyz, axis=0)
+    seg_lengths = np.linalg.norm(diffs[:, :2], axis=1)
+    total_length = seg_lengths.sum()
+
+    if total_length < spacing:
+        return xyz
+
+    cum_lengths = np.concatenate([[0], np.cumsum(seg_lengths)])
+    num_points = max(int(total_length / spacing), 2)
+    target_dists = np.linspace(0, total_length, num_points, endpoint=False)
+
+    interpolated = np.empty((num_points, xyz.shape[1]))
+    for i, d in enumerate(target_dists):
+        idx = np.searchsorted(cum_lengths[1:], d, side="right")
+        idx = min(idx, len(seg_lengths) - 1)
+        t = (d - cum_lengths[idx]) / seg_lengths[idx] if seg_lengths[idx] > 0 else 0
+        interpolated[i] = xyz[idx] + t * diffs[idx]
+
+    # Close: append first point
+    return np.vstack([interpolated, interpolated[0:1]])
 
 
 def _convert_map_element_type_to_int(layer: MapLayer, element_type) -> int:
