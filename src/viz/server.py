@@ -36,7 +36,7 @@ def _require_scenario_dir() -> Path:
 
 
 def _resolve_scenario_path(filename: str) -> Path:
-    base = _require_scenario_dir().resolve()
+    base = _require_scenario_dir()
     path = (base / filename).resolve()
     if path.parent != base or path.suffix != ".bin":
         raise HTTPException(status_code=400, detail="Invalid scenario filename")

@@ -23,6 +23,26 @@ from viz.utils import (
 )
 
 
+# (alpha, zorder) for specific road types — unknown/special subtypes highlighted
+_ROAD_ALPHA_ZORDER = {
+    0: (0.95, 3),   # LaneType.UNKNOWN
+    10: (0.95, 4),  # RoadLineType.UNKNOWN
+    20: (0.95, 4),  # RoadEdgeType.UNKNOWN
+    MiscRoadType.CROSSWALK: (0.6, 3),
+    MiscRoadType.SPEED_BUMP: (0.7, 3),
+}
+
+
+def _road_alpha_zorder_fallback(element_type):
+    if is_road_lane(element_type):
+        return (0.7, 1)
+    if is_road_line(element_type):
+        return (0.7, 2)
+    if is_road_edge(element_type):
+        return (1.0, 2)
+    return (None, None)
+
+
 AGENT_TYPE_COLORS = {
     1: "#388bfd",
     2: "#3fb950",
@@ -71,17 +91,8 @@ def _build_scene(puffer_scenario, show_routes):
             continue
 
         color, dash, linewidth = get_road_styling(element_type)
-        if is_road_lane(element_type):
-            alpha, zorder = (0.95, 3) if element_type == 0 else (0.7, 1)
-        elif is_road_line(element_type):
-            alpha, zorder = (0.95, 4) if element_type == 10 else (0.7, 2)
-        elif is_road_edge(element_type):
-            alpha, zorder = (0.95, 4) if element_type == 20 else (1.0, 2)
-        elif element_type == MiscRoadType.CROSSWALK:
-            alpha, zorder = 0.6, 3
-        elif element_type == MiscRoadType.SPEED_BUMP:
-            alpha, zorder = 0.7, 3
-        else:
+        alpha, zorder = _ROAD_ALPHA_ZORDER.get(element_type, _road_alpha_zorder_fallback(element_type))
+        if alpha is None:
             print(f"Skipping road element {element.get('id', 'unknown')}: unknown type {element_type}")
             continue
 

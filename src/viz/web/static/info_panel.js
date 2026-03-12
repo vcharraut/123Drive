@@ -2,72 +2,7 @@
 'use strict';
 
 (function initVizInfoPanel(globalScope) {
-  function renderAgentInfo(data, context) {
-    const {
-      t,
-      scenario,
-      AGENT_TYPE_NAMES,
-      escapeHtml,
-      safeIdList,
-      getObjectsOfInterest,
-    } = context;
-
-    const sdc = scenario.metadata.sdc_index;
-    const egoAgent = (Number.isInteger(sdc) && sdc >= 0 && sdc < scenario.agents.length)
-      ? scenario.agents[sdc]
-      : null;
-    const ttp = scenario.metadata.tracks_to_predict || [];
-    const ooi = getObjectsOfInterest(scenario.metadata);
-    const isEgo = egoAgent ? data.id === egoAgent.id : false;
-    const isTtp = ttp.includes(data.id);
-    const isOoi = ooi.includes(data.id);
-    const typeName = AGENT_TYPE_NAMES[data.type] || `type_${data.type}`;
-
-    const validAt = t < data.valid.length ? data.valid[t] : false;
-    const x = validAt ? data.xyz[t][0].toFixed(2) : '—';
-    const y = validAt ? data.xyz[t][1].toFixed(2) : '—';
-    const h = validAt ? ((data.heading[t] * 180 / Math.PI) % 360).toFixed(1) + '°' : '—';
-    const vx = validAt && data.velocity[t] ? data.velocity[t][0].toFixed(2) : '—';
-    const vy = validAt && data.velocity[t] ? data.velocity[t][1].toFixed(2) : '—';
-    const vmag = validAt && data.velocity[t] ? Math.sqrt(data.velocity[t][0] ** 2 + data.velocity[t][1] ** 2).toFixed(2) : '—';
-    const l = validAt ? (data.length[t] || 0).toFixed(2) : '—';
-    const w = validAt ? (data.width[t] || 0).toFixed(2) : '—';
-    const ht = validAt ? (data.height[t] || 0).toFixed(2) : '—';
-
-    const badges = [
-      `<span class="badge badge-${escapeHtml(typeName)}">${escapeHtml(typeName)}</span>`,
-      isEgo ? '<span class="badge badge-ego">EGO</span>' : '',
-      isTtp ? '<span class="badge badge-ttp">TTP</span>' : '',
-      isOoi ? '<span class="badge badge-ooi">OOI</span>' : '',
-    ].join('');
-
-    const routeLanes = (data.route && data.route.length) ? safeIdList(data.route) : '—';
-
-    const trajRows = data.xyz.slice(0, 50).map((pos, i) => {
-      const cls = i === t ? 'class="current-row"' : '';
-      const valid = data.valid[i] ? '✓' : '✗';
-      return `<tr ${cls}><td>${i}</td><td>${escapeHtml(pos[0].toFixed(1))}</td><td>${escapeHtml(pos[1].toFixed(1))}</td><td>${valid}</td></tr>`;
-    }).join('');
-
-    return `
-      ${badges}
-      <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>
-      <div class="info-row"><span class="info-label">Valid</span><span class="info-val">${validAt ? '✓' : '✗'}</span></div>
-      <div class="info-row"><span class="info-label">X,Y</span><span class="info-val">${escapeHtml(x)}, ${escapeHtml(y)}</span></div>
-      <div class="info-row"><span class="info-label">Heading</span><span class="info-val">${escapeHtml(h)}</span></div>
-      <div class="info-row"><span class="info-label">Speed</span><span class="info-val">${escapeHtml(vmag)} m/s</span></div>
-      <div class="info-row"><span class="info-label">Vel XY</span><span class="info-val">${escapeHtml(vx)}, ${escapeHtml(vy)}</span></div>
-      <div class="info-row"><span class="info-label">L×W×H</span><span class="info-val">${escapeHtml(l)}×${escapeHtml(w)}×${escapeHtml(ht)}</span></div>
-      <div class="info-row"><span class="info-label">Route lanes</span><span class="info-val" style="font-size:9px">${routeLanes}</span></div>
-      <details><summary>Trajectory</summary>
-        <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th><th>V</th></tr></thead>
-        <tbody>${trajRows}</tbody></table>
-      </details>`;
-  }
-
-  function renderObjectInfo(data, context) {
-    const {t, OBJECT_TYPE_NAMES, escapeHtml} = context;
-    const typeName = OBJECT_TYPE_NAMES[data.type] || `type_${data.type}`;
+  function formatEntityState(data, t, escapeHtml) {
     const validAt = t < data.valid.length ? data.valid[t] : false;
     const x = validAt ? data.xyz[t][0].toFixed(2) : '—';
     const y = validAt ? data.xyz[t][1].toFixed(2) : '—';
@@ -79,22 +14,73 @@
     const l = validAt ? (data.length[t] || 0).toFixed(2) : '—';
     const w = validAt ? (data.width[t] || 0).toFixed(2) : '—';
     const ht = validAt ? (data.height[t] || 0).toFixed(2) : '—';
+    return {validAt, x, y, z, h, vx, vy, vmag, l, w, ht};
+  }
 
-    const trajRows = data.xyz.slice(0, 50).map((pos, i) => {
+  function buildTrajectoryRows(data, t, escapeHtml) {
+    return data.xyz.slice(0, 50).map((pos, i) => {
       const cls = i === t ? 'class="current-row"' : '';
       const valid = data.valid[i] ? '✓' : '✗';
       return `<tr ${cls}><td>${i}</td><td>${escapeHtml(pos[0].toFixed(1))}</td><td>${escapeHtml(pos[1].toFixed(1))}</td><td>${valid}</td></tr>`;
     }).join('');
+  }
+
+  function renderAgentInfo(data, context) {
+    const {t, scenario, AGENT_TYPE_NAMES, escapeHtml, safeIdList, getObjectsOfInterest} = context;
+
+    const sdc = scenario.metadata.sdc_index;
+    const egoAgent = (Number.isInteger(sdc) && sdc >= 0 && sdc < scenario.agents.length)
+      ? scenario.agents[sdc]
+      : null;
+    const ttp = scenario.metadata.tracks_to_predict || [];
+    const ooi = getObjectsOfInterest(scenario.metadata);
+    const isEgo = egoAgent ? data.id === egoAgent.id : false;
+    const isTtp = ttp.includes(data.id);
+    const isOoi = ooi.includes(data.id);
+    const typeName = AGENT_TYPE_NAMES[data.type] || `type_${data.type}`;
+    const s = formatEntityState(data, t, escapeHtml);
+
+    const badges = [
+      `<span class="badge badge-${escapeHtml(typeName)}">${escapeHtml(typeName)}</span>`,
+      isEgo ? '<span class="badge badge-ego">EGO</span>' : '',
+      isTtp ? '<span class="badge badge-ttp">TTP</span>' : '',
+      isOoi ? '<span class="badge badge-ooi">OOI</span>' : '',
+    ].join('');
+
+    const routeLanes = (data.route && data.route.length) ? safeIdList(data.route) : '—';
+    const trajRows = buildTrajectoryRows(data, t, escapeHtml);
+
+    return `
+      ${badges}
+      <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>
+      <div class="info-row"><span class="info-label">Valid</span><span class="info-val">${s.validAt ? '✓' : '✗'}</span></div>
+      <div class="info-row"><span class="info-label">X,Y</span><span class="info-val">${escapeHtml(s.x)}, ${escapeHtml(s.y)}</span></div>
+      <div class="info-row"><span class="info-label">Heading</span><span class="info-val">${escapeHtml(s.h)}</span></div>
+      <div class="info-row"><span class="info-label">Speed</span><span class="info-val">${escapeHtml(s.vmag)} m/s</span></div>
+      <div class="info-row"><span class="info-label">Vel XY</span><span class="info-val">${escapeHtml(s.vx)}, ${escapeHtml(s.vy)}</span></div>
+      <div class="info-row"><span class="info-label">L×W×H</span><span class="info-val">${escapeHtml(s.l)}×${escapeHtml(s.w)}×${escapeHtml(s.ht)}</span></div>
+      <div class="info-row"><span class="info-label">Route lanes</span><span class="info-val" style="font-size:9px">${routeLanes}</span></div>
+      <details><summary>Trajectory</summary>
+        <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th><th>V</th></tr></thead>
+        <tbody>${trajRows}</tbody></table>
+      </details>`;
+  }
+
+  function renderObjectInfo(data, context) {
+    const {t, OBJECT_TYPE_NAMES, escapeHtml} = context;
+    const typeName = OBJECT_TYPE_NAMES[data.type] || `type_${data.type}`;
+    const s = formatEntityState(data, t, escapeHtml);
+    const trajRows = buildTrajectoryRows(data, t, escapeHtml);
 
     return `
       <span class="badge badge-${escapeHtml(typeName)}">${escapeHtml(typeName)}</span>
       <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>
-      <div class="info-row"><span class="info-label">Valid</span><span class="info-val">${validAt ? '✓' : '✗'}</span></div>
-      <div class="info-row"><span class="info-label">X,Y,Z</span><span class="info-val">${escapeHtml(x)}, ${escapeHtml(y)}, ${escapeHtml(z)}</span></div>
-      <div class="info-row"><span class="info-label">Heading</span><span class="info-val">${escapeHtml(h)}</span></div>
-      <div class="info-row"><span class="info-label">Speed</span><span class="info-val">${escapeHtml(vmag)} m/s</span></div>
-      <div class="info-row"><span class="info-label">Vel XY</span><span class="info-val">${escapeHtml(vx)}, ${escapeHtml(vy)}</span></div>
-      <div class="info-row"><span class="info-label">L×W×H</span><span class="info-val">${escapeHtml(l)}×${escapeHtml(w)}×${escapeHtml(ht)}</span></div>
+      <div class="info-row"><span class="info-label">Valid</span><span class="info-val">${s.validAt ? '✓' : '✗'}</span></div>
+      <div class="info-row"><span class="info-label">X,Y,Z</span><span class="info-val">${escapeHtml(s.x)}, ${escapeHtml(s.y)}, ${escapeHtml(s.z)}</span></div>
+      <div class="info-row"><span class="info-label">Heading</span><span class="info-val">${escapeHtml(s.h)}</span></div>
+      <div class="info-row"><span class="info-label">Speed</span><span class="info-val">${escapeHtml(s.vmag)} m/s</span></div>
+      <div class="info-row"><span class="info-label">Vel XY</span><span class="info-val">${escapeHtml(s.vx)}, ${escapeHtml(s.vy)}</span></div>
+      <div class="info-row"><span class="info-label">L×W×H</span><span class="info-val">${escapeHtml(s.l)}×${escapeHtml(s.w)}×${escapeHtml(s.ht)}</span></div>
       <details><summary>Trajectory</summary>
         <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th><th>V</th></tr></thead>
         <tbody>${trajRows}</tbody></table>

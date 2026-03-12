@@ -52,10 +52,10 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
     """
     with Path(binary_path).open("rb") as f:
         # Read header
-        num_agents = struct.unpack("i", f.read(4))[0]
-        num_roads = struct.unpack("i", f.read(4))[0]
-        num_traffic = struct.unpack("i", f.read(4))[0]
-        num_objects = struct.unpack("i", f.read(4))[0]
+        num_agents = struct.unpack("<i", f.read(4))[0]
+        num_roads = struct.unpack("<i", f.read(4))[0]
+        num_traffic = struct.unpack("<i", f.read(4))[0]
+        num_objects = struct.unpack("<i", f.read(4))[0]
 
         # Read agents
         dynamic_agents = []
@@ -83,9 +83,9 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
 
         # Lane graph distances
         lane_graph_distances = None
-        n_graph = struct.unpack("i", f.read(4))[0]
+        n_graph = struct.unpack("<i", f.read(4))[0]
         if n_graph > 0:
-            graph_lane_ids = list(struct.unpack(f"{n_graph}i", f.read(4 * n_graph)))
+            graph_lane_ids = list(struct.unpack(f"<{n_graph}i", f.read(4 * n_graph)))
             lane_lengths = np.frombuffer(f.read(4 * n_graph), dtype=np.float32).copy()
             distances = np.frombuffer(f.read(4 * n_graph * n_graph), dtype=np.float32).copy()
             lane_graph_distances = {
@@ -98,25 +98,25 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
         scenario_id_bytes = f.read(128)
         scenario_id = scenario_id_bytes.rstrip(b"\0").decode("utf-8")
 
-        map_id = struct.unpack("i", f.read(4))[0]
+        map_id = struct.unpack("<i", f.read(4))[0]
 
         dataset_name_bytes = f.read(64)
         dataset_name = dataset_name_bytes.rstrip(b"\0").decode("utf-8")
 
-        length = struct.unpack("i", f.read(4))[0]
-        sdc_index = struct.unpack("i", f.read(4))[0]
+        length = struct.unpack("<i", f.read(4))[0]
+        sdc_index = struct.unpack("<i", f.read(4))[0]
 
         # Read objects_of_interest
-        num_oi = struct.unpack("i", f.read(4))[0]
+        num_oi = struct.unpack("<i", f.read(4))[0]
         objects_of_interest = []
         if num_oi > 0:
-            objects_of_interest = list(struct.unpack(f"{num_oi}i", f.read(4 * num_oi)))
+            objects_of_interest = list(struct.unpack(f"<{num_oi}i", f.read(4 * num_oi)))
 
         # Read tracks_to_predict
-        num_ttp = struct.unpack("i", f.read(4))[0]
+        num_ttp = struct.unpack("<i", f.read(4))[0]
         tracks_to_predict = []
         if num_ttp > 0:
-            tracks_to_predict = list(struct.unpack(f"{num_ttp}i", f.read(4 * num_ttp)))
+            tracks_to_predict = list(struct.unpack(f"<{num_ttp}i", f.read(4 * num_ttp)))
 
     return {
         "scenario_id": scenario_id,
@@ -142,15 +142,15 @@ def load_puffer_binary(binary_path: str | Path) -> dict:
 
 def _read_dynamic_agent(f) -> dict:
     """Read a DynamicAgent from binary file."""
-    agent_id = struct.unpack("i", f.read(4))[0]
-    agent_type = struct.unpack("i", f.read(4))[0]
-    trajectory_length = struct.unpack("i", f.read(4))[0]
+    agent_id = struct.unpack("<i", f.read(4))[0]
+    agent_type = struct.unpack("<i", f.read(4))[0]
+    trajectory_length = struct.unpack("<i", f.read(4))[0]
     states = _read_dynamic_states(f, trajectory_length)
 
-    num_route_ints = struct.unpack("i", f.read(4))[0]
+    num_route_ints = struct.unpack("<i", f.read(4))[0]
     route = []
     if num_route_ints > 0:
-        route = list(struct.unpack(f"{num_route_ints}i", f.read(4 * num_route_ints)))
+        route = list(struct.unpack(f"<{num_route_ints}i", f.read(4 * num_route_ints)))
 
     f.read(16)  # skip goal_xyz (3 floats) + mark_as_expert (1 int)
 
@@ -164,9 +164,9 @@ def _read_dynamic_agent(f) -> dict:
 
 def _read_object(f) -> dict:
     """Read an Object from binary file."""
-    object_id = struct.unpack("i", f.read(4))[0]
-    object_type = struct.unpack("i", f.read(4))[0]
-    trajectory_length = struct.unpack("i", f.read(4))[0]
+    object_id = struct.unpack("<i", f.read(4))[0]
+    object_type = struct.unpack("<i", f.read(4))[0]
+    trajectory_length = struct.unpack("<i", f.read(4))[0]
     return {
         "id": object_id,
         "type": object_type,
@@ -213,11 +213,11 @@ def _read_dynamic_states(f, trajectory_length: int) -> dict:
 def _read_road_map_element(f) -> dict:
     """Read a RoadMapElement from binary file."""
     # Read ID and type
-    road_id = struct.unpack("i", f.read(4))[0]
-    road_type = struct.unpack("i", f.read(4))[0]
+    road_id = struct.unpack("<i", f.read(4))[0]
+    road_type = struct.unpack("<i", f.read(4))[0]
 
     # Read segment length
-    segment_length = struct.unpack("i", f.read(4))[0]
+    segment_length = struct.unpack("<i", f.read(4))[0]
 
     # Read geometry - TRANSPOSED
     x = _read_float_array(f, segment_length)
@@ -234,17 +234,17 @@ def _read_road_map_element(f) -> dict:
 
     if is_road_lane(road_type):
         # Read entry lanes
-        num_entry = struct.unpack("i", f.read(4))[0]
+        num_entry = struct.unpack("<i", f.read(4))[0]
         if num_entry > 0:
-            entry_lanes = list(struct.unpack(f"{num_entry}i", f.read(4 * num_entry)))
+            entry_lanes = list(struct.unpack(f"<{num_entry}i", f.read(4 * num_entry)))
 
         # Read exit lanes
-        num_exit = struct.unpack("i", f.read(4))[0]
+        num_exit = struct.unpack("<i", f.read(4))[0]
         if num_exit > 0:
-            exit_lanes = list(struct.unpack(f"{num_exit}i", f.read(4 * num_exit)))
+            exit_lanes = list(struct.unpack(f"<{num_exit}i", f.read(4 * num_exit)))
 
         # Read speed limit
-        speed_limit = struct.unpack("f", f.read(4))[0]
+        speed_limit = struct.unpack("<f", f.read(4))[0]
 
     return {
         "id": road_id,
@@ -258,23 +258,23 @@ def _read_road_map_element(f) -> dict:
 
 def _read_traffic_control_element(f) -> dict:
     """Read a TrafficControlElement from binary file."""
-    traffic_id = struct.unpack("i", f.read(4))[0]
-    traffic_type = struct.unpack("i", f.read(4))[0]
+    traffic_id = struct.unpack("<i", f.read(4))[0]
+    traffic_type = struct.unpack("<i", f.read(4))[0]
 
     # Read stop line (2 points x 3 coords)
-    x1, y1, z1 = struct.unpack("fff", f.read(12))
-    x2, y2, z2 = struct.unpack("fff", f.read(12))
-    heading = struct.unpack("f", f.read(4))[0]
+    x1, y1, z1 = struct.unpack("<fff", f.read(12))
+    x2, y2, z2 = struct.unpack("<fff", f.read(12))
+    heading = struct.unpack("<f", f.read(4))[0]
 
     # Read states
-    state_length = struct.unpack("i", f.read(4))[0]
-    states = list(struct.unpack(f"{state_length}i", f.read(4 * state_length))) if state_length > 0 else []
+    state_length = struct.unpack("<i", f.read(4))[0]
+    states = list(struct.unpack(f"<{state_length}i", f.read(4 * state_length))) if state_length > 0 else []
 
     # Read controlled lanes
-    num_controlled_lanes = struct.unpack("i", f.read(4))[0]
+    num_controlled_lanes = struct.unpack("<i", f.read(4))[0]
     controlled_lanes = []
     if num_controlled_lanes > 0:
-        controlled_lanes = list(struct.unpack(f"{num_controlled_lanes}i", f.read(4 * num_controlled_lanes)))
+        controlled_lanes = list(struct.unpack(f"<{num_controlled_lanes}i", f.read(4 * num_controlled_lanes)))
 
     return {
         "id": traffic_id,

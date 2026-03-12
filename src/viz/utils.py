@@ -16,9 +16,11 @@ from bin_factory.convert.types import (
     RoadEdgeType,
     RoadLineType,
     TLState,
+    is_broken_line,
     is_road_edge,
     is_road_lane,
     is_road_line,
+    is_yellow_line,
 )
 
 
@@ -43,28 +45,6 @@ ROAD_COLORS = {
     "stop_sign": "#FF0000",
 }
 
-VEHICLE_COLORS = [
-    "#FF0000",  # Red (ego)
-    "#1F77B4",  # Blue
-    "#FF7F0E",  # Orange
-    "#2CA02C",  # Green
-    "#9467BD",  # Purple
-    "#8C564B",  # Brown
-    "#E377C2",  # Pink
-    "#BCBD22",  # Yellow-green
-    "#17BECF",  # Cyan
-    "#AEC7E8",  # Light blue
-    "#FFBB78",  # Light orange
-    "#98DF8A",  # Light green
-    "#FF9896",  # Light red
-    "#C5B0D5",  # Light purple
-    "#C49C94",  # Light brown
-    "#F7B6D2",  # Light pink
-    "#DBDB8D",  # Light yellow-green
-    "#9EDAE5",  # Light cyan
-]
-
-
 def as_json_dict():
     return {
         "AGENT_TYPE_NAMES": AGENT_TYPE_NAMES,
@@ -78,13 +58,6 @@ def as_json_dict():
         "ROAD_EDGE_RANGE": ROAD_EDGE_RANGE,
         "ROAD_COLORS": ROAD_COLORS,
     }
-
-
-def get_agent_color(agent_id, is_ego=False):
-    """Get consistent color for an agent based on ID."""
-    if is_ego:
-        return VEHICLE_COLORS[0]
-    return VEHICLE_COLORS[(agent_id % (len(VEHICLE_COLORS) - 1)) + 1]
 
 
 def get_agent_type_name(type_id):
@@ -101,20 +74,6 @@ def get_traffic_state_name(state_id):
 
 def get_traffic_state_color(state_id):
     return TL_STATE_COLORS.get(state_id, "#808080")
-
-
-def is_yellow_line(t):
-    return t in (
-        RoadLineType.BROKEN_SINGLE_YELLOW,
-        RoadLineType.BROKEN_DOUBLE_YELLOW,
-        RoadLineType.SOLID_SINGLE_YELLOW,
-        RoadLineType.SOLID_DOUBLE_YELLOW,
-        RoadLineType.PASSING_DOUBLE_YELLOW,
-    )
-
-
-def is_broken_line(t):
-    return t in (RoadLineType.BROKEN_SINGLE_WHITE, RoadLineType.BROKEN_SINGLE_YELLOW)
 
 
 def get_road_styling(road_type):

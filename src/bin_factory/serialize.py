@@ -7,9 +7,9 @@ from bin_factory.convert import types as puffer_types
 
 def _pack_int_list(buffer, items):
     n = len(items)
-    buffer.extend(struct.pack("i", n))
+    buffer.extend(struct.pack("<i", n))
     if n > 0:
-        buffer.extend(struct.pack(f"{n}i", *[int(x) for x in items]))
+        buffer.extend(struct.pack(f"<{n}i", *[int(x) for x in items]))
 
 
 def _pack_dynamic_states(buffer, states):
@@ -22,7 +22,7 @@ def _pack_dynamic_states(buffer, states):
     height = np.asarray(states["height"], dtype=np.float32)
 
     trajectory_length = len(xyz)
-    buffer.extend(struct.pack("i", trajectory_length))
+    buffer.extend(struct.pack("<i", trajectory_length))
 
     for i in range(3):
         buffer.extend(xyz[:, i].tobytes())
@@ -49,13 +49,13 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
     metadata = puffer_dict["metadata"]
 
     buffer = bytearray()
-    buffer.extend(struct.pack("iiii", len(agents), len(road_map_elements), len(traffic_control_elements), len(objects)))
+    buffer.extend(struct.pack("<iiii", len(agents), len(road_map_elements), len(traffic_control_elements), len(objects)))
 
     # Agents
     for agent in agents:
         agent_id = int(agent["id"])
         agent_type = int(agent["type"])
-        buffer.extend(struct.pack("ii", agent_id, agent_type))
+        buffer.extend(struct.pack("<ii", agent_id, agent_type))
 
         xyz, valid = _pack_dynamic_states(buffer, agent["states"])
 
@@ -71,19 +71,19 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
                 goal_y = float(xyz[last_valid_idx, 1])
                 goal_z = float(xyz[last_valid_idx, 2])
 
-        buffer.extend(struct.pack("fff", goal_x, goal_y, goal_z))
+        buffer.extend(struct.pack("<fff", goal_x, goal_y, goal_z))
         mark_as_expert = 0 if route else 1
-        buffer.extend(struct.pack("i", mark_as_expert))
+        buffer.extend(struct.pack("<i", mark_as_expert))
 
     # Road Map Elements
     for road in road_map_elements:
         road_id = int(road["id"])
         road_type = int(road["type"])
-        buffer.extend(struct.pack("ii", road_id, road_type))
+        buffer.extend(struct.pack("<ii", road_id, road_type))
 
         xyz = np.asarray(road["xyz"], dtype=np.float32)
         segment_length = len(xyz)
-        buffer.extend(struct.pack("i", segment_length))
+        buffer.extend(struct.pack("<i", segment_length))
 
         for i in range(3):
             buffer.extend(xyz[:, i].tobytes())
@@ -92,18 +92,18 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
             _pack_int_list(buffer, road["entry_lanes"])
             _pack_int_list(buffer, road["exit_lanes"])
 
-            buffer.extend(struct.pack("f", road["speed_limit"]))
+            buffer.extend(struct.pack("<f", road["speed_limit"]))
 
     # Traffic Control Elements
     for element in traffic_control_elements:
         traffic_id = int(element["id"])
         traffic_type = int(element["type"])
-        buffer.extend(struct.pack("ii", traffic_id, traffic_type))
+        buffer.extend(struct.pack("<ii", traffic_id, traffic_type))
 
         stop_line = np.asarray(element["stop_line"], dtype=np.float32)
-        buffer.extend(struct.pack("fff", float(stop_line[0, 0]), float(stop_line[0, 1]), float(stop_line[0, 2])))
-        buffer.extend(struct.pack("fff", float(stop_line[1, 0]), float(stop_line[1, 1]), float(stop_line[1, 2])))
-        buffer.extend(struct.pack("f", float(element["heading"])))
+        buffer.extend(struct.pack("<fff", float(stop_line[0, 0]), float(stop_line[0, 1]), float(stop_line[0, 2])))
+        buffer.extend(struct.pack("<fff", float(stop_line[1, 0]), float(stop_line[1, 1]), float(stop_line[1, 2])))
+        buffer.extend(struct.pack("<f", float(element["heading"])))
 
         _pack_int_list(buffer, element["states"])
         _pack_int_list(buffer, element["controlled_lanes"])
@@ -112,31 +112,31 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
     for obj in objects:
         object_id = int(obj["id"])
         object_type = int(obj["type"])
-        buffer.extend(struct.pack("ii", object_id, object_type))
+        buffer.extend(struct.pack("<ii", object_id, object_type))
         _pack_dynamic_states(buffer, obj["states"])
 
     # Lane Graph Distance Matrix
     lane_graph = puffer_dict.get("lane_graph_distances")
     if lane_graph:
         n = len(lane_graph["lane_ids"])
-        buffer.extend(struct.pack("i", n))
-        buffer.extend(struct.pack(f"{n}i", *lane_graph["lane_ids"]))
+        buffer.extend(struct.pack("<i", n))
+        buffer.extend(struct.pack(f"<{n}i", *lane_graph["lane_ids"]))
         buffer.extend(np.asarray(lane_graph["lane_lengths"], dtype=np.float32).tobytes())
         buffer.extend(np.asarray(lane_graph["distances"], dtype=np.float32).tobytes())
     else:
-        buffer.extend(struct.pack("i", 0))
+        buffer.extend(struct.pack("<i", 0))
 
     # Metadata
     scenario_id = puffer_dict["scenario_id"][:128]
     buffer.extend(scenario_id.encode("utf-8").ljust(128, b"\0"))
 
-    buffer.extend(struct.pack("i", int(map_id)))
+    buffer.extend(struct.pack("<i", int(map_id)))
 
     dataset_name = metadata["dataset_name"][:64]
     buffer.extend(dataset_name.encode("utf-8").ljust(64, b"\0"))
 
-    buffer.extend(struct.pack("i", int(metadata["scenario_length"])))
-    buffer.extend(struct.pack("i", int(metadata["sdc_index"])))
+    buffer.extend(struct.pack("<i", int(metadata["scenario_length"])))
+    buffer.extend(struct.pack("<i", int(metadata["sdc_index"])))
 
     _pack_int_list(buffer, metadata["objects_of_interests"])
     _pack_int_list(buffer, metadata["tracks_to_predict"])

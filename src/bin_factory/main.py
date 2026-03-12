@@ -61,13 +61,14 @@ def process_one_scenario(
 
 
 def _safe_process(raw_scenario, **kwargs):
+    scenario_id = getattr(raw_scenario, "scenario_id", None) or getattr(raw_scenario, "log_name", "unknown")
     try:
         return process_one_scenario(raw_scenario, **kwargs)
     except ValidationError as ve:
-        logger.error(f"Validation error: {ve}")
+        logger.error(f"[{scenario_id}] Validation error: {ve}")
         return None
     except Exception as e:
-        logger.exception(f"Scenario failed: {e}")
+        logger.exception(f"[{scenario_id}] Scenario failed: {e}")
         return None
 
 

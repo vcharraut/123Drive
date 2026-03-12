@@ -20,18 +20,18 @@ from bin_factory import logger_utils
 logger = logger_utils.get_logger(__name__)
 
 
-LANE_WIDTH_THRESHOLD = 6.0
-ALIGNMENT_THRESHOLD = 0.3
-MAX_PATH_LENGTH = 10
-MAX_ROOT_CANDIDATES = 3
-ROOT_LANE_MIN_SCORE = 0.3
-BEAM_WIDTH = 3
-ROOT_CANDIDATE_BBOX_MARGIN = 12.0
-ALIGNMENT_WEIGHT = 0.7
-DISTANCE_WEIGHT = 0.3
-OFFROAD_DISTANCE_THRESHOLD = 5.0
-STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0
-MOVEMENT_THRESHOLD = 0.5
+LANE_WIDTH_THRESHOLD = 6.0  # Max lateral distance (m) to consider a point "on" a lane
+ALIGNMENT_THRESHOLD = 0.3  # Min cos(heading diff) between agent and lane direction
+MAX_PATH_LENGTH = 10  # Max number of lanes in a route sequence
+MAX_ROOT_CANDIDATES = 3  # Top-k starting lanes to seed beam search
+ROOT_LANE_MIN_SCORE = 0.3  # Min aggregate score for a lane to be a root candidate
+BEAM_WIDTH = 3  # Number of route prefixes kept per expansion step
+ROOT_CANDIDATE_BBOX_MARGIN = 12.0  # Bounding-box expansion (m) for prefiltering candidate lanes
+ALIGNMENT_WEIGHT = 0.7  # Weight of heading alignment in root lane scoring
+DISTANCE_WEIGHT = 0.3  # Weight of inverse distance in root lane scoring
+OFFROAD_DISTANCE_THRESHOLD = 5.0  # Max lane distance (m) for moving vehicles to be considered on-road
+STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0  # Same, for stationary vehicles (stricter)
+MOVEMENT_THRESHOLD = 0.5  # Total displacement (m) below which a vehicle is "stationary"
 ROAD_EDGE_TYPES = {
     RoadEdgeType.ROAD_EDGE_BOUNDARY,
     RoadEdgeType.ROAD_EDGE_MEDIAN,
@@ -178,8 +178,8 @@ def _search_route_beam(
     lane_id_to_idx = route_cache["lane_id_to_idx"]
     trimmed_polylines = route_cache["trimmed_polylines"]
 
-    def rank(s):
-        return (s["score"], len(s["route"]))
+    def rank(state):
+        return (state["score"], len(state["route"]))
 
     def merge_lane_centerlines(route):
         parts = []
@@ -211,11 +211,11 @@ def _search_route_beam(
 
     def select_top_states(states):
         selected, seen = [], set()
-        for s in sorted(states, key=rank, reverse=True):
-            key = tuple(s["route"])
+        for state in sorted(states, key=rank, reverse=True):
+            key = tuple(state["route"])
             if key in seen:
                 continue
-            selected.append(s)
+            selected.append(state)
             seen.add(key)
             if len(selected) == beam_width:
                 break
@@ -472,14 +472,14 @@ def _is_offroad_at_timestep(agent_context: dict, route_cache: dict, route_check_
                 poly_start = corners[pidx]
                 poly_end = corners[(pidx + 1) % len(corners)]
 
-                d1 = seg_end - seg_start
-                d2 = poly_end - poly_start
-                denom = cross_2d(d1, d2)
+                seg_dir = seg_end - seg_start
+                edge_dir = poly_end - poly_start
+                denom = cross_2d(seg_dir, edge_dir)
 
                 if abs(denom) < 1e-10:
                     if (
-                        abs(cross_2d(poly_start - seg_start, d1)) > 1e-10
-                        or abs(cross_2d(poly_end - seg_start, d1)) > 1e-10
+                        abs(cross_2d(poly_start - seg_start, seg_dir)) > 1e-10
+                        or abs(cross_2d(poly_end - seg_start, seg_dir)) > 1e-10
                     ):
                         continue
                     if (
@@ -492,8 +492,8 @@ def _is_offroad_at_timestep(agent_context: dict, route_cache: dict, route_check_
                         break
                     continue
 
-                t = cross_2d(poly_start - seg_start, d2) / denom
-                u = cross_2d(poly_start - seg_start, d1) / denom
+                t = cross_2d(poly_start - seg_start, edge_dir) / denom
+                u = cross_2d(poly_start - seg_start, seg_dir) / denom
                 if 0 <= t <= 1 and 0 <= u <= 1:
                     intersects = True
                     break

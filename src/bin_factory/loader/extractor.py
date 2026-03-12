@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import logging
 
 import numpy as np
 import shapely.geometry as geom
@@ -11,8 +11,7 @@ from py123d.geometry import Point2D
 from bin_factory.loader.load import MapOnlyScenario
 
 
-if TYPE_CHECKING:
-    from py123d.api import MapAPI, SceneAPI
+logger = logging.getLogger(__name__)
 
 _AGENT_LABELS = {
     DefaultBoxDetectionLabel.EGO,
@@ -61,49 +60,20 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
         "timestep_seconds": 0.0,
     }
 
-    # Compute scene centroid
-    centroid = np.zeros(2, dtype=np.float64)
-    if scene is not None:
-        episode_length = scene.number_of_iterations
-        positions = np.array([[0.0, 0.0]] * episode_length, dtype=np.float64)
-        valid = np.zeros((episode_length,), dtype=np.int32)
-
-        for frame_idx in range(episode_length):
-            ego_state = scene.get_ego_state_se3_at_iteration(frame_idx)
-            if ego_state is None:
-                continue
-            positions[frame_idx] = [float(ego_state.center_se3.x), float(ego_state.center_se3.y)]
-            valid[frame_idx] = 1
-
-        valid_positions = positions[valid > 0]
-        if len(valid_positions) > 0:
-            centroid = valid_positions.mean(axis=0)
-
-    if np.all(centroid == 0.0):
-        # Fallback: use road geometry centroid
-        points: list[np.ndarray] = []
-        road_layers = [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE]
-        for obj in _get_map_objects(map_api, road_layers):
-            coords = _get_object_xy_points(obj)
-            if coords is not None and len(coords) > 0:
-                points.append(coords)
-
-        if points:
-            centroid = np.vstack(points).mean(axis=0)
+    centroid = _compute_centroid(scene, map_api)
 
     map_only = scene is None
-    py123d_dict["map"] = _extract_map(map_api, centroid, map_only)
+    map_result, map_lane_ids = _extract_map(map_api, centroid, map_only)
+    py123d_dict["map"] = map_result
 
     if scene is not None:
         objects = _extract_objects(scene, centroid)
-        # Split agents and objects based on label, and filter to only supported labels
         for oid, obj in objects.items():
             if obj["type"] in _AGENT_LABELS:
                 py123d_dict["agents"][oid] = obj
             elif obj["type"] in _OBJECT_LABELS:
                 py123d_dict["objects"][oid] = obj
 
-        map_lane_ids = {eid for eid, el in py123d_dict["map"].items() if el.get("layer") == MapLayer.LANE}
         py123d_dict["traffic_lights"] = _extract_traffic_lights(scene, map_api, centroid, map_lane_ids)
         py123d_dict["scenario_length"] = scene.number_of_iterations
         py123d_dict["timestep_seconds"] = scene.log_metadata.timestep_seconds
@@ -182,6 +152,7 @@ def _extract_traffic_lights(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarr
         for detection in traffic_lights:
             lane_id = int(detection.lane_id)
             if lane_id not in lane_ids:
+                logger.debug("TL detection references unknown lane %d, skipping", lane_id)
                 continue
             if lane_id not in elements:
                 position = _get_lane_position(map_api, lane_id, centroid)
@@ -196,8 +167,33 @@ def _extract_traffic_lights(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarr
     return elements
 
 
-def _extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) -> dict[int, dict]:
-    """Extract static map elements from a py123d MapAPI."""
+def _compute_centroid(scene, map_api):
+    """Compute scene centroid from ego trajectory, falling back to road geometry."""
+    if scene is not None:
+        episode_length = scene.number_of_iterations
+        positions = np.zeros((episode_length, 2), dtype=np.float64)
+        valid = np.zeros(episode_length, dtype=np.int32)
+        for frame_idx in range(episode_length):
+            ego_state = scene.get_ego_state_se3_at_iteration(frame_idx)
+            if ego_state is None:
+                continue
+            positions[frame_idx] = [float(ego_state.center_se3.x), float(ego_state.center_se3.y)]
+            valid[frame_idx] = 1
+        valid_positions = positions[valid > 0]
+        if len(valid_positions) > 0:
+            return valid_positions.mean(axis=0)
+
+    # Fallback: road geometry centroid
+    road_layers = [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE]
+    points = [coords for obj in _get_map_objects(map_api, road_layers)
+              if (coords := _get_object_xy_points(obj)) is not None and len(coords) > 0]
+    if points:
+        return np.vstack(points).mean(axis=0)
+    return np.zeros(2, dtype=np.float64)
+
+
+def _extract_map(map_api, centroid: np.ndarray, map_only: bool = False) -> tuple[dict[int, dict], set[int]]:
+    """Extract static map elements from a py123d MapAPI. Returns (elements, lane_ids)."""
     result = {}
     non_lane_objects = []
     undefined_lane = []
@@ -209,7 +205,6 @@ def _extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) 
         MapLayer.GENERIC_DRIVABLE,
     }
 
-    # Extract all map objects if map-only scenario, otherwise extract objects within a radius around ego
     all_map_layers = map_api.get_available_map_layers()
     if map_only or map_api.map_is_per_log:
         map_objects = _get_map_objects(map_api, all_map_layers)
@@ -221,7 +216,7 @@ def _extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) 
         )
         map_objects = [obj for layer in all_map_layers for obj in map_objects_by_layer.get(layer, [])]
 
-    # Lanes are processed first to ensure their IDs are included in the result for reference by other map elements.
+    # Lanes first — other elements reference lane IDs
     for obj in map_objects:
         if obj.layer == MapLayer.LANE:
             result[obj.object_id] = _convert_map_object_to_static_element(obj, centroid)
@@ -230,59 +225,42 @@ def _extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) 
         else:
             non_lane_objects.append(obj)
 
-    # NOTE: BANDAGE for nuPlan map issues
-    # Infer undefined lane types based on connected lanes if possible
-    # Problem exists in nuPlan where some lanes in intersections are marked as UNDEFINED but are actually drivable
-    for lane_id in undefined_lane:
-        lane = result[lane_id]
-        entry_types = {result[entry_id]["type"] for entry_id in lane.get("entry_lanes", []) if entry_id in result}
-        exit_types = {result[exit_id]["type"] for exit_id in lane.get("exit_lanes", []) if exit_id in result}
-        connected_types = entry_types.union(exit_types)
+    lane_ids = set(result.keys())
 
-        if len(connected_types) == 1:
-            lane["type"] = connected_types.pop()
+    # NOTE: BANDAGE for nuPlan: infer undefined lane types + fix reversed entry/exit topology
+    for lane_id, lane in result.items():
+        if lane_id in undefined_lane:
+            entry_types = {result[eid]["type"] for eid in lane.get("entry_lanes", []) if eid in result}
+            exit_types = {result[eid]["type"] for eid in lane.get("exit_lanes", []) if eid in result}
+            connected_types = entry_types | exit_types
+            if len(connected_types) == 1:
+                lane["type"] = connected_types.pop()
 
-    # NOTE: BANDAGE for nuPlan map issues
-    # Flip entry/exit lane directions if they are reverse of lane geometry direction.
-    # Entry lanes should connect to lane start; exit lanes should connect to lane end.
-    for lane in result.values():
         lane_start = lane["polyline"][0]
         lane_end = lane["polyline"][-1]
 
-        entry_lanes = lane.get("entry_lanes", [])
-        exit_lanes = lane.get("exit_lanes", [])
-
-        for entry_id in entry_lanes:
-            if entry_id not in result:
+        for entry_id in list(lane.get("entry_lanes", [])):
+            if entry_id not in result or "polyline" not in result[entry_id]:
                 continue
-            entry_lane = result[entry_id]
-            if "polyline" not in entry_lane:
-                continue
-            entry_end = entry_lane["polyline"][-1]
+            entry_end = result[entry_id]["polyline"][-1]
             if np.linalg.norm(entry_end - lane_start) > np.linalg.norm(entry_end - lane_end):
                 lane["entry_lanes"].remove(entry_id)
                 lane["exit_lanes"].append(entry_id)
 
-        for exit_id in exit_lanes:
-            if exit_id not in result:
+        for exit_id in list(lane.get("exit_lanes", [])):
+            if exit_id not in result or "polyline" not in result[exit_id]:
                 continue
-            exit_lane = result[exit_id]
-            if "polyline" not in exit_lane:
-                continue
-            exit_start = exit_lane["polyline"][0]
+            exit_start = result[exit_id]["polyline"][0]
             if np.linalg.norm(exit_start - lane_end) > np.linalg.norm(exit_start - lane_start):
                 lane["exit_lanes"].remove(exit_id)
                 lane["entry_lanes"].append(exit_id)
 
-    # Filter dangling lane topology references
-    # Happens on nuPlan after filtering to map objects within a radius.
-    lane_ids = set(result.keys())
+    # Filter dangling topology references (global map radius filtering)
     for element in result.values():
         element["entry_lanes"] = [lid for lid in element["entry_lanes"] if lid in lane_ids]
         element["exit_lanes"] = [lid for lid in element["exit_lanes"] if lid in lane_ids]
 
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
-    # (object_id namespaces can overlap across map layers)
     next_id = max(result.keys(), default=-1) + 1
     for obj in non_lane_objects:
         if obj.layer not in skipped_layers:
@@ -292,7 +270,7 @@ def _extract_map(map_api: MapAPI, centroid: np.ndarray, map_only: bool = False) 
             result[next_id] = element
             next_id += 1
 
-    return result
+    return result, lane_ids
 
 
 def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> dict | None:

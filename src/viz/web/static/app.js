@@ -3,6 +3,14 @@
 
 const {DeckGL, OrthographicView, OrbitView, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer, PathStyleExtension, LinearInterpolator, COORDINATE_SYSTEM} = window.deck;
 
+// ── Constants ────────────────────────────────────────────────────────────────
+const SCROLL_ZOOM_SPEED = 0.012;
+const WHEEL_ZOOM_SPEED = 0.002;
+const MAX_PITCH_ANGLE = 80;
+const FIT_VIEW_PADDING = 1.1;
+const DEFAULT_3D_PITCH = 20;
+const DEFAULT_3D_ROTATION_X = 30;
+
 // ── Theme ───────────────────────────────────────────────────────────────────
 const CLEAR_COLORS = {
   dark:  [0.031, 0.047, 0.071, 1],   // #080C12
@@ -262,7 +270,7 @@ function getAgentRouteSegments(agent, roadMap) {
 const deckContainer = document.getElementById('deckgl-canvas');
 
 const CONTROLLER_2D = {
-  scrollZoom: { smooth: false, speed: 0.012 },
+  scrollZoom: { smooth: false, speed: SCROLL_ZOOM_SPEED },
   inertia: 400,
   keyboard: false,
   dragMode: 'pan',
@@ -397,7 +405,7 @@ function update3DDrag(event) {
     setViewState(instantViewState({
       ...state.viewState,
       rotationOrbit: dragState.startRotationOrbit + (dx / width) * 180,
-      rotationX: Math.max(0, Math.min(80, dragState.startRotationX + (dy / height) * 180)),
+      rotationX: Math.max(0, Math.min(MAX_PITCH_ANGLE, dragState.startRotationX + (dy / height) * 180)),
     }));
   }
 
@@ -417,7 +425,7 @@ function handle3DWheel(event) {
   disableFollowEgo();
   setViewState(instantViewState({
     ...state.viewState,
-    zoom: (state.viewState.zoom || 0) - event.deltaY * 0.002,
+    zoom: (state.viewState.zoom || 0) - event.deltaY * WHEEL_ZOOM_SPEED,
   }));
 }
 
@@ -1310,9 +1318,9 @@ function fitView() {
   const b = sceneBounds(state.scenario);
   const w = b.xmax - b.xmin, h = b.ymax - b.ymin;
   const cw = deckContainer.clientWidth, ch = deckContainer.clientHeight;
-  const zoom = Math.log2(Math.min(cw / (w * 1.1), ch / (h * 1.1)));
+  const zoom = Math.log2(Math.min(cw / (w * FIT_VIEW_PADDING), ch / (h * FIT_VIEW_PADDING)));
   const rotation = state.viewMode === '3d'
-    ? {rotationX: state.viewState.rotationX || 30, rotationOrbit: state.viewState.rotationOrbit || 0}
+    ? {rotationX: state.viewState.rotationX || DEFAULT_3D_ROTATION_X, rotationOrbit: state.viewState.rotationOrbit || 0}
     : {};
   setViewState({
     target: [b.cx, state.viewMode === '2d' ? -b.cy : b.cy, 0], zoom, ...rotation,
@@ -1470,13 +1478,13 @@ document.getElementById('btn-3d').addEventListener('click', () => {
         ...instantViewState(state.viewState),
         target: [ego.x, ego.y, 0],
         rotationOrbit: -headingDeg + 90,
-        rotationX: 20,
+        rotationX: DEFAULT_3D_PITCH,
       };
     } else {
       state.viewState = {
         ...instantViewState(state.viewState),
         target: convertTargetForViewMode(state.viewState.target, prevMode, state.viewMode),
-        rotationX: 30,
+        rotationX: DEFAULT_3D_ROTATION_X,
         rotationOrbit: 0,
       };
     }

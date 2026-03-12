@@ -87,3 +87,17 @@ def is_road_line(t):
 
 def is_road_edge(t):
     return 20 <= t <= 29
+
+
+def is_yellow_line(t):
+    return t in (
+        RoadLineType.BROKEN_SINGLE_YELLOW,
+        RoadLineType.BROKEN_DOUBLE_YELLOW,
+        RoadLineType.SOLID_SINGLE_YELLOW,
+        RoadLineType.SOLID_DOUBLE_YELLOW,
+        RoadLineType.PASSING_DOUBLE_YELLOW,
+    )
+
+
+def is_broken_line(t):
+    return t in (RoadLineType.BROKEN_SINGLE_WHITE, RoadLineType.BROKEN_SINGLE_YELLOW)
