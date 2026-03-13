@@ -179,21 +179,21 @@ def main():
     args.split_names = _normalize_optional_list(args.split_names)
     args.log_names = _normalize_optional_list(args.log_names)
 
-    py123_data_root = args.py123d_path or os.environ.get("PY123D_DATA_ROOT")
-    if not py123_data_root:
+    py123d_data_root = args.py123d_path or os.environ.get("PY123D_DATA_ROOT")
+    if not py123d_data_root:
         parser.error("--py123d_path is required (or set PY123D_DATA_ROOT environment variable)")
 
     logger_utils.setup_logger()
     Path(args.output).mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Starting conversion: {py123_data_root} -> {args.output}")
+    logger.info(f"Starting conversion: {py123d_data_root} -> {args.output}")
 
     if "opendrive" in args.datasets and not args.map_only:
         logger.warning("Dataset 'opendrive' selected with --map_only=False. Forcing --map_only=True.")
         args.map_only = True
 
     scenarios = get_py123d_scenarios(
-        py123_data_root=py123_data_root,
+        py123d_data_root=py123d_data_root,
         num_scenes=args.num_scenes,
         datasets=args.datasets,
         split_types=args.split_types,
