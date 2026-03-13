@@ -38,13 +38,13 @@ all = ["ruff", "fastapi", "uvicorn[standard]", "orjson"]
 
 [project.scripts]
 convert = "bin_factory.main:main"
-py123d-docker = "py123d_docker.cli:main"
+build = "docker_tools.cli:main"
 web = "viz.server:main"
 viz = "viz.plot:main"
 
 [tool.setuptools.packages.find]
 where = ["src", "."]
-include = ["bin_factory", "bin_factory.*", "viz", "viz.*", "py123d_docker", "py123d_docker.*"]
+include = ["bin_factory", "bin_factory.*", "viz", "viz.*", "docker_tools", "docker_tools.*"]
 
 [tool.setuptools.package-data]
 viz = ["web/static/*"]
@@ -100,7 +100,7 @@ ignore = [
 lines-after-imports = 2
 
 [tool.ruff.lint.mccabe]
-max-complexity = 20
+max-complexity = 15
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"  # Enforces a specific docstring style (can be "numpy" or "pep257")
