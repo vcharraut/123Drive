@@ -17,14 +17,14 @@ uv sync --extra all
 ## Quickstart
 
 ```bash
-# install
+# Install
 uv sync --extra all
 
-# 1) Convert Arrow to PufferDrive .bin
+# Convert Arrow to PufferDrive .bin
 uv run convert --py123d_path /data/123d --output ./output
 
-# 2) Inspect in the browser
-uv run viz --dir ./output
+# Inspect in the browser
+uv run web --dir ./output
 ```
 
 Open `http://localhost:8080`.
@@ -32,9 +32,9 @@ Open `http://localhost:8080`.
 ## CLIs
 
 - `convert`: 123D Arrow -> PufferDrive `.bin`
-- `123d-docker`: build Docker images for 123D/123Drive pipelines
-- `viz`: browser viewer for `.bin`
-- `viz-png`, `viz-video`, `viz-batch`: optional matplotlib exports
+- `build`: build Docker images for 123D/123Drive pipelines
+- `web`: browser viewer for `.bin`
+- `viz`: matplotlib mp4
 
 ## Convert
 
@@ -70,6 +70,7 @@ Core flags:
 | `--output` | `./output` | Directory for `.bin` files |
 | `--workers` | `1` | Parallel workers |
 | `--validate_level` | `1` | Validation strictness |
+| `--fail_fast` | off | Stop on first error |
 
 Filtering flags:
 
@@ -93,6 +94,7 @@ Geometry + route flags:
 | `--dist_threshold` | `10.0` | Distance threshold for road graph processing |
 | `--min_route_valid_points` | `0` | Min valid trajectory points for route computation |
 | `--route_check_timestep` | `0` | Timestep that must be valid for route computation |
+| `--reindex_id` | off | Reindex all element IDs to contiguous `range(0, n)` |
 
 Validation levels:
 
@@ -105,7 +107,7 @@ Validation levels:
 ## Viz
 
 ```bash
-uv run viz --dir ./output --port 8080
+uv run web --dir ./output --port 8080
 ```
 
 - browse `.bin` scenarios from a directory
@@ -116,17 +118,17 @@ uv run viz --dir ./output --port 8080
 
 ```bash
 # List available datasets
-uv run 123d-docker list
+uv run build list
 
-# Build 123D extraction image
-uv run 123d-docker build 123d --dataset nuplan-mini
+# Build py123d dataset image
+uv run build py123d --dataset nuplan-mini
 
-# Build convert image
-uv run 123d-docker build convert
+# Build 123Drive converter image
+uv run build 123drive
 
 # Build with custom refs
-uv run 123d-docker build 123d --dataset nuplan --123d_ref my-branch --rebuild
-uv run 123d-docker build convert --drive123_ref v0.2.0
+uv run build py123d --dataset nuplan --py123d_ref my-branch --no_cache
+uv run build 123drive --drive123_ref v0.2.0
 ```
 
 Images are portable — run them however you want (`docker run`, Kubernetes, etc.).
