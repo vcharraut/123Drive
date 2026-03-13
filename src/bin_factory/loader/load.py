@@ -25,7 +25,6 @@ def get_py123d_scenarios(
     log_names: list[str] | None = None,
     duration_s: float | None = None,
     history_s: float | None = 0.0,
-    map_api_required: bool = True,
     map_only: bool = False,
 ) -> list[Any]:
     """Load 123D scenarios from Arrow logs and/or maps.
@@ -39,7 +38,6 @@ def get_py123d_scenarios(
         log_names: Optional list of log names to include.
         duration_s: Optional duration for scene extraction; None uses full log.
         history_s: Optional history duration (seconds).
-        map_api_required: Whether to only include scenes with map APIs.
         map_only: If True, load map-only scenarios (no logs).
 
     Returns:
@@ -49,6 +47,9 @@ def get_py123d_scenarios(
 
     if map_only:
         return _load_map_only_scenarios(data_root, datasets, num_scenes)
+
+    # TODO: To delete at release
+    map_api_required = datasets is not None and any(d.startswith(("nuplan",)) for d in datasets)
 
     scene_filter = SceneFilter(
         datasets=datasets,
