@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from docker_tools.configs import DATASET_CONFIGS
+from docker_tools.py123d_config import DATASET_CONFIGS
 
 
 DOCKERFILES_DIR = Path(__file__).parent / "dockerfiles"
@@ -26,7 +26,7 @@ def _docker_build_cmd(
     for k, v in (build_args or {}).items():
         cmd += ["--build-arg", f"{k}={v}"]
 
-    cmd += ["-f", str(DOCKERFILES_DIR / dockerfile), "-t", tag, str(DOCKERFILES_DIR)]
+    cmd += ["-f", str(DOCKERFILES_DIR / dockerfile), "-t", tag, str(DOCKERFILES_DIR.parent)]
     return cmd
 
 
@@ -43,7 +43,7 @@ def run_cmd(cmd: list[str], dry_run: bool, label: str = "") -> None:
 
 def cmd_list(_args: argparse.Namespace) -> None:
     """Print available datasets and build targets."""
-    print("Available datasets from 123D:")
+    print("Available py123d datasets:")
     for name, cfg in DATASET_CONFIGS.items():
         splits = ", ".join(cfg["default_splits"]) if cfg["default_splits"] else "default"
         print(f"  {name:<30} extras={cfg['extras']}  splits=[{splits}]")
@@ -52,7 +52,7 @@ def cmd_list(_args: argparse.Namespace) -> None:
 def cmd_py123d(args: argparse.Namespace) -> None:
     """Build a py123d dataset Docker image."""
     if not args.dataset:
-        print("Error: --dataset is required for 'build py123d'", file=sys.stderr)
+        print("Error: --dataset is required for 'py123d'", file=sys.stderr)
         sys.exit(1)
 
     if args.dataset not in DATASET_CONFIGS:
@@ -83,9 +83,9 @@ def cmd_123drive(args: argparse.Namespace) -> None:
 def main() -> None:
     """Entry point for the build CLI."""
     parser = argparse.ArgumentParser(prog="build", description="Build Docker images for py123d/123Drive pipeline")
-    sub = parser.add_subparsers(dest="command")
+    sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("list", help="List available datasets")
+    sub.add_parser("list", help="List supported py123d datasets")
 
     py123d_parser = sub.add_parser("py123d", help="Build py123d dataset image")
     py123d_parser.add_argument("--dataset", help="Dataset name (required)")
@@ -101,10 +101,7 @@ def main() -> None:
     args = parser.parse_args()
 
     commands = {"list": cmd_list, "py123d": cmd_py123d, "123drive": cmd_123drive}
-    if args.command in commands:
-        commands[args.command](args)
-    else:
-        parser.print_help()
+    commands[args.command](args)
 
 
 if __name__ == "__main__":

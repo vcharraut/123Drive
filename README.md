@@ -133,6 +133,9 @@ uv run build 123drive --drive123_ref v0.2.0
 
 Images are portable — run them however you want (`docker run`, Kubernetes, etc.).
 
+- `py123d-<dataset>` is an opinionated BEV-oriented extractor with raw sensors disabled
+- `123drive:<ref>` is a thin runtime image that forwards args directly to `convert`
+
 ## Docs
 
 - Binary format: `docs/binary-format.md`
