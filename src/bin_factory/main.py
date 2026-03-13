@@ -1,5 +1,6 @@
 import argparse
 import os
+import warnings
 from pathlib import Path
 
 from joblib import Parallel, delayed
@@ -62,13 +63,16 @@ def _worker_fn(
 
 def _safe_process(py123d_data, **kwargs):
     scenario_id = getattr(py123d_data, "scenario_id", None) or getattr(py123d_data, "log_name", "unknown")
+    dataset = getattr(py123d_data, "dataset", "unknown")
+    map_id = kwargs.get("map_id", "?")
+
     try:
         return _worker_fn(py123d_data, **kwargs)
     except ValidationError as ve:
-        logger.error(f"[{scenario_id}] Validation error: {ve}")
+        logger.error(f"[{dataset}][{scenario_id}][{map_id}] Validation error: {ve}")
         return None
     except Exception as e:
-        logger.exception(f"[{scenario_id}] Scenario failed: {e}")
+        logger.exception(f"[{dataset}][{scenario_id}][{map_id}] Scenario failed: {e}")
         return None
 
 
@@ -193,6 +197,18 @@ def main():
 
     logger.info(f"Starting conversion: {py123d_data_root} -> {args.output}")
 
+    # Handle workers=0 as 80% of CPU cores
+    if args.workers == 0:
+        args.workers = max(1, int(os.cpu_count() * 0.8))
+
+    # Warn if number of scenes is less than workers and adjust workers accordingly
+    if args.num_scenes is not None and args.num_scenes < args.workers:
+        logger.warning(
+            f"Number of scenes ({args.num_scenes}) is less than number of workers "
+            f"({args.workers}). Reducing workers to {args.num_scenes}."
+        )
+        args.workers = args.num_scenes
+
     if "opendrive" in args.datasets and not args.map_only:
         logger.warning("Dataset 'opendrive' selected with --map_only=False. Forcing --map_only=True.")
         args.map_only = True
@@ -205,6 +221,7 @@ def main():
 
     py123d_data = get_py123d_data(
         py123d_data_root=py123d_data_root,
+        workers=args.workers,
         num_scenes=args.num_scenes,
         datasets=args.datasets,
         split_types=args.split_types,
@@ -220,20 +237,10 @@ def main():
     py123d_data = list(py123d_data)
     func = _worker_fn if args.fail_fast else _safe_process
 
-    # Handle workers=0 as 80% of CPU cores
-    if args.workers == 0:
-        args.workers = max(1, int(os.cpu_count() * 0.8))
-
-    # Warn if number of scenes is less than workers and adjust workers accordingly
-    if args.num_scenes < args.workers:
-        logger.warning(
-            f"Number of scenes ({args.num_scenes}) is less than number of workers "
-            f"({args.workers}). Reducing workers to {args.num_scenes}."
-        )
-        args.workers = args.num_scenes
-
     logger.info(f"Processing {len(py123d_data)} scenarios with {args.workers} workers")
 
+    # Suppres noisy loky warning about workers stopping
+    warnings.filterwarnings("ignore", message="A worker stopped while some jobs were given")
     with Parallel(n_jobs=args.workers) as parallel:
         parallel(
             delayed(func)(

@@ -6,7 +6,7 @@ from typing import Any
 
 from py123d.api import MapAPI, SceneFilter, get_filtered_scenes
 from py123d.api.map.arrow.arrow_map_api import ArrowMapAPI
-from py123d.common.execution import SequentialExecutor
+from py123d.common.execution import ProcessPoolExecutor, SequentialExecutor
 
 
 @dataclass(frozen=True)
@@ -18,6 +18,7 @@ class MapOnlyScenario:
 
 def get_py123d_data(
     py123d_data_root: str,
+    workers: int,
     num_scenes: int | None = None,
     datasets: list[str] | None = None,
     split_types: list[str] | None = None,
@@ -31,6 +32,7 @@ def get_py123d_data(
 
     Args:
         py123d_data_root: Root path to 123D data (contains logs/ and maps/) or a directory of .arrow maps.
+        workers: Number of parallel workers to use for loading scenarios.
         num_scenes: Optional cap on number of scenes.
         datasets: Optional list of dataset names to include (e.g. ["nuplan", "wod-motion"]).
         split_types: Optional list of split types (train/val/test).
@@ -65,7 +67,7 @@ def get_py123d_data(
     return get_filtered_scenes(
         scene_filter=scene_filter,
         data_root=data_root,
-        executor=SequentialExecutor(),
+        executor=ProcessPoolExecutor(max_workers=workers) if workers > 1 else SequentialExecutor(),
     )
 
 
