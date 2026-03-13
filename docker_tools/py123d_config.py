@@ -10,7 +10,6 @@ _NO_SENSOR_OVERRIDES = [
     "scene_filter.shuffle=false",
     "dataset.dataset_converter_config.include_pinhole_cameras=false",
     "dataset.dataset_converter_config.include_lidars=false",
-    "dataset.dataset_converter_config.include_box_lidar_points=false",
     "dataset.dataset_converter_config.include_fisheye_mei_cameras=false",
     "dataset.dataset_converter_config.include_route=false",
     "dataset.dataset_converter_config.include_scenario_tags=false",
