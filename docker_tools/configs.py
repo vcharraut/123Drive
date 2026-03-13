@@ -8,7 +8,13 @@ def _sensor_overrides(include_fisheye=True):
     return overrides
 
 
-def _dataset_config(extras, data_root_key, default_splits, extra_paths=None, include_fisheye=True):
+def _dataset_config(
+    extras,
+    data_root_key,
+    default_splits,
+    extra_paths=None,
+    include_fisheye=True,
+):
     return {
         "extras": extras,
         "data_root_key": data_root_key,
@@ -19,6 +25,11 @@ def _dataset_config(extras, data_root_key, default_splits, extra_paths=None, inc
 
 
 DATASET_CONFIGS = {
+    "opendrive": _dataset_config(
+        "opendrive",
+        "xodr_paths",
+        None,
+    ),
     "nuplan-mini": _dataset_config(
         "nuplan",
         "nuplan_data_root",

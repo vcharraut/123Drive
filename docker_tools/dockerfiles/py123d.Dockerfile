@@ -2,7 +2,7 @@ ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim
 
 ARG EXTRAS=nuplan
-ARG PY123D_REF=dev_v0.1.0
+ARG PY123D_REF=2a71af776ee47392f548c7cd327afefa995faa67
 
 COPY --from=ghcr.io/astral-sh/uv:0.6.5 /uv /uvx /bin/
 
