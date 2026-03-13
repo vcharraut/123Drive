@@ -73,7 +73,7 @@ def _safe_process(raw_scenario, **kwargs):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Convert py123d datasets to PufferDrive binary format")
+    parser = argparse.ArgumentParser(description="Convert 123D datasets to PufferDrive binary format")
 
     # Core arguments
     parser.add_argument("--py123d_path", type=str, help="Path to py123d dataset (logs/ and maps/)")

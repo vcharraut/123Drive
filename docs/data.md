@@ -1,6 +1,6 @@
 # Data Surface
 
-This project intentionally exposes a small subset of `py123d` into the PufferDrive binary.
+This project intentionally exposes a small subset of `123D` into the PufferDrive binary.
 
 ## Included in v0.1
 

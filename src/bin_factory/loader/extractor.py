@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 import numpy as np
 import shapely.geometry as geom
@@ -9,6 +10,10 @@ from py123d.datatypes.map_objects import Lane, LaneType, MapLayer
 from py123d.geometry import Point2D
 
 from bin_factory.loader.load import MapOnlyScenario
+
+
+if TYPE_CHECKING:
+    from py123d.api import MapAPI, SceneAPI
 
 
 logger = logging.getLogger(__name__)
@@ -32,7 +37,7 @@ _OBJECT_LABELS = {
 
 
 def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
-    """Convert py123d SceneAPI or MapOnlyScenario to intermediate format."""
+    """Convert 123D SceneAPI or MapOnlyScenario to intermediate format."""
     # Build base scenario
     if isinstance(raw, MapOnlyScenario):
         scene = None
@@ -82,7 +87,7 @@ def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
 
 
 def _extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
-    """Extract dynamic objects from py123d box detections and ego state."""
+    """Extract dynamic objects from 123D box detections and ego state."""
     episode_length = scene.number_of_iterations
     objects: dict[int, dict] = {0: _make_empty_agent(episode_length, DefaultBoxDetectionLabel.EGO)}
     tokens_to_object_id: dict[str, int] = {}
@@ -139,8 +144,13 @@ def _extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
     return objects
 
 
-def _extract_traffic_lights(scene: SceneAPI, map_api: MapAPI, centroid: np.ndarray, lane_ids: set[int]) -> dict[int, dict]:
-    """Extract dynamic traffic light states from py123d logs."""
+def _extract_traffic_lights(
+    scene: SceneAPI,
+    map_api: MapAPI,
+    centroid: np.ndarray,
+    lane_ids: set[int],
+) -> dict[int, dict]:
+    """Extract dynamic traffic light states from 123D logs."""
     episode_length = scene.number_of_iterations
     elements: dict[int, dict] = {}
 
@@ -185,15 +195,18 @@ def _compute_centroid(scene, map_api):
 
     # Fallback: road geometry centroid
     road_layers = [MapLayer.LANE, MapLayer.ROAD_LINE, MapLayer.ROAD_EDGE]
-    points = [coords for obj in _get_map_objects(map_api, road_layers)
-              if (coords := _get_object_xy_points(obj)) is not None and len(coords) > 0]
+    points = [
+        coords
+        for obj in _get_map_objects(map_api, road_layers)
+        if (coords := _get_object_xy_points(obj)) is not None and len(coords) > 0
+    ]
     if points:
         return np.vstack(points).mean(axis=0)
     return np.zeros(2, dtype=np.float64)
 
 
 def _extract_map(map_api, centroid: np.ndarray, map_only: bool = False) -> tuple[dict[int, dict], set[int]]:
-    """Extract static map elements from a py123d MapAPI. Returns (elements, lane_ids)."""
+    """Extract static map elements from a 123D MapAPI. Returns (elements, lane_ids)."""
     result = {}
     non_lane_objects = []
     undefined_lane = []
@@ -274,7 +287,7 @@ def _extract_map(map_api, centroid: np.ndarray, map_only: bool = False) -> tuple
 
 
 def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> dict | None:
-    """Convert py123d map object to unified static element dict."""
+    """Convert 123D map object to unified static element dict."""
     if map_object.layer == MapLayer.LANE:
         if not map_object.speed_limit_mps or np.isnan(map_object.speed_limit_mps):
             speed_limit_mps = -1.0
@@ -304,7 +317,7 @@ def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> d
         return {
             "layer": map_object.layer,
             "type": map_object.road_edge_type,
-            "polyline":  _centered_array(map_object.polyline_3d.array, centroid),
+            "polyline": _centered_array(map_object.polyline_3d.array, centroid),
         }
 
     if map_object.layer == MapLayer.CROSSWALK:
@@ -325,7 +338,7 @@ def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> d
     raise ValueError(f"Unsupported map object layer: {map_object.layer}")
 
 
-def _get_map_objects(map_api: MapAPI, layers: list[MapLayer]) -> list[Any]:
+def _get_map_objects(map_api: MapAPI, layers: list[MapLayer]) -> list:
     objects_by_layer = map_api.query(geom.box(-1e9, -1e9, 1e9, 1e9), layers=layers, predicate="intersects")
 
     return [obj for layer in layers for obj in objects_by_layer.get(layer, [])]

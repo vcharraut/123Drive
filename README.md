@@ -1,9 +1,9 @@
 # 123Drive
 
-Convert `py123d` datasets to PufferDrive `.bin` files.
+Convert `123D` arrow datasets to PufferDrive `.bin` files.
 
 ```text
-raw dataset -> [py123d-docker] -> py123d Arrow -> [convert] -> .bin -> [viz]
+raw dataset -> [123D] -> .arrow -> [123Drive] -> .bin
 ```
 
 ## Install
@@ -20,13 +20,10 @@ uv sync --extra all
 # install
 uv sync --extra all
 
-# 1) Extract raw dataset to py123d Arrow
-uv run py123d-docker --dataset nuplan-mini --dataset_path /data/nuplan --output /data/py123d
+# 1) Convert Arrow to PufferDrive .bin
+uv run convert --py123d_path /data/123d --output ./output
 
-# 2) Convert Arrow to PufferDrive .bin
-uv run convert --py123d_path /data/py123d --output ./output
-
-# 3) Inspect in the browser
+# 2) Inspect in the browser
 uv run viz --dir ./output
 ```
 
@@ -34,8 +31,8 @@ Open `http://localhost:8080`.
 
 ## CLIs
 
-- `convert`: py123d Arrow -> PufferDrive `.bin`
-- `py123d-docker`: raw dataset -> py123d Arrow through Docker
+- `convert`: 123D Arrow -> PufferDrive `.bin`
+- `123d-docker`: build Docker images for 123D/123Drive pipelines
 - `viz`: browser viewer for `.bin`
 - `viz-png`, `viz-video`, `viz-batch`: optional matplotlib exports
 
@@ -44,32 +41,32 @@ Open `http://localhost:8080`.
 Basic use:
 
 ```bash
-uv run convert --py123d_path /path/to/py123d --output ./output
+uv run convert --py123d_path /path/to/123d --output ./output
 ```
 
 Examples:
 
 ```bash
 # Parallel conversion
-uv run convert --py123d_path /path/to/py123d --output ./output --workers 8
+uv run convert --py123d_path /path/to/123d --output ./output --workers 8
 
 # Filter datasets / splits / logs
-uv run convert --py123d_path /path/to/py123d --output ./output \
+uv run convert --py123d_path /path/to/123d --output ./output \
   --datasets nuplan --split_types val --num_scenes 100
 
 # Route filtering knobs
-uv run convert --py123d_path /path/to/py123d --output ./output \
+uv run convert --py123d_path /path/to/123d --output ./output \
   --min_route_valid_points 10 --route_check_timestep 5
 
 # Map-only conversion
-uv run convert --py123d_path /path/to/py123d --output ./output --map_only
+uv run convert --py123d_path /path/to/123d --output ./output --map_only
 ```
 
 Core flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--py123d_path` | `PY123D_DATA_ROOT` or required | Path to py123d dataset with `logs/` and `maps/` |
+| `--py123d_path` | `PY123D_DATA_ROOT` or required | Path to 123D dataset with `logs/` and `maps/` |
 | `--output` | `./output` | Directory for `.bin` files |
 | `--workers` | `1` | Parallel workers |
 | `--validate_level` | `1` | Validation strictness |
@@ -115,13 +112,24 @@ uv run viz --dir ./output --port 8080
 - inspect map, agents, route, and traffic controls
 - playback, follow-ego, selection, and layer toggles
 
-
-## Docker extractor
+## Docker Images
 
 ```bash
-uv run py123d-docker --list
-uv run py123d-docker --dataset nuplan-mini --dataset_path /data/nuplan --output /data/py123d
+# List available datasets
+uv run 123d-docker list
+
+# Build 123D extraction image
+uv run 123d-docker build 123d --dataset nuplan-mini
+
+# Build convert image
+uv run 123d-docker build convert
+
+# Build with custom refs
+uv run 123d-docker build 123d --dataset nuplan --123d_ref my-branch --rebuild
+uv run 123d-docker build convert --drive123_ref v0.2.0
 ```
+
+Images are portable — run them however you want (`docker run`, Kubernetes, etc.).
 
 ## Docs
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "123Drive"
 version = "0.1.0"
-description = "Convert py123d datasets to PufferDrive binaries"
+description = "Convert 123D datasets to PufferDrive binaries"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 license = "MIT"
@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [
   { name = "Valentin Charraut" },
 ]
-keywords = ["autonomous-driving", "dataset-conversion", "pufferdrive", "py123d"]
+keywords = ["autonomous-driving", "dataset-conversion", "pufferdrive", "123d"]
 classifiers = [
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
