@@ -7,8 +7,8 @@ from tqdm import tqdm
 
 from bin_factory import logger_utils
 from bin_factory.convert.pufferdrive import convert_to_puffer_dict
-from bin_factory.loader.extractor import convert_py123d_scenario
-from bin_factory.loader.load import get_py123d_scenarios
+from bin_factory.loader.extractor import convert_py123d_data
+from bin_factory.loader.load import get_py123d_data
 from bin_factory.serialize import puffer_dict_to_binary
 from bin_factory.transforms.polyline import process_polylines
 from bin_factory.transforms.validation import ValidationError, validate_puffer_dict
@@ -17,8 +17,8 @@ from bin_factory.transforms.validation import ValidationError, validate_puffer_d
 logger = logger_utils.get_logger(__name__)
 
 
-def process_one_scenario(
-    raw_scenario,
+def _worker_fn(
+    py123d_data,
     map_id,
     output,
     validate_level=0,
@@ -29,7 +29,7 @@ def process_one_scenario(
     route_check_timestep=0,
     reindex_id=False,
 ):
-    py123d_dict = convert_py123d_scenario(raw_scenario)
+    py123d_dict = convert_py123d_data(py123d_data)
     py123d_dict = process_polylines(
         py123d_dict,
         max_segment_length=max_segment_length,
@@ -60,10 +60,10 @@ def process_one_scenario(
         f.write(binary_data)
 
 
-def _safe_process(raw_scenario, **kwargs):
-    scenario_id = getattr(raw_scenario, "scenario_id", None) or getattr(raw_scenario, "log_name", "unknown")
+def _safe_process(py123d_data, **kwargs):
+    scenario_id = getattr(py123d_data, "scenario_id", None) or getattr(py123d_data, "log_name", "unknown")
     try:
-        return process_one_scenario(raw_scenario, **kwargs)
+        return _worker_fn(py123d_data, **kwargs)
     except ValidationError as ve:
         logger.error(f"[{scenario_id}] Validation error: {ve}")
         return None
@@ -203,7 +203,7 @@ def main():
         f"duration_s: {args.duration_s}, history_s: {args.history_s}, map_only: {args.map_only}"
     )
 
-    scenarios = get_py123d_scenarios(
+    py123d_data = get_py123d_data(
         py123d_data_root=py123d_data_root,
         num_scenes=args.num_scenes,
         datasets=args.datasets,
@@ -215,10 +215,10 @@ def main():
         map_only=args.map_only,
     )
 
-    logger.info(f"Loaded {len(scenarios)} scenarios after filtering")
+    logger.info(f"Loaded {len(py123d_data)} scenarios after filtering")
 
-    scenarios = list(scenarios)
-    func = process_one_scenario if args.fail_fast else _safe_process
+    py123d_data = list(py123d_data)
+    func = _worker_fn if args.fail_fast else _safe_process
 
     # Handle workers=0 as 80% of CPU cores
     if args.workers == 0:
@@ -232,12 +232,12 @@ def main():
         )
         args.workers = args.num_scenes
 
-    logger.info(f"Processing {len(scenarios)} scenarios with {args.workers} workers")
+    logger.info(f"Processing {len(py123d_data)} scenarios with {args.workers} workers")
 
     with Parallel(n_jobs=args.workers) as parallel:
         parallel(
             delayed(func)(
-                raw_scenario=scenario,
+                py123d_data=data,
                 map_id=i,
                 output=args.output,
                 validate_level=args.validate_level,
@@ -248,7 +248,7 @@ def main():
                 route_check_timestep=args.route_check_timestep,
                 reindex_id=args.reindex_id,
             )
-            for i, scenario in tqdm(enumerate(scenarios), total=len(scenarios))
+            for i, data in tqdm(enumerate(py123d_data), total=len(py123d_data))
         )
 
     logger.info("Conversion complete.")

@@ -16,7 +16,7 @@ class MapOnlyScenario:
     split_name: str | None = None
 
 
-def get_py123d_scenarios(
+def get_py123d_data(
     py123d_data_root: str,
     num_scenes: int | None = None,
     datasets: list[str] | None = None,

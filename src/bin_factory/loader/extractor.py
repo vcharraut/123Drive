@@ -36,7 +36,7 @@ _OBJECT_LABELS = {
 }
 
 
-def convert_py123d_scenario(raw: SceneAPI | MapOnlyScenario) -> dict:
+def convert_py123d_data(raw: SceneAPI | MapOnlyScenario) -> dict:
     """Convert 123D SceneAPI or MapOnlyScenario to intermediate format."""
     # Build base scenario
     if isinstance(raw, MapOnlyScenario):
