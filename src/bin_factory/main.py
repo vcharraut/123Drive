@@ -78,7 +78,12 @@ def main():
     # Core arguments
     parser.add_argument("--py123d_path", type=str, help="Path to py123d dataset (logs/ and maps/)")
     parser.add_argument("--output", default="./output", help="Directory to save binary files")
-    parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Number of parallel workers - 0: 80%% of CPU cores, 1: no parallelism, -1: all CPU cores, 2-n: use n CPU cores",  # noqa: E501
+    )
 
     # Dataset filtering
     parser.add_argument(
@@ -192,6 +197,8 @@ def main():
         logger.warning("Dataset 'opendrive' selected with --map_only=False. Forcing --map_only=True.")
         args.map_only = True
 
+    logger.info(f"Loading scenarios with filters - datasets: {args.datasets}, split_types: {args.split_types}, "f"split_names: {args.split_names}, log_names: {args.log_names}, duration_s: {args.duration_s}, history_s: {args.history_s}, map_only: {args.map_only}")
+
     scenarios = get_py123d_scenarios(
         py123d_data_root=py123d_data_root,
         num_scenes=args.num_scenes,
@@ -204,8 +211,24 @@ def main():
         map_only=args.map_only,
     )
 
+    logger.info(f"Loaded {len(scenarios)} scenarios after filtering")
+
     scenarios = list(scenarios)
     func = process_one_scenario if args.fail_fast else _safe_process
+
+    # Handle workers=0 as 80% of CPU cores
+    if args.workers == 0:
+        args.workers = max(1, int(os.cpu_count() * 0.8))
+
+    # Warn if number of scenes is less than workers and adjust workers accordingly
+    if args.num_scenes < args.workers:
+        logger.warning(
+            f"Number of scenes ({args.num_scenes}) is less than number of workers "
+            f"({args.workers}). Reducing workers to {args.num_scenes}."
+        )
+        args.workers = args.num_scenes
+
+    logger.info(f"Processing {len(scenarios)} scenarios with {args.workers} workers")
 
     with Parallel(n_jobs=args.workers) as parallel:
         parallel(
@@ -229,6 +252,7 @@ def main():
 
 def _normalize_optional_list(values: list[str] | None) -> list[str] | None:
     """Normalize optional list arguments by stripping whitespace and filtering out empty values.
+
     Used for debugging command-line arguments.
 
     Args:
@@ -236,6 +260,7 @@ def _normalize_optional_list(values: list[str] | None) -> list[str] | None:
 
     Returns:
         Cleaned list of strings or None if input was None or empty after cleaning.
+
     """
     if not values:
         return None
