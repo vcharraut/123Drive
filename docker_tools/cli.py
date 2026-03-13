@@ -1,3 +1,5 @@
+"""CLI for building Docker images for the py123d/123Drive pipeline."""
+
 import argparse
 import subprocess
 import sys
@@ -9,7 +11,13 @@ from docker_tools.configs import DATASET_CONFIGS
 DOCKERFILES_DIR = Path(__file__).parent / "dockerfiles"
 
 
-def _docker_build_cmd(dockerfile, tag, build_args=None, no_cache=False):
+def _docker_build_cmd(
+    dockerfile: str,
+    tag: str,
+    build_args: dict[str, str] | None = None,
+    no_cache: bool = False,
+) -> list[str]:
+    """Assemble a docker build command."""
     cmd = ["docker", "build"]
 
     if no_cache:
@@ -22,7 +30,8 @@ def _docker_build_cmd(dockerfile, tag, build_args=None, no_cache=False):
     return cmd
 
 
-def run_cmd(cmd, dry_run, label=""):
+def run_cmd(cmd: list[str], dry_run: bool, label: str = "") -> None:
+    """Print and optionally execute a shell command."""
     print(f"$ {' '.join(cmd)}")
     if not dry_run:
         result = subprocess.run(cmd)
@@ -32,14 +41,16 @@ def run_cmd(cmd, dry_run, label=""):
             sys.exit(result.returncode)
 
 
-def cmd_list(_args):
+def cmd_list(_args: argparse.Namespace) -> None:
+    """Print available datasets and build targets."""
     print("Available datasets from 123D:")
     for name, cfg in DATASET_CONFIGS.items():
         splits = ", ".join(cfg["default_splits"]) if cfg["default_splits"] else "default"
         print(f"  {name:<30} extras={cfg['extras']}  splits=[{splits}]")
 
 
-def cmd_py123d(args):
+def cmd_py123d(args: argparse.Namespace) -> None:
+    """Build a py123d dataset Docker image."""
     if not args.dataset:
         print("Error: --dataset is required for 'build py123d'", file=sys.stderr)
         sys.exit(1)
@@ -60,7 +71,8 @@ def cmd_py123d(args):
     run_cmd(cmd, args.dry_run, label="docker build")
 
 
-def cmd_123drive(args):
+def cmd_123drive(args: argparse.Namespace) -> None:
+    """Build the 123Drive converter Docker image."""
     ref = args.drive123_ref or "main"
     name = f"123drive:{ref}"
 
@@ -68,7 +80,8 @@ def cmd_123drive(args):
     run_cmd(cmd, args.dry_run, label="docker build")
 
 
-def main():
+def main() -> None:
+    """Entry point for the build CLI."""
     parser = argparse.ArgumentParser(prog="build", description="Build Docker images for py123d/123Drive pipeline")
     sub = parser.add_subparsers(dest="command")
 
