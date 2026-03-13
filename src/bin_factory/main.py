@@ -197,7 +197,11 @@ def main():
         logger.warning("Dataset 'opendrive' selected with --map_only=False. Forcing --map_only=True.")
         args.map_only = True
 
-    logger.info(f"Loading scenarios with filters - datasets: {args.datasets}, split_types: {args.split_types}, "f"split_names: {args.split_names}, log_names: {args.log_names}, duration_s: {args.duration_s}, history_s: {args.history_s}, map_only: {args.map_only}")
+    logger.info(
+        f"Loading scenarios with filters - datasets: {args.datasets}, split_types: {args.split_types}, "
+        f"split_names: {args.split_names}, log_names: {args.log_names}, "
+        f"duration_s: {args.duration_s}, history_s: {args.history_s}, map_only: {args.map_only}"
+    )
 
     scenarios = get_py123d_scenarios(
         py123d_data_root=py123d_data_root,
