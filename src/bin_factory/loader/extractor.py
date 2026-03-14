@@ -5,15 +5,14 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import shapely.geometry as geom
+from py123d.api import MapAPI
 from py123d.datatypes.detections import DefaultBoxDetectionLabel
 from py123d.datatypes.map_objects import Lane, LaneType, MapLayer
 from py123d.geometry import Point2D
 
-from bin_factory.loader.load import MapOnlyScenario
-
 
 if TYPE_CHECKING:
-    from py123d.api import MapAPI, SceneAPI
+    from py123d.api import SceneAPI
 
 
 logger = logging.getLogger(__name__)
@@ -36,16 +35,16 @@ _OBJECT_LABELS = {
 }
 
 
-def convert_py123d_data(raw: SceneAPI | MapOnlyScenario) -> dict:
-    """Convert 123D SceneAPI or MapOnlyScenario to intermediate format."""
+def convert_py123d_data(data: SceneAPI | MapAPI) -> dict:
+    """Convert 123D SceneAPI or MapAPI to intermediate format."""
     # Build base scenario
-    if isinstance(raw, MapOnlyScenario):
+    if isinstance(data, MapAPI):
         scene = None
-        map_api = raw.map_api
-        scenario_id = raw.scenario_id
-        dataset_name = map_api.dataset
+        map_api = data
+        scenario_id = data.location
+        dataset_name = data.dataset
     else:
-        scene = raw
+        scene = data
         map_api = scene.map_api
         scenario_id = f"{scene.log_name}"
         dataset_name = scene.dataset

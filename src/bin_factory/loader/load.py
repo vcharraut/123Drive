@@ -1,19 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from py123d.api import MapAPI, SceneFilter, get_filtered_scenes
+from py123d.api import SceneFilter, get_filtered_scenes
 from py123d.api.map.arrow.arrow_map_api import ArrowMapAPI
 from py123d.common.execution import ProcessPoolExecutor, SequentialExecutor
-
-
-@dataclass(frozen=True)
-class MapOnlyScenario:
-    scenario_id: str
-    map_api: MapAPI
-    split_name: str | None = None
 
 
 def get_py123d_data(
@@ -43,12 +35,20 @@ def get_py123d_data(
         map_only: If True, load map-only scenarios (no logs).
 
     Returns:
-        List of ArrowSceneAPI or MapOnlyScenario.
+        List of ArrowSceneAPI or ArrowMapAPI.
     """
     data_root = Path(py123d_data_root)
 
     if map_only:
-        return _load_map_only_scenarios(data_root, datasets, num_scenes)
+        maps_root = data_root / "maps"
+        map_paths = _discover_map_arrow_paths(maps_root, datasets, num_scenes)
+
+        maps: list[ArrowMapAPI] = []
+        for map_path in map_paths:
+            maps.append(ArrowMapAPI(map_path))
+
+        return maps
+
 
     # TODO: To delete at release
     map_api_required = datasets is not None and any(d.startswith(("nuplan",)) for d in datasets)
@@ -70,23 +70,6 @@ def get_py123d_data(
         executor=ProcessPoolExecutor(max_workers=workers) if workers > 1 else SequentialExecutor(),
     )
 
-
-def _load_map_only_scenarios(
-    data_root: Path,
-    datasets: list[str] | None = None,
-    num_scenes: int | None = None,
-) -> list[MapOnlyScenario]:
-    maps_root = data_root / "maps"
-    map_paths = _discover_map_arrow_paths(maps_root, datasets, num_scenes)
-
-    scenarios: list[MapOnlyScenario] = []
-    for map_path in map_paths:
-        scenario_id = map_path.stem
-        split_name = None if map_path.parent == data_root else map_path.parent.name
-        map_api = ArrowMapAPI(map_path)
-        scenarios.append(MapOnlyScenario(scenario_id=scenario_id, map_api=map_api, split_name=split_name))
-
-    return scenarios
 
 
 def _discover_map_arrow_paths(
