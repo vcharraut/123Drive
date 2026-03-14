@@ -10,7 +10,7 @@ from py123d.datatypes.detections import DefaultBoxDetectionLabel
 from py123d.datatypes.map_objects import Lane, LaneType, MapLayer
 from py123d.geometry import Point2D
 
-from bin_factory.loader.scenario import ArrowScenario, DynamicState, ScenarioMetadata, TrafficLightState
+from src.bin_factory.loader.arrow import ArrowScenario, DynamicState, ScenarioMetadata, TrafficLightState
 
 
 if TYPE_CHECKING:
