@@ -11,6 +11,10 @@ from docker_tools.py123d_config import DATASET_CONFIGS
 DOCKERFILES_DIR = Path(__file__).parent / "dockerfiles"
 
 
+def _sanitize_tag(ref):
+    return ref.replace("/", "-").replace(":", "-")
+
+
 def _docker_build_cmd(
     dockerfile: str,
     tag: str,
@@ -60,16 +64,14 @@ def cmd_py123d(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     config = DATASET_CONFIGS[args.dataset]
-    name = f"py123d-{args.dataset}"
+    ref = args.py123d_ref or "main"
+    name = f"py123d-{args.dataset}:{_sanitize_tag(ref)}"
     build_args = {
         "PYTHON_VERSION": config.get("python_version", "3.12"),
         "EXTRAS": config["extras"],
         "DATASET": args.dataset,
+        "PY123D_REF": ref,
     }
-
-    ref_py123d = getattr(args, "py123d_ref", None)
-    if ref_py123d:
-        build_args["PY123D_REF"] = ref_py123d
 
     cmd = _docker_build_cmd("py123d.Dockerfile", name, build_args, args.no_cache)
     run_cmd(cmd, args.dry_run, label="docker build")
@@ -78,7 +80,7 @@ def cmd_py123d(args: argparse.Namespace) -> None:
 def cmd_123drive(args: argparse.Namespace) -> None:
     """Build the 123Drive converter Docker image."""
     ref = args.drive123_ref or "main"
-    name = f"123drive:{ref}"
+    name = f"123drive:{_sanitize_tag(ref)}"
 
     cmd = _docker_build_cmd("123drive.Dockerfile", name, {"DRIVE123_REF": ref}, args.no_cache)
     run_cmd(cmd, args.dry_run, label="docker build")
