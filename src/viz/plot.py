@@ -4,15 +4,20 @@ import argparse
 import sys
 from pathlib import Path
 
-import matplotlib.patches as mpatches
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.animation import FFMpegWriter
-from matplotlib.transforms import Affine2D
 from tqdm import tqdm
 
+
+try:
+    import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import FFMpegWriter
+    from matplotlib.transforms import Affine2D
+except ImportError as exc:  # pragma: no cover - import guard
+    raise SystemExit("Install viz dependencies first: uv sync --extra viz") from exc
+
 from bin_factory.convert.types import MiscRoadType, TCType, is_road_edge, is_road_lane, is_road_line
-from viz.binary_loader import load_puffer_binary
+from viz.binary_loader import BinaryFormatError, load_puffer_binary
 from viz.utils import (
     ROAD_COLORS,
     build_lane_map,
@@ -25,7 +30,7 @@ from viz.utils import (
 
 # (alpha, zorder) for specific road types — unknown/special subtypes highlighted
 _ROAD_ALPHA_ZORDER = {
-    0: (0.95, 3),   # LaneType.UNKNOWN
+    0: (0.95, 3),  # LaneType.UNKNOWN
     10: (0.95, 4),  # RoadLineType.UNKNOWN
     20: (0.95, 4),  # RoadEdgeType.UNKNOWN
     MiscRoadType.CROSSWALK: (0.6, 3),
@@ -72,7 +77,6 @@ def _build_scene(puffer_scenario, show_routes):
     for element in road_elements:
         xyz = np.asarray(element.get("xyz", np.array([])))
         if len(xyz) == 0:
-            print(f"Skipping road element {element.get('id', 'unknown')}: empty geometry")
             continue
 
         element_type = element.get("type", 0)
@@ -93,7 +97,6 @@ def _build_scene(puffer_scenario, show_routes):
         color, dash, linewidth = get_road_styling(element_type)
         alpha, zorder = _ROAD_ALPHA_ZORDER.get(element_type, _road_alpha_zorder_fallback(element_type))
         if alpha is None:
-            print(f"Skipping road element {element.get('id', 'unknown')}: unknown type {element_type}")
             continue
 
         linestyle = "-" if dash is None else {"dot": ":", "dash": "--"}.get(dash, "-")
@@ -115,11 +118,13 @@ def _build_scene(puffer_scenario, show_routes):
         for agent in agents:
             states = agent.get("states", {})
             xyz = np.asarray(states.get("xyz", np.array([])))
+            valid = np.asarray(states.get("valid", np.array([])), dtype=bool)
             route = agent.get("route", [])
-            if len(xyz) == 0 or not route:
+            start_pos = xyz[np.flatnonzero(valid)[0]] if len(xyz) and np.any(valid) else None
+            if start_pos is None or not route:
                 continue
 
-            route_points = compute_route_polyline(route, lane_map, start_pos=xyz[0])
+            route_points = compute_route_polyline(route, lane_map, start_pos=start_pos)
             if route_points is None:
                 continue
 
@@ -141,7 +146,6 @@ def _build_scene(puffer_scenario, show_routes):
         heading = np.asarray(states.get("heading", np.array([])))
         length = np.asarray(states.get("length", np.array([])))
         width = np.asarray(states.get("width", np.array([])))
-        valid_future = xyz[valid] if len(xyz) == len(valid) and len(valid) else np.array([])
         agent_id = agent.get("id", -1)
 
         agent_items.append(
@@ -154,7 +158,6 @@ def _build_scene(puffer_scenario, show_routes):
                 "width": width,
                 "color": _get_agent_display_color(agent, ego_id),
                 "edgecolor": "red" if agent_id in predict_ids else "black",
-                "future_xyz": valid_future,
             },
         )
 
@@ -179,12 +182,15 @@ def _build_scene(puffer_scenario, show_routes):
         "traffic_controls": traffic_controls,
         "ego_xyz": ego_xyz,
         "ego_valid": ego_valid,
-        "title": f"Puffer BEV - {metadata.get('dataset_name', 'unknown')} | Scenario: {puffer_scenario.get('scenario_id', 'unknown')}",
-        "video_title": f"Puffer Scenario {puffer_scenario.get('scenario_id', 'unknown')}",
+        "title": (
+            f"PufferDrive - {metadata.get('dataset_name', 'unknown')} | "
+            f"Scenario: {puffer_scenario.get('scenario_id', 'unknown')}"
+        ),
+        "video_title": f"PufferDrive Scenario {puffer_scenario.get('scenario_id', 'unknown')}",
     }
 
 
-def _render_frame(ax, scene, timestep, show_future, zoom_center, zoom_radius, follow_ego, road_render_mode):
+def _render_frame(ax, scene, timestep, zoom_center, zoom_radius, follow_ego, road_render_mode):
     ax.clear()
     ax.set_aspect("equal")
     ax.set_xlabel("X (meters)", fontsize=10)
@@ -226,21 +232,33 @@ def _render_frame(ax, scene, timestep, show_future, zoom_center, zoom_radius, fo
         if control["type"] == TCType.TRAFFIC_LIGHT:
             state = 0 if timestep >= len(control["states"]) else int(control["states"][timestep])
             ax.plot(
-                [sl[0, 0], sl[1, 0]], [sl[0, 1], sl[1, 1]],
-                color=get_traffic_state_color(state), linewidth=2.5, solid_capstyle="round",
-                alpha=0.9, zorder=15,
+                [sl[0, 0], sl[1, 0]],
+                [sl[0, 1], sl[1, 1]],
+                color=get_traffic_state_color(state),
+                linewidth=2.5,
+                solid_capstyle="round",
+                alpha=0.9,
+                zorder=15,
             )
         elif control["type"] == TCType.STOP_SIGN:
             ax.plot(
-                [sl[0, 0], sl[1, 0]], [sl[0, 1], sl[1, 1]],
-                color="#DC2626", linewidth=2.5, solid_capstyle="round",
-                alpha=0.9, zorder=15,
+                [sl[0, 0], sl[1, 0]],
+                [sl[0, 1], sl[1, 1]],
+                color="#DC2626",
+                linewidth=2.5,
+                solid_capstyle="round",
+                alpha=0.9,
+                zorder=15,
             )
         elif control["type"] == TCType.YIELD_SIGN:
             ax.plot(
-                [sl[0, 0], sl[1, 0]], [sl[0, 1], sl[1, 1]],
-                color="#EAB308", linewidth=2.5, solid_capstyle="round",
-                alpha=0.9, zorder=15,
+                [sl[0, 0], sl[1, 0]],
+                [sl[0, 1], sl[1, 1]],
+                color="#EAB308",
+                linewidth=2.5,
+                solid_capstyle="round",
+                alpha=0.9,
+                zorder=15,
             )
 
     for agent in scene["agent_items"]:
@@ -251,17 +269,6 @@ def _render_frame(ax, scene, timestep, show_future, zoom_center, zoom_radius, fo
         heading = agent["heading"][timestep] if timestep < len(agent["heading"]) else 0.0
         length = agent["length"][timestep] if timestep < len(agent["length"]) else 4.5
         width = agent["width"][timestep] if timestep < len(agent["width"]) else 2.0
-
-        if show_future and len(agent["future_xyz"]) > 1:
-            ax.plot(
-                agent["future_xyz"][:, 0],
-                agent["future_xyz"][:, 1],
-                color=agent["color"],
-                linewidth=1.5,
-                alpha=0.6,
-                linestyle="-",
-                zorder=9,
-            )
 
         rect = mpatches.Rectangle(
             (-length / 2, -width / 2),
@@ -316,7 +323,6 @@ def render_scenario_video(
     output_path,
     fps=10,
     show_routes=True,
-    show_future=True,
     figsize=(20, 20),
     dpi=150,
     zoom_center=None,
@@ -335,7 +341,7 @@ def render_scenario_video(
         for timestep in tqdm(
             range(scene["length"]), total=scene["length"], desc="Frames", leave=False, dynamic_ncols=True
         ):
-            _render_frame(ax, scene, timestep, show_future, zoom_center, zoom_radius, follow_ego, road_render_mode)
+            _render_frame(ax, scene, timestep, zoom_center, zoom_radius, follow_ego, road_render_mode)
             writer.grab_frame()
 
     plt.close(fig)
@@ -348,7 +354,6 @@ def main():
     parser.add_argument("output", help="Output .mp4 path (single) or output directory (batch)")
     parser.add_argument("--fps", type=int, default=10, help="Frames per second (default: 10)")
     parser.add_argument("--no-routes", action="store_true", help="Don't show agent routes")
-    parser.add_argument("--no-future", action="store_true", help="Don't show trajectory history")
     parser.add_argument("--figsize", type=int, default=20, help="Figure size in inches (default: 20)")
     parser.add_argument("--dpi", type=int, default=150, help="Video resolution DPI (default: 150)")
     parser.add_argument("--zoom-x", type=float, help="X coordinate of zoom center (meters)")
@@ -365,18 +370,23 @@ def main():
     zoom_center = (args.zoom_x, args.zoom_y) if args.zoom_x is not None else None
 
     def render_file(bin_path, output_path):
+        try:
+            scenario = load_puffer_binary(bin_path)
+        except BinaryFormatError as exc:
+            print(f"Error: {bin_path}: {exc}", file=sys.stderr)
+            return 1
         render_scenario_video(
-            puffer_scenario=load_puffer_binary(bin_path),
+            puffer_scenario=scenario,
             output_path=output_path,
             fps=args.fps,
             show_routes=not args.no_routes,
-            show_future=not args.no_future,
             figsize=(args.figsize, args.figsize),
             dpi=args.dpi,
             zoom_center=zoom_center,
             zoom_radius=args.zoom_radius,
             follow_ego=args.follow_ego,
         )
+        return 0
 
     input_path = Path(args.input)
     if input_path.is_file():
@@ -396,9 +406,10 @@ def main():
         print(f"Error: {args.input} is not a file or directory", file=sys.stderr)
         return 1
 
+    failures = 0
     for bin_path, output_path in tqdm(jobs, total=len(jobs), desc="Scenarios", dynamic_ncols=True):
-        render_file(bin_path, output_path)
-    return 0
+        failures += render_file(bin_path, output_path)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

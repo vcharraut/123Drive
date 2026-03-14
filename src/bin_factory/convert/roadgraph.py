@@ -46,6 +46,8 @@ def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "")
 
         else:
             xyz = _interpolate_polygon(element_data["polygon"], spacing=3.0)
+            if len(xyz) <= 1:
+                continue
 
         puffer_element = {
             "id": element_id,
@@ -64,7 +66,10 @@ def convert_road_map_elements(static_map_elements: dict, dataset_name: str = "")
     return puffer_elements
 
 
-def _interpolate_polygon(xyz: np.ndarray, spacing: int) -> np.ndarray:
+def _interpolate_polygon(xyz: np.ndarray, spacing: float) -> np.ndarray:
+    if xyz is None or len(xyz) == 0:
+        return np.zeros((0, 3), dtype=np.float64)
+
     # Close polygon if not already closed
     if not np.allclose(xyz[0], xyz[-1]):
         xyz = np.vstack([xyz, xyz[0:1]])

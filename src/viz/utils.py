@@ -45,6 +45,7 @@ ROAD_COLORS = {
     "stop_sign": "#FF0000",
 }
 
+
 def as_json_dict():
     return {
         "AGENT_TYPE_NAMES": AGENT_TYPE_NAMES,

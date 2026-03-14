@@ -30,7 +30,6 @@ REQUIRED_METADATA_KEYS = {
     "dataset_name",
     "scenario_length",
     "sdc_index",
-    "timestep_seconds",
     "objects_of_interests",
     "tracks_to_predict",
 }
@@ -130,7 +129,8 @@ def _validate_metadata_schema(metadata: dict, errors: list[str]) -> int:
     if "scenario_length" in metadata and not _is_int_like(scenario_length):
         errors.append(f"metadata['scenario_length'] must be int, got {type(scenario_length).__name__}")
         scenario_length = None
-    elif _is_int_like(scenario_length) and int(scenario_length) < 0:
+    scenario_length_int = metadata.get("scenario_length") if _is_int_like(scenario_length) else 0
+    if _is_int_like(scenario_length) and scenario_length_int < 0:
         errors.append("metadata['scenario_length'] must be non-negative")
     if "sdc_index" in metadata and not _is_int_like(metadata["sdc_index"]):
         errors.append(f"metadata['sdc_index'] must be int, got {type(metadata['sdc_index']).__name__}")
@@ -141,7 +141,7 @@ def _validate_metadata_schema(metadata: dict, errors: list[str]) -> int:
     timestep_seconds = metadata.get("timestep_seconds", 0)
     if (
         _is_int_like(scenario_length)
-        and int(scenario_length) > 0
+        and scenario_length_int > 0
         and _is_number(timestep_seconds)
         and timestep_seconds <= 0
     ):
@@ -151,7 +151,7 @@ def _validate_metadata_schema(metadata: dict, errors: list[str]) -> int:
         if key in metadata and not isinstance(metadata[key], list):
             errors.append(f"metadata['{key}'] must be list, got {type(metadata[key]).__name__}")
 
-    return int(scenario_length) if _is_int_like(scenario_length) else 0
+    return scenario_length_int
 
 
 def _validate_agents_schema(agents: list, expected_length: int, errors: list[str]) -> set[int]:
@@ -539,11 +539,11 @@ def _validate_ego_semantics(metadata: dict, agents: list, position_jump_threshol
 
 
 def _is_int_like(value) -> bool:
-    return isinstance(value, (int, np.integer)) and not isinstance(value, bool)
+    return isinstance(value, int | np.integer) and not isinstance(value, bool)
 
 
 def _is_number(value) -> bool:
-    return isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(value, bool)
+    return isinstance(value, int | float | np.integer | np.floating) and not isinstance(value, bool)
 
 
 def _is_finite_array(value) -> bool:

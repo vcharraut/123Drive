@@ -1,6 +1,6 @@
 # PufferDrive Binary Format (.bin)
 
-Binary files are written by `puffer_dict_to_binary()` in `src/bin_factory/convert/pufferdrive.py`. All multi-byte values are little-endian. Floats are 32-bit IEEE 754 unless noted.
+Binary files are written by `puffer_dict_to_binary()` in `src/bin_factory/serialize.py`. All multi-byte values are little-endian. Floats are 32-bit IEEE 754 unless noted.
 
 ## Header
 
@@ -9,6 +9,7 @@ Binary files are written by `puffer_dict_to_binary()` in `src/bin_factory/conver
 | 0 | int32 | `n_agents` |
 | 4 | int32 | `n_road_elements` |
 | 8 | int32 | `n_traffic_controls` |
+| 12 | int32 | `n_objects` |
 
 ## Agents (× n_agents)
 
