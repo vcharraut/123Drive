@@ -56,12 +56,9 @@ docker run --rm \
   -v /host/py123d_data_root:/output \
   -e CUDA_VISIBLE_DEVICES= \
   -e TF_CPP_MIN_LOG_LEVEL=3 \
-  --ipc=host \
   --shm-size=10g \
-  --network=host \
-  --ulimit="nofile=65536:65536" \
+  # or --ipc=host to share the host's /dev/shm (unlimited, but no isolation)
   py123d-nuplan-mini \
-  --workers 8 \
   --splits nuplan-mini_train nuplan-mini_val
 ```
 
@@ -78,10 +75,8 @@ docker run --rm \
   -v /host/py123d_data_root:/input \
   -v /host/bin_output:/output \
   -e CUDA_VISIBLE_DEVICES= \
-  --ipc=host \
   --shm-size=10g \
-  --network=host \
-  --ulimit="nofile=65536:65536" \
+  # or --ipc=host to share the host's /dev/shm (unlimited, but no isolation)
   123drive:main \
   --workers 8 \
   --validate_level 1
