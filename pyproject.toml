@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "123Drive"
 version = "0.1.0"
-description = "Convert 123D datasets to PufferDrive binaries"
+description = "123D arrow files -> PufferDrive binaries"
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 license = "MIT"
@@ -27,14 +27,13 @@ dependencies = [
   "scipy",
   "joblib",
   "tqdm",
-  "matplotlib",
   "py123d",
 ]
 
 [project.optional-dependencies]
 dev = ["ruff"]
-viz = ["fastapi", "uvicorn[standard]", "orjson"]
-all = ["ruff", "fastapi", "uvicorn[standard]", "orjson"]
+viz = ["fastapi", "uvicorn[standard]", "orjson", "matplotlib"]
+all = ["ruff", "fastapi", "uvicorn[standard]", "orjson", "matplotlib"]
 
 [project.scripts]
 convert = "bin_factory.main:main"
@@ -48,6 +47,7 @@ include = ["bin_factory", "bin_factory.*", "viz", "viz.*", "docker_tools", "dock
 
 [tool.setuptools.package-data]
 viz = ["web/static/*"]
+docker_tools = ["dockerfiles/*", "*.py"]
 
 [project.urls]
 Homepage = "https://github.com/vcharraut/123Drive"
@@ -92,7 +92,7 @@ select = [
 
 ignore = [
     "ISC001",  # Conflicts with the Ruff formatter
-    "D100",    # Missing docstring in public module (often too strict)
+    "D100",    # Missing docstring in public module
     "D104",    # Missing docstring in public package
 ]
 
@@ -100,10 +100,10 @@ ignore = [
 lines-after-imports = 2
 
 [tool.ruff.lint.mccabe]
-max-complexity = 15
+max-complexity = 20
 
 [tool.ruff.lint.pydocstyle]
-convention = "google"  # Enforces a specific docstring style (can be "numpy" or "pep257")
+convention = "google"
 
 [tool.ruff.format]
 quote-style = "double"

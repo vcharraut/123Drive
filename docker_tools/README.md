@@ -17,11 +17,11 @@ uv run build list
 
 # Build one py123d image per dataset
 uv run build py123d --dataset nuplan-mini
-uv run build py123d --dataset nuplan --py123d_ref my-branch
+uv run build py123d --dataset nuplan --ref my-branch
 
 # Build 123Drive runtime image
 uv run build 123drive
-uv run build 123drive --drive123_ref v0.2.0
+uv run build 123drive --ref v0.2.0
 
 # Print docker commands without executing
 uv run build py123d --dataset wod-motion --dry_run
