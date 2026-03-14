@@ -87,18 +87,18 @@ def convert_py123d_data(py123_arrow: SceneAPI | MapAPI) -> dict:
     return py123d_dict
 
 
-def _extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
+def _extract_objects(scene_api: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
     """Extract dynamic objects from 123D box detections and ego state."""
-    episode_length = scene.number_of_iterations
+    episode_length = scene_api.number_of_iterations
     objects: dict[int, dict] = {0: _make_empty_agent(episode_length, DefaultBoxDetectionLabel.EGO)}
     tokens_to_object_id: dict[str, int] = {}
 
     # Ego agent is always object ID 0, built from ego state and box detections
     ego = objects[0]
-    timestep = scene.log_metadata.timestep_seconds
+    timestep = scene_api.log_metadata.timestep_seconds
 
     for frame_idx in range(episode_length):
-        ego_state = scene.get_ego_state_se3_at_iteration(frame_idx)
+        ego_state = scene_api.get_ego_state_se3_at_iteration(frame_idx)
         if ego_state is None:
             raise ValueError(f"Missing ego state at frame {frame_idx}")
 
@@ -118,7 +118,7 @@ def _extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
     # Detections for all other agents
     next_object_id = 0
     for frame_idx in range(episode_length):
-        detections = scene.get_box_detections_se3_at_iteration(frame_idx)
+        detections = scene_api.get_box_detections_se3_at_iteration(frame_idx)
         if not detections:
             continue
         for detection in detections:
@@ -146,17 +146,17 @@ def _extract_objects(scene: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
 
 
 def _extract_traffic_lights(
-    scene: SceneAPI,
+    scene_api: SceneAPI,
     map_api: MapAPI,
     centroid: np.ndarray,
     lane_ids: set[int],
 ) -> dict[int, dict]:
     """Extract dynamic traffic light states from 123D logs."""
-    episode_length = scene.number_of_iterations
+    episode_length = scene_api.number_of_iterations
     elements: dict[int, dict] = {}
 
     for frame_idx in range(episode_length):
-        traffic_lights = scene.get_traffic_light_detections_at_iteration(frame_idx)
+        traffic_lights = scene_api.get_traffic_light_detections_at_iteration(frame_idx)
         if not traffic_lights:
             continue
 
@@ -178,14 +178,14 @@ def _extract_traffic_lights(
     return elements
 
 
-def _compute_centroid(scene, map_api):
+def _compute_centroid(scene_api: SceneAPI, map_api: MapAPI) -> np.ndarray:
     """Compute scene centroid from ego trajectory, falling back to road geometry."""
-    if scene is not None:
-        episode_length = scene.number_of_iterations
+    if scene_api is not None:
+        episode_length = scene_api.number_of_iterations
         positions = np.zeros((episode_length, 2), dtype=np.float64)
         valid = np.zeros(episode_length, dtype=np.int32)
         for frame_idx in range(episode_length):
-            ego_state = scene.get_ego_state_se3_at_iteration(frame_idx)
+            ego_state = scene_api.get_ego_state_se3_at_iteration(frame_idx)
             if ego_state is None:
                 continue
             positions[frame_idx] = [float(ego_state.center_se3.x), float(ego_state.center_se3.y)]
