@@ -4,10 +4,10 @@ Build-only CLI for 123Drive Docker images. Produces reusable images for both pip
 
 ## Images
 
-| Image | Dockerfile | Purpose |
-|-------|-----------|---------|
-| `123d-{dataset}` | `dockerfiles/123d.Dockerfile` | Raw dataset → 123D Arrow |
-| `123d-convert:{ref}` | `dockerfiles/123drive.Dockerfile` | 123D Arrow → PufferDrive `.bin` |
+| Image              | Dockerfile                        | Purpose                         |
+| ------------------ | --------------------------------- | ------------------------------- |
+| `py123d-{dataset}` | `dockerfiles/py123d.Dockerfile`   | Raw dataset → 123D Arrow        |
+| `123drive:{ref}`   | `dockerfiles/123drive.Dockerfile` | 123D Arrow → PufferDrive `.bin` |
 
 ## Build
 
@@ -30,7 +30,7 @@ uv run build 123drive --dry_run
 
 ## Run
 
-The CLI only builds images. Run them directly with Docker.
+The CLI only builds images. Run them directly with Docker. Both images use `/input` and `/output` as standard mount points — bind-mount your host folders there.
 
 ### py123d image
 
@@ -38,22 +38,28 @@ The py123d image is a BEV-oriented wrapper. It exposes only a few runtime knobs 
 
 - no pinhole cameras
 - no lidars
-- no box lidar points
 - no fisheye cameras
 
 Runtime arguments:
 
-- `--input`: raw dataset root mounted in the container
-- `--output`: py123d output root
+- `--input`: raw dataset root (default: `/input`)
+- `--output`: py123d output root (default: `/output`)
 - `--splits`: optional split override
+- `--worker_type`: executor type (`ray`, `process_pool`, `thread_pool`; default: `ray`)
 - `--workers`: conversion workers
 
 Example:
 
 ```bash
 docker run --rm \
-  -v /data/nuplan:/mnt/input \
-  -v /tmp/py123d-nuplan-mini:/mnt/output \
+  -v /host/dataset:/input \
+  -v /host/py123d_data_root:/output \
+  -e CUDA_VISIBLE_DEVICES= \
+  -e TF_CPP_MIN_LOG_LEVEL=3 \
+  --ipc=host \
+  --shm-size=10g \
+  --network=host \
+  --ulimit="nofile=65536:65536" \
   py123d-nuplan-mini \
   --workers 8 \
   --splits nuplan-mini_train nuplan-mini_val
@@ -63,17 +69,20 @@ For nuPlan datasets, mount the dataset root that contains both `maps/` and `nupl
 
 ### 123Drive image
 
-The 123Drive image is runtime only. Pass any `convert` argument supported by `src/bin_factory/main.py`.
+The 123Drive image is runtime only. Pass any `convert` argument supported by `src/bin_factory/main.py`. The entrypoint auto-wires `--py123d_path /input --output /output`.
 
 Example:
 
 ```bash
 docker run --rm \
-  -v /tmp/py123d-nuplan-mini:/input \
-  -v /tmp/pufferdrive:/output \
+  -v /host/py123d_data_root:/input \
+  -v /host/bin_output:/output \
+  -e CUDA_VISIBLE_DEVICES= \
+  --ipc=host \
+  --shm-size=10g \
+  --network=host \
+  --ulimit="nofile=65536:65536" \
   123drive:main \
-  --py123d_path /input \
-  --output /output \
   --workers 8 \
   --validate_level 1
 ```

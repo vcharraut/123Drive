@@ -1,9 +1,11 @@
 ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim
 
-ARG EXTRAS=nuplan
 ARG PY123D_REF=main
+ARG DATASET
+ARG EXTRAS
 
+ENV DATASET=${DATASET}
 ENV HYDRA_FULL_ERROR=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -20,9 +22,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     if [ "${EXTRAS}" = "nuplan" ]; then pip install --no-cache-dir pytest "nuplan-devkit @ git+https://github.com/motional/nuplan-devkit/@nuplan-devkit-v1.2"; fi && \
     rm -rf /tmp/py123d
 
-ARG DATASET
-ENV DATASET=${DATASET}
+COPY py123d_entrypoint.py py123d_config.py /app/
 
-COPY py123d_run_conversion.py py123d_config.py /app/
+VOLUME ["/input", "/output"]
 
-ENTRYPOINT ["python", "/app/py123d_run_conversion.py"]
+ENTRYPOINT ["python", "/app/py123d_entrypoint.py"]

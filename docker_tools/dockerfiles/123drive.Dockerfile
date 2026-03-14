@@ -10,4 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --no-cache-dir "123Drive @ git+https://github.com/vcharraut/123Drive@${DRIVE123_REF}"
 
-ENTRYPOINT ["convert"]
+COPY 123drive_entrypoint.py /app/123drive_entrypoint.py
+
+VOLUME ["/input", "/output"]
+
+ENTRYPOINT ["python", "/app/123drive_entrypoint.py"]

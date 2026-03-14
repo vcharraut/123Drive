@@ -61,7 +61,11 @@ def cmd_py123d(args: argparse.Namespace) -> None:
 
     config = DATASET_CONFIGS[args.dataset]
     name = f"py123d-{args.dataset}"
-    build_args = {"PYTHON_VERSION": config.get("python_version", "3.12"), "EXTRAS": config["extras"]}
+    build_args = {
+        "PYTHON_VERSION": config.get("python_version", "3.12"),
+        "EXTRAS": config["extras"],
+        "DATASET": args.dataset,
+    }
 
     ref_py123d = getattr(args, "py123d_ref", None)
     if ref_py123d:
