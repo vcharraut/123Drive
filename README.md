@@ -8,7 +8,7 @@ raw dataset -> [123D] -> .arrow -> [123Drive] -> .bin
 
 ## Install
 
-`123Drive` is `uv`-first. Recommended install:
+`123Drive` is `uv`-first. Use Python `3.10`-`3.13`.
 
 ```bash
 uv sync --extra all
@@ -25,6 +25,9 @@ uv run convert --py123d_path /data/123d --output ./output
 
 # Inspect in the browser
 uv run web --dir ./output
+
+# Or render an mp4
+uv run viz ./output/map_000.bin ./output/map_000.mp4
 ```
 
 Open `http://localhost:8080`.
@@ -32,9 +35,9 @@ Open `http://localhost:8080`.
 ## CLIs
 
 - `convert`: 123D Arrow -> PufferDrive `.bin`
-- `build`: build Docker images for 123D/123Drive pipelines
-- `web`: browser viewer for `.bin`
-- `viz`: matplotlib mp4
+- `build`: build Docker images for the extraction/conversion pipeline
+- `web`: browser viewer for `.bin` files
+- `viz`: render `.bin` files to mp4
 
 ## Convert
 
@@ -107,7 +110,11 @@ Validation levels:
 ## Viz
 
 ```bash
+# Browser viewer
 uv run web --dir ./output --port 8080
+
+# MP4 renderer
+uv run viz ./output/map_000.bin ./videos/map_000.mp4
 ```
 
 - browse `.bin` scenarios from a directory
@@ -127,14 +134,15 @@ uv run build py123d --dataset nuplan-mini
 uv run build 123drive
 
 # Build with custom refs
-uv run build py123d --dataset nuplan --py123d_ref my-branch --no_cache
-uv run build 123drive --drive123_ref v0.2.0
+uv run build py123d --dataset nuplan --ref my-branch --no_cache
+uv run build 123drive --ref v0.2.0
 ```
 
 Images are portable — run them however you want (`docker run`, Kubernetes, etc.).
 
 - `py123d-<dataset>` is an opinionated BEV-oriented extractor with raw sensors disabled
 - `123drive:<ref>` is a thin runtime image that forwards args directly to `convert`
+- `build` requires Docker
 
 ## Docs
 
