@@ -64,7 +64,7 @@ def cmd_py123d(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     config = DATASET_CONFIGS[args.dataset]
-    ref = args.py123d_ref or "main"
+    ref = args.ref or "main"
     name = f"py123d-{args.dataset}:{_sanitize_tag(ref)}"
     build_args = {
         "PYTHON_VERSION": config.get("python_version", "3.12"),
@@ -79,7 +79,7 @@ def cmd_py123d(args: argparse.Namespace) -> None:
 
 def cmd_123drive(args: argparse.Namespace) -> None:
     """Build the 123Drive converter Docker image."""
-    ref = args.drive123_ref or "main"
+    ref = args.ref or "main"
     name = f"123drive:{_sanitize_tag(ref)}"
 
     cmd = _docker_build_cmd("123drive.Dockerfile", name, {"DRIVE123_REF": ref}, args.no_cache)
@@ -95,12 +95,12 @@ def main() -> None:
 
     py123d_parser = sub.add_parser("py123d", help="Build py123d dataset image")
     py123d_parser.add_argument("--dataset", help="Dataset name (required)")
-    py123d_parser.add_argument("--py123d_ref", metavar="REF", help="py123d git ref (branch/tag/commit)")
+    py123d_parser.add_argument("--ref", default="main", help="py123d git ref (branch/commit). Default: main")
     py123d_parser.add_argument("--no_cache", action="store_true", help="Build without Docker cache")
     py123d_parser.add_argument("--dry_run", action="store_true", help="Print commands without running")
 
     drive_parser = sub.add_parser("123drive", help="Build 123Drive converter image")
-    drive_parser.add_argument("--drive123_ref", metavar="REF", help="123Drive git ref (default: main)")
+    drive_parser.add_argument("--ref", default="main", help="123Drive git ref (branch/commit). Default: main")
     drive_parser.add_argument("--no_cache", action="store_true", help="Build without Docker cache")
     drive_parser.add_argument("--dry_run", action="store_true", help="Print commands without running")
 
