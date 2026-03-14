@@ -80,19 +80,6 @@ def _build_scene(puffer_scenario, show_routes):
             continue
 
         element_type = element.get("type", 0)
-        if element_type == MiscRoadType.DRIVEWAY:
-            road_items.append(
-                {
-                    "kind": "scatter",
-                    "xy": xyz[:, :2],
-                    "color": ROAD_COLORS["road_line_white"],
-                    "alpha": 1.0,
-                    "size": 15,
-                    "marker": "s",
-                    "zorder": 10,
-                },
-            )
-            continue
 
         color, dash, linewidth = get_road_styling(element_type)
         alpha, zorder = _ROAD_ALPHA_ZORDER.get(element_type, _road_alpha_zorder_fallback(element_type))

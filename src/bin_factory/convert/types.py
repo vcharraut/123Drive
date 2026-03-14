@@ -37,7 +37,6 @@ class RoadEdgeType(IntEnum):
 class MiscRoadType(IntEnum):
     CROSSWALK = 31
     SPEED_BUMP = 32
-    DRIVEWAY = 33
 
 
 class TLState(IntEnum):

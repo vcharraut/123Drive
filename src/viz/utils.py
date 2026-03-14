@@ -97,8 +97,6 @@ def get_road_styling(road_type):
         return ROAD_COLORS["crosswalk"], "solid", 3
     if road_type == MiscRoadType.SPEED_BUMP:
         return ROAD_COLORS["speed_bump"], "solid", 3
-    if road_type == MiscRoadType.DRIVEWAY:
-        return ROAD_COLORS["stop_sign"], None, 3
     return "#888888", None, 1
 
 
