@@ -164,6 +164,9 @@ def _longest_polygon_edge(polygon):
 def _traffic_light_states(states):
     raw = states.tolist() if isinstance(states, np.ndarray) else states
     return np.array(
-        [s if isinstance(s, int) else PY123D_TO_PUFFER_TL.get(s, 0) for s in raw],
+        [
+            int(s) if isinstance(s, (int, np.integer)) else PY123D_TO_PUFFER_TL.get(s, puffer_types.TLState.UNKNOWN)
+            for s in raw
+        ],
         dtype=np.int64,
     )
