@@ -11,34 +11,107 @@ The score favors routes whose concatenated centerline stays close to the
 trajectory while preserving the original directional consistency check.
 """
 
+import logging
+
 import numpy as np
-from py123d.datatypes.map_objects import RoadEdgeType
-
-from bin_factory import logger_utils
-
-
-logger = logger_utils.get_logger(__name__)
+from py123d.datatypes.detections import DefaultBoxDetectionLabel
+from py123d.datatypes.map_objects import LaneType, RoadEdgeType
+from shapely import prepare
+from shapely.geometry import LineString, Polygon
 
 
-LANE_WIDTH_THRESHOLD = 6.0  # Max lateral distance (m) to consider a point "on" a lane
-ALIGNMENT_THRESHOLD = 0.3  # Min cos(heading diff) between agent and lane direction
-MAX_PATH_LENGTH = 10  # Max number of lanes in a route sequence
-MAX_ROOT_CANDIDATES = 3  # Top-k starting lanes to seed beam search
-ROOT_LANE_MIN_SCORE = 0.3  # Min aggregate score for a lane to be a root candidate
-BEAM_WIDTH = 3  # Number of route prefixes kept per expansion step
-ROOT_CANDIDATE_BBOX_MARGIN = 12.0  # Bounding-box expansion (m) for prefiltering candidate lanes
-ALIGNMENT_WEIGHT = 0.7  # Weight of heading alignment in root lane scoring
-DISTANCE_WEIGHT = 0.3  # Weight of inverse distance in root lane scoring
-OFFROAD_DISTANCE_THRESHOLD = 5.0  # Max lane distance (m) for moving vehicles to be considered on-road
-STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0  # Same, for stationary vehicles (stricter)
-MOVEMENT_THRESHOLD = 0.5  # Total displacement (m) below which a vehicle is "stationary"
+logger = logging.getLogger(__name__)
+
+
+LANE_WIDTH_THRESHOLD = 6.0
+ALIGNMENT_THRESHOLD = 0.3
+MAX_PATH_LENGTH = 10
+MAX_ROOT_CANDIDATES = 3
+ROOT_LANE_MIN_SCORE = 0.3
+BEAM_WIDTH = 3
+ROOT_CANDIDATE_BBOX_MARGIN = 12.0
+ALIGNMENT_WEIGHT = 0.7
+DISTANCE_WEIGHT = 0.3
+OFFROAD_DISTANCE_THRESHOLD = 5.0
+STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0
+MOVEMENT_THRESHOLD = 0.5
 ROAD_EDGE_TYPES = {
     RoadEdgeType.ROAD_EDGE_BOUNDARY,
     RoadEdgeType.ROAD_EDGE_MEDIAN,
 }
 
+_VEHICLE_LABELS = {DefaultBoxDetectionLabel.EGO, DefaultBoxDetectionLabel.VEHICLE}
 
-def build_route_cache(static_map_elements: dict, lane_data: tuple) -> dict:
+
+def process_agent_routes(scenario, min_route_valid_points=0, route_check_timestep=0):
+    lane_data = _extract_lane_centers(scenario.map)
+    route_cache = build_route_cache(scenario.map, lane_data)
+
+    for agent_id, agent_data in scenario.agents.items():
+        is_ego = agent_data["type"] == DefaultBoxDetectionLabel.EGO
+        is_vehicle = agent_data["type"] in _VEHICLE_LABELS
+
+        if not is_vehicle:
+            agent_data["route"] = []
+            continue
+
+        route = compute_agent_route(
+            agent_data=(
+                agent_id,
+                agent_data["position"],
+                agent_data["heading"],
+                agent_data["valid"],
+                agent_data["length"],
+                agent_data["width"],
+                is_ego,
+            ),
+            route_cache=route_cache,
+            route_check_timestep=route_check_timestep,
+            min_route_valid_points=min_route_valid_points,
+        )
+        agent_data["route"] = route
+
+
+def _extract_lane_centers(static_map_elements):
+    lane_ids = []
+    lane_polylines_list = []
+    lane_lengths_list = []
+    lane_metadata = {}
+    max_points = 0
+
+    for element_id, element_data in static_map_elements.items():
+        element_type = element_data["type"]
+
+        if element_type in (LaneType.SURFACE_STREET, LaneType.FREEWAY):
+            polyline = element_data["polyline"]
+
+            if len(polyline) > 0:
+                polyline_2d = polyline[:, :2] if polyline.shape[1] == 3 else polyline
+
+                lane_ids.append(element_id)
+                lane_polylines_list.append(polyline_2d)
+                lane_lengths_list.append(len(polyline_2d))
+                max_points = max(max_points, len(polyline_2d))
+
+                lane_metadata[element_id] = {
+                    "entry_lanes": element_data["entry_lanes"],
+                    "exit_lanes": element_data["exit_lanes"],
+                }
+
+    if not lane_ids:
+        return [], np.array([]), {}, np.array([])
+
+    n_lanes = len(lane_ids)
+    lane_polylines = np.zeros((n_lanes, max_points, 2), dtype=np.float64)
+    lane_lengths = np.array(lane_lengths_list, dtype=np.int64)
+
+    for i, polyline_2d in enumerate(lane_polylines_list):
+        lane_polylines[i, : len(polyline_2d), :] = polyline_2d
+
+    return lane_ids, lane_polylines, lane_metadata, lane_lengths
+
+
+def build_route_cache(static_map_elements, lane_data):
     """Precompute lane geometry and connectivity shared by all agents."""
     lane_ids, lane_polylines, lane_metadata, lane_lengths = lane_data
     lane_ids = list(lane_ids)
@@ -78,13 +151,13 @@ def build_route_cache(static_map_elements: dict, lane_data: tuple) -> dict:
 
 
 def compute_agent_route(
-    agent_data: tuple,
-    route_cache: dict,
-    route_check_timestep: int = 0,
-    min_route_valid_points: int = 0,
-) -> list[int]:
+    agent_data,
+    route_cache,
+    route_check_timestep=0,
+    min_route_valid_points=0,
+):
     """Return the best lane sequence for one agent, or an empty list."""
-    agent_id, positions, headings, valid, lengths, widths, agent_type, is_sdc = agent_data
+    agent_id, positions, headings, valid, lengths, widths, is_ego = agent_data
     positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
     valid = np.asarray(valid, dtype=bool)
     trajectory = positions_2d[valid]
@@ -94,8 +167,6 @@ def compute_agent_route(
     sample_indices = np.linspace(0, len(trajectory) - 1, min(10, len(trajectory)), dtype=int)
 
     agent_context = {
-        "id": agent_id,
-        "type": agent_type,
         "positions_2d": positions_2d,
         "headings": headings,
         "valid": valid,
@@ -112,7 +183,7 @@ def compute_agent_route(
     if not _can_compute_route(
         agent_context,
         route_cache,
-        is_sdc,
+        is_ego,
         route_check_timestep,
         min_route_valid_points,
     ):
@@ -132,49 +203,23 @@ def compute_agent_route(
     return best_route
 
 
-def _can_compute_route(
-    agent_context: dict,
-    route_cache: dict,
-    is_sdc: bool,
-    route_check_timestep: int = 0,
-    min_route_valid_points: int = 0,
-) -> bool:
-    """Check if route computation is likely to succeed for this agent."""
-    if is_sdc:
-        return True  # Always attempt route for SDC to provide feedback, even if it may fail
-
-    if agent_context["type"] != 1:  # Only compute routes for VEHICLE type
-        return False
+def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=0, min_route_valid_points=0):
+    if is_ego:
+        return True
 
     if len(agent_context["trajectory"]) == 0 or len(route_cache["lane_ids"]) == 0:
-        return False
-
-    if route_check_timestep >= len(agent_context["valid"]):
         return False
 
     if not agent_context["valid"][route_check_timestep]:
         return False
 
-    if np.sum(agent_context["valid"]) < min_route_valid_points:
+    if np.sum(agent_context["valid"][route_check_timestep:]) < min_route_valid_points:
         return False
 
     return not _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep)
 
 
-def _search_route_beam(
-    root_candidates: list[tuple[int | str, float]],
-    route_cache: dict,
-    agent_context: dict,
-    max_length: int = MAX_PATH_LENGTH,
-    beam_width: int = BEAM_WIDTH,
-) -> tuple[list, float]:
-    """Search over consecutive exit lanes while keeping only top candidates.
-
-    Each beam state stores a route prefix and its current geometric score.
-    We keep the best-scoring prefixes, expand them through exit lanes, and use
-    score then route length as a tie-breaker so flat-score continuations are not
-    dropped too early.
-    """
+def _search_route_beam(root_candidates, route_cache, agent_context, max_length=MAX_PATH_LENGTH, beam_width=BEAM_WIDTH):
     lane_id_to_idx = route_cache["lane_id_to_idx"]
     trimmed_polylines = route_cache["trimmed_polylines"]
 
@@ -253,16 +298,8 @@ def _search_route_beam(
 
 
 def _select_root_lane_candidates(
-    agent_context: dict,
-    route_cache: dict,
-    max_candidates: int = MAX_ROOT_CANDIDATES,
-    min_score: float = ROOT_LANE_MIN_SCORE,
-) -> list[tuple[int | str, float]]:
-    """Score likely starting lanes from the first part of the trajectory.
-
-    We first prefilter lanes by bounding-box distance, then apply the exact
-    point-to-polyline distance and local heading checks on a few early samples.
-    """
+    agent_context, route_cache, max_candidates=MAX_ROOT_CANDIDATES, min_score=ROOT_LANE_MIN_SCORE
+):
     trajectory = agent_context["trajectory"]
     heading = agent_context["heading_valid"]
     lane_ids = route_cache["lane_ids"]
@@ -328,8 +365,7 @@ def _select_root_lane_candidates(
     return [(lane_ids[candidate_lane_indices[idx]], lane_total_scores[idx]) for idx in ranked]
 
 
-def _score_route_polylines_batch(route_polylines: list[np.ndarray], agent_context: dict) -> np.ndarray:
-    """Score many candidate route polylines against one agent trajectory."""
+def _score_route_polylines_batch(route_polylines, agent_context):
     scores = np.zeros(len(route_polylines), dtype=np.float64)
     if not route_polylines:
         return scores
@@ -375,9 +411,8 @@ def _score_route_polylines_batch(route_polylines: list[np.ndarray], agent_contex
         polyline_lengths=aligned_lengths,
         return_indices=False,
     )
+    min_distances = np.asarray(min_distances, dtype=np.float64)
 
-    # Final score matches the original intent: coverage times inverse average
-    # distance over covered trajectory points only.
     coverage_mask = min_distances < LANE_WIDTH_THRESHOLD
     covered_counts = coverage_mask.sum(axis=0)
     positive_coverage = covered_counts > 0
@@ -396,18 +431,8 @@ def _score_route_polylines_batch(route_polylines: list[np.ndarray], agent_contex
     return scores
 
 
-def _is_offroad_at_timestep(agent_context: dict, route_cache: dict, route_check_timestep: int = 0) -> bool:
-    """Skip route generation for vehicles that start clearly off drivable road.
-
-    The check mirrors the previous behavior: far from any lane centerline or
-    bounding box intersecting a road edge. Movement is estimated from total path
-    length so looped trajectories are not treated as stationary.
-    """
-    positions_2d = agent_context["positions_2d"]
-    if route_check_timestep >= len(positions_2d):
-        return True
-
-    position = positions_2d[route_check_timestep]
+def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0):
+    position = agent_context["positions_2d"][route_check_timestep]
     heading = agent_context["headings"][route_check_timestep]
     length = agent_context["lengths"][route_check_timestep]
     width = agent_context["widths"][route_check_timestep]
@@ -418,99 +443,39 @@ def _is_offroad_at_timestep(agent_context: dict, route_cache: dict, route_check_
         OFFROAD_DISTANCE_THRESHOLD if displacement > MOVEMENT_THRESHOLD else STATIONARY_OFFROAD_DISTANCE_THRESHOLD
     )
 
-    if len(route_cache["lane_polylines"]) > 0:
-        min_distances = _points_to_polylines_distance(
-            position.reshape(1, 2),
-            route_cache["lane_polylines"],
-            polyline_lengths=route_cache["lane_lengths"],
-            return_indices=False,
-        )
-        if np.min(min_distances) > distance_threshold:
-            return True
-
-    cos_h = np.cos(heading)
-    sin_h = np.sin(heading)
-    half_len = length / 2
-    half_width = width / 2
-    local_corners = np.array(
-        [
-            [half_len, -half_width],
-            [half_len, half_width],
-            [-half_len, half_width],
-            [-half_len, -half_width],
-        ],
+    min_distances = _points_to_polylines_distance(
+        position.reshape(1, 2),
+        route_cache["lane_polylines"],
+        polyline_lengths=route_cache["lane_lengths"],
+        return_indices=False,
     )
-    rotation_matrix = np.array([[cos_h, -sin_h], [sin_h, cos_h]])
-    corners = local_corners @ rotation_matrix.T + position
+    if np.min(min_distances) > distance_threshold:
+        return True
 
-    bbox_min = corners.min(axis=0) - max(half_len, half_width)
-    bbox_max = corners.max(axis=0) + max(half_len, half_width)
+    cos_h, sin_h = np.cos(heading), np.sin(heading)
+    half_len, half_w = length / 2, width / 2
+    local_corners = np.array([[half_len, -half_w], [half_len, half_w], [-half_len, half_w], [-half_len, -half_w]])
+    rotation = np.array([[cos_h, -sin_h], [sin_h, cos_h]])
+    corners = local_corners @ rotation.T + position
 
-    def cross_2d(v1, v2):
-        return v1[0] * v2[1] - v1[1] * v2[0]
+    agent_poly = Polygon(corners)
+    prepare(agent_poly)
+
+    bbox_min = corners.min(axis=0) - max(half_len, half_w)
+    bbox_max = corners.max(axis=0) + max(half_len, half_w)
 
     for polyline_2d, edge_min, edge_max in route_cache["road_edges"]:
         if edge_max[0] < bbox_min[0] or edge_min[0] > bbox_max[0]:
             continue
         if edge_max[1] < bbox_min[1] or edge_min[1] > bbox_max[1]:
             continue
-
-        for idx in range(len(polyline_2d) - 1):
-            seg_start = polyline_2d[idx]
-            seg_end = polyline_2d[idx + 1]
-            seg_min = np.minimum(seg_start, seg_end)
-            seg_max = np.maximum(seg_start, seg_end)
-
-            if seg_max[0] < bbox_min[0] or seg_min[0] > bbox_max[0]:
-                continue
-            if seg_max[1] < bbox_min[1] or seg_min[1] > bbox_max[1]:
-                continue
-
-            # Check segment against each polygon edge
-            intersects = False
-            for pidx in range(len(corners)):
-                poly_start = corners[pidx]
-                poly_end = corners[(pidx + 1) % len(corners)]
-
-                seg_dir = seg_end - seg_start
-                edge_dir = poly_end - poly_start
-                denom = cross_2d(seg_dir, edge_dir)
-
-                if abs(denom) < 1e-10:
-                    if (
-                        abs(cross_2d(poly_start - seg_start, seg_dir)) > 1e-10
-                        or abs(cross_2d(poly_end - seg_start, seg_dir)) > 1e-10
-                    ):
-                        continue
-                    if (
-                        max(min(seg_start[0], seg_end[0]), min(poly_start[0], poly_end[0]))
-                        <= min(max(seg_start[0], seg_end[0]), max(poly_start[0], poly_end[0])) + 1e-10
-                        and max(min(seg_start[1], seg_end[1]), min(poly_start[1], poly_end[1]))
-                        <= min(max(seg_start[1], seg_end[1]), max(poly_start[1], poly_end[1])) + 1e-10
-                    ):
-                        intersects = True
-                        break
-                    continue
-
-                t = cross_2d(poly_start - seg_start, edge_dir) / denom
-                u = cross_2d(poly_start - seg_start, seg_dir) / denom
-                if 0 <= t <= 1 and 0 <= u <= 1:
-                    intersects = True
-                    break
-
-            if intersects:
-                return True
+        if agent_poly.intersects(LineString(polyline_2d)):
+            return True
 
     return False
 
 
-def _points_to_polylines_distance(
-    points: np.ndarray,
-    polylines: np.ndarray,
-    polyline_lengths: np.ndarray | None = None,
-    return_indices: bool = True,
-) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
-    """Vectorized point-to-polyline distance with optional closest segment ids."""
+def _points_to_polylines_distance(points, polylines, polyline_lengths=None, return_indices=True):
     n_points = len(points)
     n_lanes = len(polylines)
     max_segments = polylines.shape[1] - 1 if n_lanes > 0 else 0
@@ -561,7 +526,7 @@ def _points_to_polylines_distance(
     return min_distances, closest_indices
 
 
-def _get_lane_directions_at_indices_batch(polylines: np.ndarray, indices: np.ndarray) -> np.ndarray:
+def _get_lane_directions_at_indices_batch(polylines, indices):
     n_lanes = indices.shape[1]
     max_points = polylines.shape[1]
     lane_idx = np.arange(n_lanes)[np.newaxis, :]
@@ -572,11 +537,11 @@ def _get_lane_directions_at_indices_batch(polylines: np.ndarray, indices: np.nda
     return directions / (norms + 1e-6)
 
 
-def _extract_road_edge(element: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+def _extract_road_edge(element):
     if element["type"] not in ROAD_EDGE_TYPES:
         return None
 
-    polyline = element["polyline"]
+    polyline = element.get("polyline")
     if polyline is None or len(polyline) < 2:
         return None
 

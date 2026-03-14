@@ -16,10 +16,9 @@ try:
 except ImportError as exc:  # pragma: no cover - import guard
     raise SystemExit("Install viz dependencies first: uv sync --extra viz") from exc
 
-from bin_factory.convert.types import MiscRoadType, TCType, is_road_edge, is_road_lane, is_road_line
+from bin_factory.convert.puffer_types import MiscRoadType, TCType, is_road_edge, is_road_lane, is_road_line
 from viz.binary_loader import BinaryFormatError, load_puffer_binary
 from viz.utils import (
-    ROAD_COLORS,
     build_lane_map,
     compute_route_polyline,
     get_heading_arrow,
@@ -69,8 +68,7 @@ def _build_scene(puffer_scenario, show_routes):
     metadata = puffer_scenario.get("metadata", {})
     agents = puffer_scenario.get("agents", [])
     road_elements = sorted(puffer_scenario.get("road_map_elements", []), key=lambda e: e.get("id", 0))
-    sdc_index = metadata.get("sdc_index", -1)
-    ego_id = agents[sdc_index].get("id", -1) if isinstance(sdc_index, int) and 0 <= sdc_index < len(agents) else -1
+    ego_id = agents[0].get("id", -1) if agents else -1
     predict_ids = set(metadata.get("tracks_to_predict", []))
 
     road_items = []

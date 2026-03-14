@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from py123d.api import SceneFilter, get_filtered_scenes
 from py123d.api.map.arrow.arrow_map_api import ArrowMapAPI
 from py123d.common.execution import ProcessPoolExecutor, SequentialExecutor
+
+
+logger = logging.getLogger(__name__)
 
 
 def get_py123d_data(
@@ -49,7 +53,6 @@ def get_py123d_data(
 
         return maps
 
-
     # TODO: To delete at release
     map_api_required = datasets is not None and any(d.startswith(("nuplan",)) for d in datasets)
 
@@ -71,7 +74,6 @@ def get_py123d_data(
     )
 
 
-
 def _discover_map_arrow_paths(
     maps_root: Path,
     datasets: list[str] | None = None,
@@ -88,4 +90,5 @@ def _discover_map_arrow_paths(
     if num_scenes is not None:
         map_paths = map_paths[:num_scenes]
 
+    logger.debug("Discovered %d map files", len(map_paths))
     return map_paths

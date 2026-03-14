@@ -1,30 +1,27 @@
 import numpy as np
+from py123d.datatypes.map_objects import LaneType
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import dijkstra
 
 
-GRAPH_LANE_TYPES = {1, 2}  # FREEWAY, SURFACE_STREET
+GRAPH_LANE_TYPES = {LaneType.FREEWAY, LaneType.SURFACE_STREET}
 
 
-def compute_lane_length(xyz):
-    return float(np.sum(np.linalg.norm(np.diff(xyz, axis=0), axis=1)))
-
-
-def build_lane_distance_matrix(road_map_elements):
-    lanes = [r for r in road_map_elements if r["type"] in GRAPH_LANE_TYPES]
+def build_lane_distance_matrix(map_elements):
+    lanes = [(eid, e) for eid, e in map_elements.items() if e["type"] in GRAPH_LANE_TYPES]
     if not lanes:
         return None
 
-    lane_ids = [r["id"] for r in lanes]
+    lane_ids = [eid for eid, _ in lanes]
     id_to_idx = {lid: i for i, lid in enumerate(lane_ids)}
     n = len(lanes)
 
-    lane_lengths = np.array([compute_lane_length(np.asarray(r["xyz"])) for r in lanes], dtype=np.float32)
+    lane_lengths = np.array([_compute_lane_length(np.asarray(e["polyline"])) for _, e in lanes], dtype=np.float32)
 
     rows, cols, weights = [], [], []
-    for lane in lanes:
-        src = id_to_idx[lane["id"]]
-        for exit_id in lane.get("exit_lanes", []):
+    for eid, element in lanes:
+        src = id_to_idx[eid]
+        for exit_id in element.get("exit_lanes", []):
             if exit_id in id_to_idx:
                 rows.append(src)
                 cols.append(id_to_idx[exit_id])
@@ -34,3 +31,7 @@ def build_lane_distance_matrix(road_map_elements):
     dist_matrix = dijkstra(graph, directed=True).astype(np.float32)
 
     return {"lane_ids": lane_ids, "distances": dist_matrix, "lane_lengths": lane_lengths}
+
+
+def _compute_lane_length(polyline):
+    return float(np.sum(np.linalg.norm(np.diff(polyline, axis=0), axis=1)))

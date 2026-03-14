@@ -1,4 +1,4 @@
-"""Entrypoint wrapper for the 123Drive converter Docker image."""
+"""Entrypoint wrapper for the 123Drive converter Docker image."""  # noqa: N999
 
 import os
 import sys

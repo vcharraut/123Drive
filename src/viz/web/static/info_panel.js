@@ -28,10 +28,7 @@
   function renderAgentInfo(data, context) {
     const {t, scenario, AGENT_TYPE_NAMES, escapeHtml, safeIdList, getObjectsOfInterest} = context;
 
-    const sdc = scenario.metadata.sdc_index;
-    const egoAgent = (Number.isInteger(sdc) && sdc >= 0 && sdc < scenario.agents.length)
-      ? scenario.agents[sdc]
-      : null;
+    const egoAgent = scenario.agents[0]; // By convention, the first agent is the ego (if any)
     const ttp = scenario.metadata.tracks_to_predict || [];
     const ooi = getObjectsOfInterest(scenario.metadata);
     const isEgo = egoAgent ? data.id === egoAgent.id : false;

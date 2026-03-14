@@ -1,0 +1,173 @@
+import logging
+
+import numpy as np
+from py123d.datatypes.map_objects import MapLayer
+from shapely.geometry import LineString
+
+
+logger = logging.getLogger(__name__)
+
+
+REVERSE_ROAD_EDGE_DATASETS = ["av2", "nuplan", "carla"]
+
+
+# ── Ensure all polylines are 3D, adding a z=0 coordinate if needed ─────────────────────
+
+
+def ensure_all_3d(scenario):
+    for agent_data in scenario.agents.values():
+        agent_data["position"] = _ensure_3d(agent_data["position"])
+    for obj_data in scenario.objects.values():
+        obj_data["position"] = _ensure_3d(obj_data["position"])
+    for element_data in scenario.map.values():
+        if "polyline" in element_data:
+            element_data["polyline"] = _ensure_3d(element_data["polyline"])
+        if "polygon" in element_data:
+            element_data["polygon"] = _ensure_3d(element_data["polygon"])
+
+
+def _ensure_3d(xyz):
+    if xyz.shape[1] == 2:
+        return np.column_stack([xyz, np.zeros(len(xyz), dtype=np.float64)])
+    return xyz
+
+
+# ── Interpolate polygons to ensure they are all the same spacing ───────────────────────
+
+
+def interpolate_all_polygons(scenario, spacing=3.0):
+    for element_data in scenario.map.values():
+        if "polygon" in element_data:
+            element_data["polygon"] = _interpolate_polygon(element_data["polygon"], spacing)
+
+
+def _interpolate_polygon(xyz, spacing=3.0):
+    if xyz is None or len(xyz) == 0:
+        return np.zeros((0, 3), dtype=np.float64)
+
+    if not np.allclose(xyz[0], xyz[-1]):
+        xyz = np.vstack([xyz, xyz[0:1]])
+
+    diffs = np.diff(xyz, axis=0)
+    seg_lengths = np.linalg.norm(diffs[:, :2], axis=1)
+    total_length = seg_lengths.sum()
+
+    if total_length < spacing:
+        return xyz
+
+    cum_lengths = np.concatenate([[0], np.cumsum(seg_lengths)])
+    num_points = max(int(total_length / spacing), 2)
+    target_dists = np.linspace(0, total_length, num_points, endpoint=False)
+
+    interpolated = np.empty((num_points, xyz.shape[1]))
+    for i, d in enumerate(target_dists):
+        idx = np.searchsorted(cum_lengths[1:], d, side="right")
+        idx = min(idx, len(seg_lengths) - 1)
+        t = (d - cum_lengths[idx]) / seg_lengths[idx] if seg_lengths[idx] > 0 else 0
+        interpolated[i] = xyz[idx] + t * diffs[idx]
+
+    return np.vstack([interpolated, interpolated[0:1]])
+
+
+# ── Reverse road edges for certain datasets to face opposite direction to lanes ────────
+
+
+def reverse_road_edges(scenario):
+    dataset = scenario.metadata.get("dataset", "")
+    if dataset.split("-")[0] not in REVERSE_ROAD_EDGE_DATASETS:
+        return
+    for element_data in scenario.map.values():
+        if element_data.get("layer") == MapLayer.ROAD_EDGE and "polyline" in element_data:
+            element_data["polyline"] = element_data["polyline"][::-1]
+
+
+# ── Downsample and simplify polylines ──────────────────────────────────────────────────
+
+
+def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1):
+    map_elements = scenario.map
+    if not map_elements:
+        return
+
+    for element_id, element in map_elements.items():
+        if "polyline" not in element:
+            continue
+
+        polyline = element["polyline"]
+
+        if len(polyline) < 2:
+            continue
+
+        if not _validate_polyline(polyline, element_id=str(element_id)):
+            continue
+
+        polyline = _remove_duplicate_points(polyline)
+
+        if max_segment_length > 0:
+            polyline = _distance_based_interpolate(polyline, max_segment_length)
+
+        if area_threshold > 0 and len(polyline) >= 3:
+            polyline = _simplify_polyline(polyline, area_threshold)
+
+        element["polyline"] = polyline
+
+
+def _validate_polyline(polyline, element_id=""):
+    if not isinstance(polyline, np.ndarray):
+        logger.warning(f"Element {element_id}: polyline is not ndarray (got {type(polyline).__name__})")
+        return False
+    if polyline.ndim != 2 or polyline.shape[1] != 3:
+        logger.warning(f"Element {element_id}: polyline has invalid shape {polyline.shape}, expected (N, 3)")
+        return False
+    if np.any(np.isnan(polyline)):
+        logger.warning(f"Element {element_id}: polyline contains NaN values")
+        return False
+    if np.any(np.isinf(polyline)):
+        logger.warning(f"Element {element_id}: polyline contains infinite values")
+        return False
+    return True
+
+
+def _remove_duplicate_points(polyline, tol=1e-9):
+    if len(polyline) < 2:
+        return polyline
+    diffs = np.diff(polyline, axis=0)
+    distances = np.linalg.norm(diffs, axis=1)
+    keep_mask = np.concatenate([[True], distances >= tol])
+    return polyline[keep_mask]
+
+
+def _distance_based_interpolate(polyline, max_segment_length):
+    if len(polyline) < 2:
+        return polyline
+
+    interpolated_points = [polyline[0]]
+
+    for i in range(len(polyline) - 1):
+        current_point = polyline[i]
+        next_point = polyline[i + 1]
+
+        segment_vector = next_point - current_point
+        segment_length = np.linalg.norm(segment_vector)
+
+        if segment_length > max_segment_length:
+            num_subdivisions = int(np.ceil(segment_length / max_segment_length))
+            for j in range(1, num_subdivisions):
+                t = j / num_subdivisions
+                intermediate_point = current_point + t * segment_vector
+                interpolated_points.append(intermediate_point)
+
+        interpolated_points.append(next_point)
+
+    return np.array(interpolated_points, dtype=polyline.dtype)
+
+
+def _simplify_polyline(polyline, tolerance):
+    if len(polyline) < 3:
+        return polyline
+    simplified_2d = np.array(LineString(polyline[:, :2]).simplify(tolerance).coords)
+    # Re-interpolate z from original polyline at simplified 2D positions
+    cum_orig = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1))])
+    cum_simp = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(simplified_2d, axis=0), axis=1))])
+    z_interp = np.interp(cum_simp, cum_orig, polyline[:, 2])
+    return np.column_stack([simplified_2d, z_interp])

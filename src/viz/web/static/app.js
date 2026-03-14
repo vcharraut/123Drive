@@ -148,17 +148,13 @@ const DRAG_THRESHOLD_PX = 4;
 const toXY = d => d.xyz.map(p => [p[0], p[1]]);
 
 function getEgoState(scenario, t) {
-  const sdc = scenario.metadata.sdc_index;
-  const agent = (sdc >= 0 && sdc < scenario.agents.length) ? scenario.agents[sdc] : null;
+  const agent = scenario.agents[0];
   if (!agent || !agent.valid[t]) return null;
   return {x: agent.xyz[t][0], y: agent.xyz[t][1], heading: agent.heading[t]};
 }
 
 function getEgoAgentId(scenario) {
-  const sdc = scenario?.metadata?.sdc_index;
-  const agent = Number.isInteger(sdc) && sdc >= 0 && sdc < scenario.agents.length
-    ? scenario.agents[sdc]
-    : null;
+  const agent = scenario.agents[0];
   return agent ? agent.id : null;
 }
 
@@ -1265,7 +1261,7 @@ async function loadScenario(filename) {
     setAppStatus(`Loaded ${filename}`, 'ok');
 
     fitView();
-    // Center on SDC if available
+    // Center on Ego if available
     const ego = getEgoState(data, 0);
     if (ego) setViewState({
       ...state.viewState,
@@ -1295,7 +1291,6 @@ function renderScenarioMeta(data) {
     <div class="info-row"><span class="info-label">Roads</span><span class="info-val">${escapeHtml(data.road_map_elements.length)}</span></div>
     <div class="info-row"><span class="info-label">TCs</span><span class="info-val">${escapeHtml(data.traffic_control_elements.length)}</span></div>
     <div class="info-row"><span class="info-label">Objects</span><span class="info-val">${escapeHtml((data.objects || []).length)}</span></div>
-    <div class="info-row"><span class="info-label">SDC idx</span><span class="info-val">${escapeHtml(m.sdc_index)}</span></div>
     <div class="info-row"><span class="info-label">OOI</span><span class="info-val">${safeIdList(ooi)}</span></div>
     <div class="info-row"><span class="info-label">TTP</span><span class="info-val">${safeIdList(m.tracks_to_predict)}</span></div>`;
 }

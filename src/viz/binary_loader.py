@@ -5,8 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
-from bin_factory.convert.types import is_road_lane
-from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES
+from bin_factory.convert.puffer_types import is_road_lane
+from bin_factory.convert.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES
 
 
 MAX_COUNT = 1_000_000
@@ -42,7 +42,6 @@ def _read_body(f):
     map_id = _read_int32(f)
     dataset = _read_string(f, METADATA_DATASET_BYTES)
     scenario_length = _read_int32(f)
-    sdc_index = _read_int32(f)
     timestep_seconds = _read_float32(f)
     objects_of_interest = _read_int_list(f, "objects_of_interest")
     tracks_to_predict = _read_int_list(f, "tracks_to_predict")
@@ -61,7 +60,6 @@ def _read_body(f):
             "map_id": map_id,
             "dataset": dataset,
             "scenario_length": scenario_length,
-            "sdc_index": sdc_index,
             "timestep_seconds": timestep_seconds,
             "objects_of_interest": objects_of_interest,
             "tracks_to_predict": tracks_to_predict,

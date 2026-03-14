@@ -10,6 +10,8 @@ from py123d.datatypes.detections import DefaultBoxDetectionLabel
 from py123d.datatypes.map_objects import Lane, LaneType, MapLayer
 from py123d.geometry import Point2D
 
+from bin_factory.loader.scenario import ArrowScenario
+
 
 if TYPE_CHECKING:
     from py123d.api import SceneAPI
@@ -50,41 +52,40 @@ def convert_py123d_data(py123_arrow: SceneAPI | MapAPI) -> dict:
     if map_api is None:
         raise ValueError("Map API is required to convert scenario")
 
-    py123d_dict = {
-        "agents": {},
-        "map": {},
-        "traffic_lights": {},
-        "objects": {},
-        "metadata": {
-            "id": scenario_id,
-            "dataset": py123_arrow.dataset,
-            "scenario_length": 0,
-            "timestep_seconds": 0.0,
-        },
+    agents = {}
+    traffic_lights = {}
+    objects = {}
+    metadata = {
+        "id": scenario_id,
+        "dataset": py123_arrow.dataset,
+        "scenario_length": 0,
+        "timestep_seconds": 0.0,
     }
 
     centroid = _compute_centroid(scene_api, map_api)
 
     map_only = scene_api is None
-    # Extract map elements from MapAPI
-    py123d_dict["map"], map_lane_ids = _extract_map(map_api, centroid, map_only)
+    map_elements, map_lane_ids = _extract_map(map_api, centroid, map_only)
 
-    if map_only:
-        return py123d_dict
+    if not map_only:
+        all_objects = _extract_objects(scene_api, centroid)
+        for oid, obj in all_objects.items():
+            if obj["type"] in _AGENT_LABELS:
+                agents[oid] = obj
+            elif obj["type"] in _OBJECT_LABELS:
+                objects[oid] = obj
 
-    # Extract detections from scene API
-    objects = _extract_objects(scene_api, centroid)
-    for oid, obj in objects.items():
-        if obj["type"] in _AGENT_LABELS:
-            py123d_dict["agents"][oid] = obj
-        elif obj["type"] in _OBJECT_LABELS:
-            py123d_dict["objects"][oid] = obj
+        traffic_lights = _extract_traffic_lights(scene_api, map_api, centroid, map_lane_ids)
+        metadata["scenario_length"] = scene_api.number_of_iterations
+        metadata["timestep_seconds"] = scene_api.log_metadata.timestep_seconds
 
-    py123d_dict["traffic_lights"] = _extract_traffic_lights(scene_api, map_api, centroid, map_lane_ids)
-    py123d_dict["metadata"]["scenario_length"] = scene_api.number_of_iterations
-    py123d_dict["metadata"]["timestep_seconds"] = scene_api.log_metadata.timestep_seconds
-
-    return py123d_dict
+    return ArrowScenario(
+        agents=agents,
+        map=map_elements,
+        traffic_lights=traffic_lights,
+        objects=objects,
+        metadata=metadata,
+    )
 
 
 def _extract_objects(scene_api: SceneAPI, centroid: np.ndarray) -> dict[int, dict]:
@@ -133,7 +134,7 @@ def _extract_objects(scene_api: SceneAPI, centroid: np.ndarray) -> dict[int, dic
             if object_id not in objects:
                 objects[object_id] = _make_empty_agent(episode_length, detection.metadata.default_label)
 
-            bbox = detection.bounding_box_se3  # type: ignore[attr-defined]
+            bbox = detection.bounding_box_se3
             obj = objects[object_id]
             _apply_detection_state(obj, frame_idx, bbox.center_se3, bbox, centroid)
 
@@ -240,39 +241,7 @@ def _extract_map(map_api, centroid: np.ndarray, map_only: bool = False) -> tuple
             non_lane_objects.append(obj)
 
     lane_ids = set(result.keys())
-
-    # NOTE: BANDAGE for nuPlan: infer undefined lane types + fix reversed entry/exit topology
-    for lane_id, lane in result.items():
-        if lane_id in undefined_lane:
-            entry_types = {result[eid]["type"] for eid in lane.get("entry_lanes", []) if eid in result}
-            exit_types = {result[eid]["type"] for eid in lane.get("exit_lanes", []) if eid in result}
-            connected_types = entry_types | exit_types
-            if len(connected_types) == 1:
-                lane["type"] = connected_types.pop()
-
-        lane_start = lane["polyline"][0]
-        lane_end = lane["polyline"][-1]
-
-        for entry_id in list(lane.get("entry_lanes", [])):
-            if entry_id not in result or "polyline" not in result[entry_id]:
-                continue
-            entry_end = result[entry_id]["polyline"][-1]
-            if np.linalg.norm(entry_end - lane_start) > np.linalg.norm(entry_end - lane_end):
-                lane["entry_lanes"].remove(entry_id)
-                lane["exit_lanes"].append(entry_id)
-
-        for exit_id in list(lane.get("exit_lanes", [])):
-            if exit_id not in result or "polyline" not in result[exit_id]:
-                continue
-            exit_start = result[exit_id]["polyline"][0]
-            if np.linalg.norm(exit_start - lane_end) > np.linalg.norm(exit_start - lane_start):
-                lane["exit_lanes"].remove(exit_id)
-                lane["entry_lanes"].append(exit_id)
-
-    # Filter dangling topology references (global map radius filtering)
-    for element in result.values():
-        element["entry_lanes"] = [lid for lid in element["entry_lanes"] if lid in lane_ids]
-        element["exit_lanes"] = [lid for lid in element["exit_lanes"] if lid in lane_ids]
+    _fix_lane_topology(result, undefined_lane, lane_ids)
 
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
     next_id = max(result.keys(), default=-1) + 1
@@ -369,6 +338,39 @@ def _apply_detection_state(obj: dict, frame_idx: int, center_se3, bbox, centroid
     obj["length"][frame_idx] = float(bbox.length)
     obj["width"][frame_idx] = float(bbox.width)
     obj["height"][frame_idx] = float(bbox.height)
+
+
+def _fix_lane_topology(lanes, undefined_lane_ids, valid_lane_ids):
+    """Infer undefined lane types from neighbors + fix reversed entry/exit refs (nuPlan bandage)."""
+    for lane_id, lane in lanes.items():
+        if lane_id in undefined_lane_ids:
+            connected_types = {
+                lanes[nid]["type"] for key in ("entry_lanes", "exit_lanes") for nid in lane.get(key, []) if nid in lanes
+            }
+            if len(connected_types) == 1:
+                lane["type"] = connected_types.pop()
+
+        lane_start, lane_end = lane["polyline"][0], lane["polyline"][-1]
+
+        for entry_id in list(lane.get("entry_lanes", [])):
+            if entry_id not in lanes or "polyline" not in lanes[entry_id]:
+                continue
+            entry_end = lanes[entry_id]["polyline"][-1]
+            if np.linalg.norm(entry_end - lane_start) > np.linalg.norm(entry_end - lane_end):
+                lane["entry_lanes"].remove(entry_id)
+                lane["exit_lanes"].append(entry_id)
+
+        for exit_id in list(lane.get("exit_lanes", [])):
+            if exit_id not in lanes or "polyline" not in lanes[exit_id]:
+                continue
+            exit_start = lanes[exit_id]["polyline"][0]
+            if np.linalg.norm(exit_start - lane_end) > np.linalg.norm(exit_start - lane_start):
+                lane["exit_lanes"].remove(exit_id)
+                lane["entry_lanes"].append(exit_id)
+
+    for element in lanes.values():
+        element["entry_lanes"] = [lid for lid in element["entry_lanes"] if lid in valid_lane_ids]
+        element["exit_lanes"] = [lid for lid in element["exit_lanes"] if lid in valid_lane_ids]
 
 
 def _get_object_xy_points(map_object: object) -> np.ndarray | None:

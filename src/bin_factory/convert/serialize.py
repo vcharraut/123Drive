@@ -2,11 +2,11 @@ import struct
 
 import numpy as np
 
-from bin_factory.convert import types as puffer_types
+from bin_factory.convert import puffer_types
 
 
 METADATA_ID_BYTES = 128
-METADATA_DATASET_BYTES = 64
+METADATA_DATASET_BYTES = 32
 
 
 def _pack_int_list(buffer, items):
@@ -115,7 +115,6 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
     buffer.extend(struct.pack("<i", int(map_id)))
     _pack_fixed_string(buffer, metadata["dataset"], METADATA_DATASET_BYTES)
     buffer.extend(struct.pack("<i", int(metadata["scenario_length"])))
-    buffer.extend(struct.pack("<i", int(metadata["sdc_index"])))
     buffer.extend(struct.pack("<f", float(metadata["timestep_seconds"])))
     _pack_int_list(buffer, metadata["objects_of_interest"])
     _pack_int_list(buffer, metadata["tracks_to_predict"])

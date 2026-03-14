@@ -73,27 +73,12 @@ Each agent is laid out sequentially:
 |------|-------|-------|
 | int32 | `id` | Element ID |
 | int32 | `type` | 1=TRAFFIC_LIGHT, 2=STOP_SIGN, 3=YIELD_SIGN |
-| float32 | `x` | Position |
-| float32 | `y` | |
-| float32 | `z` | |
+| float32 × 6 | `stop_line` | Two 3D points |
+| float32 | `heading` | |
 | int32 | `n_states` | |
-| int32 × n_states | `states` | Per-timestep light state (see below) |
+| int32 × n_states | `states` | 0=GREEN, 1=YELLOW, 2=RED, 3=OFF, 4=UNKNOWN |
 | int32 | `n_controlled_lanes` | |
 | int32 × n_controlled_lanes | `controlled_lane_ids` | |
-
-### Traffic light states
-
-| Value | Meaning |
-|-------|---------|
-| 0 | UNKNOWN / UNOBSERVED |
-| 1 | ARROW_RED |
-| 2 | ARROW_YELLOW |
-| 3 | ARROW_GREEN |
-| 4 | RED |
-| 5 | YELLOW |
-| 6 | GREEN |
-| 7 | FLASHING_RED |
-| 8 | FLASHING_YELLOW |
 
 ## Lane Graph Distances
 
@@ -112,9 +97,8 @@ All-pairs shortest lane-to-lane distances precomputed via Dijkstra on FREEWAY an
 |------|-------|-------|
 | char[128] | `id` | UTF-8, null-padded |
 | int32 | `map_id` | |
-| char[64] | `dataset` | UTF-8, null-padded |
+| char[32] | `dataset` | UTF-8, null-padded |
 | int32 | `scenario_length` | Number of timesteps |
-| int32 | `sdc_index` | Index into agents array for ego vehicle |
 | float32 | `timestep_seconds` | Seconds between timesteps |
 | int32 | `n_objects_of_interest` | |
 | int32 × n | `objects_of_interest_ids` | |
