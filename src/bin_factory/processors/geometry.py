@@ -11,27 +11,6 @@ logger = logging.getLogger(__name__)
 REVERSE_ROAD_EDGE_DATASETS = ["av2", "nuplan", "carla"]
 
 
-# ── Ensure all polylines are 3D, adding a z=0 coordinate if needed ─────────────────────
-
-
-def ensure_all_3d(scenario):
-    for agent_data in scenario.agents.values():
-        agent_data["position"] = _ensure_3d(agent_data["position"])
-    for obj_data in scenario.objects.values():
-        obj_data["position"] = _ensure_3d(obj_data["position"])
-    for element_data in scenario.map.values():
-        if "polyline" in element_data:
-            element_data["polyline"] = _ensure_3d(element_data["polyline"])
-        if "polygon" in element_data:
-            element_data["polygon"] = _ensure_3d(element_data["polygon"])
-
-
-def _ensure_3d(xyz):
-    if xyz.shape[1] == 2:
-        return np.column_stack([xyz, np.zeros(len(xyz), dtype=np.float64)])
-    return xyz
-
-
 # ── Interpolate polygons to ensure they are all the same spacing ───────────────────────
 
 
@@ -73,7 +52,7 @@ def _interpolate_polygon(xyz, spacing=3.0):
 
 
 def reverse_road_edges(scenario):
-    dataset = scenario.metadata.get("dataset", "")
+    dataset = scenario.metadata.dataset
     if dataset.split("-")[0] not in REVERSE_ROAD_EDGE_DATASETS:
         return
     for element_data in scenario.map.values():

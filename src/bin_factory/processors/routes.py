@@ -48,28 +48,28 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
     route_cache = build_route_cache(scenario.map, lane_data)
 
     for agent_id, agent_data in scenario.agents.items():
-        is_ego = agent_data["type"] == DefaultBoxDetectionLabel.EGO
-        is_vehicle = agent_data["type"] in _VEHICLE_LABELS
+        is_ego = agent_data.type == DefaultBoxDetectionLabel.EGO
+        is_vehicle = agent_data.type in _VEHICLE_LABELS
 
         if not is_vehicle:
-            agent_data["route"] = []
+            agent_data.route = []
             continue
 
         route = compute_agent_route(
             agent_data=(
                 agent_id,
-                agent_data["position"],
-                agent_data["heading"],
-                agent_data["valid"],
-                agent_data["length"],
-                agent_data["width"],
+                agent_data.position,
+                agent_data.heading,
+                agent_data.valid,
+                agent_data.length,
+                agent_data.width,
                 is_ego,
             ),
             route_cache=route_cache,
             route_check_timestep=route_check_timestep,
             min_route_valid_points=min_route_valid_points,
         )
-        agent_data["route"] = route
+        agent_data.route = route
 
 
 def _extract_lane_centers(static_map_elements):

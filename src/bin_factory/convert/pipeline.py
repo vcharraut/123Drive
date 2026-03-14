@@ -20,10 +20,10 @@ def build_puffer_dict(scenario, reindex_id=False):
         "traffic_control_elements": traffic_control_elements,
         "objects": puffer_objects,
         "metadata": {
-            "id": scenario.metadata["id"],
-            "dataset": scenario.metadata["dataset"],
-            "scenario_length": scenario.metadata["scenario_length"],
-            "timestep_seconds": scenario.metadata["timestep_seconds"],
+            "id": scenario.metadata.id,
+            "dataset": scenario.metadata.dataset,
+            "scenario_length": scenario.metadata.scenario_length,
+            "timestep_seconds": scenario.metadata.timestep_seconds,
             "objects_of_interest": [],
             "tracks_to_predict": [],
         },
@@ -41,10 +41,10 @@ def _convert_dynamic_entities(items, type_map_dict, default_type, include_route=
     return [
         {
             "id": eid,
-            "type": type_map_dict.get(data["type"], default_type),
-            "states": {k: data[k] for k in ("heading", "velocity", "length", "width", "height", "valid")}
-            | {"xyz": data["position"]},
-            **({"route": data.get("route", [])} if include_route else {}),
+            "type": type_map_dict.get(data.type, default_type),
+            "states": {k: getattr(data, k) for k in ("heading", "velocity", "length", "width", "height", "valid")}
+            | {"xyz": data.position},
+            **({"route": data.route} if include_route else {}),
         }
         for eid, data in items.items()
     ]

@@ -11,8 +11,8 @@ from bin_factory.convert.pipeline import build_puffer_dict
 from bin_factory.convert.serialize import puffer_dict_to_binary
 from bin_factory.loader.extractor import convert_py123d_data
 from bin_factory.loader.load import get_py123d_data
+from bin_factory.loader.validation import ValidationError, validate_scenario
 from bin_factory.processors import process_scenario
-from bin_factory.processors.validation import ValidationError, validate_puffer_dict
 
 
 logger = logging.getLogger(__name__)
@@ -28,8 +28,8 @@ def build_parser():
         type=int,
         default=1,
         help=(
-            "Number of parallel workers - 0: 80%% of CPU cores, "
-            "1: no parallelism, -1: all CPU cores, 2-n: use n CPU cores"
+            "Number of parallel workers - "
+            "0: 80%% of CPU cores, 1: no parallelism, -1: all CPU cores, 2-n: use n CPU cores"
         ),
     )
     parser.add_argument("--num_scenes", type=int, default=None, help="Maximum number of scenes to process")
@@ -61,6 +61,15 @@ def build_parser():
 
 def _worker_fn(py123d_data, map_id, output, config):
     scenario = convert_py123d_data(py123d_data)
+
+    if config["validate_level"] > 0:
+        errors = validate_scenario(scenario, level=config["validate_level"])
+        scenario_id = scenario.metadata.id
+        for error in errors:
+            logger.error(f"{scenario_id}: {error}")
+        if errors:
+            raise ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
+
     process_scenario(
         scenario,
         max_segment_length=config["max_segment_length"],
@@ -69,16 +78,6 @@ def _worker_fn(py123d_data, map_id, output, config):
         route_check_timestep=config["route_check_timestep"],
     )
     puffer_dict = build_puffer_dict(scenario, reindex_id=config["reindex_id"])
-
-    if config["validate_level"] > 0:
-        validation_mode = {0: "off", 1: "schema", 2: "semantic"}[config["validate_level"]]
-        errors = validate_puffer_dict(puffer_dict, validation_mode=validation_mode)
-        scenario_id = puffer_dict.get("metadata", {}).get("id", "unknown")
-        for error in errors:
-            logger.error(f"{scenario_id}: {error}")
-        if errors:
-            raise ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
-
     binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
     output_path = Path(output) / f"map_{map_id:03d}.bin"
     with output_path.open("wb") as f:

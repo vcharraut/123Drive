@@ -10,7 +10,7 @@ from py123d.datatypes.detections import DefaultBoxDetectionLabel
 from py123d.datatypes.map_objects import Lane, LaneType, MapLayer
 from py123d.geometry import Point2D
 
-from bin_factory.loader.scenario import ArrowScenario
+from bin_factory.loader.scenario import ArrowScenario, DynamicState, ScenarioMetadata, TrafficLightState
 
 
 if TYPE_CHECKING:
@@ -55,12 +55,12 @@ def convert_py123d_data(py123_arrow: SceneAPI | MapAPI) -> dict:
     agents = {}
     traffic_lights = {}
     objects = {}
-    metadata = {
-        "id": scenario_id,
-        "dataset": py123_arrow.dataset,
-        "scenario_length": 0,
-        "timestep_seconds": 0.0,
-    }
+    metadata = ScenarioMetadata(
+        id=scenario_id,
+        dataset=py123_arrow.dataset,
+        scenario_length=0,
+        timestep_seconds=0.0,
+    )
 
     centroid = _compute_centroid(scene_api, map_api)
 
@@ -70,14 +70,14 @@ def convert_py123d_data(py123_arrow: SceneAPI | MapAPI) -> dict:
     if not map_only:
         all_objects = _extract_objects(scene_api, centroid)
         for oid, obj in all_objects.items():
-            if obj["type"] in _AGENT_LABELS:
+            if obj.type in _AGENT_LABELS:
                 agents[oid] = obj
-            elif obj["type"] in _OBJECT_LABELS:
+            elif obj.type in _OBJECT_LABELS:
                 objects[oid] = obj
 
         traffic_lights = _extract_traffic_lights(scene_api, map_api, centroid, map_lane_ids)
-        metadata["scenario_length"] = scene_api.number_of_iterations
-        metadata["timestep_seconds"] = scene_api.log_metadata.timestep_seconds
+        metadata.scenario_length = scene_api.number_of_iterations
+        metadata.timestep_seconds = scene_api.log_metadata.timestep_seconds
 
     return ArrowScenario(
         agents=agents,
@@ -107,14 +107,14 @@ def _extract_objects(scene_api: SceneAPI, centroid: np.ndarray) -> dict[int, dic
 
         if ego_state.dynamic_state_se3 is not None:
             vel = ego_state.dynamic_state_se3.velocity_3d
-            ego["velocity"][frame_idx] = [float(vel.x), float(vel.y)]
+            ego.velocity[frame_idx] = [float(vel.x), float(vel.y)]
             continue
 
-        if frame_idx == 0 or not ego["valid"][frame_idx - 1] or timestep <= 0:
+        if frame_idx == 0 or not ego.valid[frame_idx - 1] or timestep <= 0:
             continue
 
-        delta_pos = ego["position"][frame_idx, :2] - ego["position"][frame_idx - 1, :2]
-        ego["velocity"][frame_idx] = delta_pos / timestep
+        delta_pos = ego.position[frame_idx, :2] - ego.position[frame_idx - 1, :2]
+        ego.velocity[frame_idx] = delta_pos / timestep
 
     # Detections for all other agents
     next_object_id = 0
@@ -141,7 +141,7 @@ def _extract_objects(scene_api: SceneAPI, centroid: np.ndarray) -> dict[int, dic
             if detection.velocity_2d is None:
                 continue
 
-            obj["velocity"][frame_idx] = [float(detection.velocity_2d.x), float(detection.velocity_2d.y)]
+            obj.velocity[frame_idx] = [float(detection.velocity_2d.x), float(detection.velocity_2d.y)]
 
     return objects
 
@@ -153,10 +153,9 @@ def _extract_traffic_lights(
     lane_ids: set[int],
 ) -> dict[int, dict]:
     """Extract dynamic traffic light states from 123D logs."""
-    episode_length = scene_api.number_of_iterations
-    elements: dict[int, dict] = {}
+    elements: dict[int, TrafficLightState] = {}
 
-    for frame_idx in range(episode_length):
+    for frame_idx in range(scene_api.number_of_iterations):
         traffic_lights = scene_api.get_traffic_light_detections_at_iteration(frame_idx)
         if not traffic_lights:
             continue
@@ -168,13 +167,13 @@ def _extract_traffic_lights(
                 continue
             if lane_id not in elements:
                 position = _get_lane_position(map_api, lane_id, centroid)
-                elements[lane_id] = {
-                    "position": np.array(position, dtype=np.float64),
-                    "states": [None] * episode_length,
-                    "controlled_lane": lane_id,
-                }
+                elements[lane_id] = TrafficLightState(
+                    position=np.array(position, dtype=np.float64),
+                    states=[None] * scene_api.number_of_iterations,
+                    controlled_lane=lane_id,
+                )
 
-            elements[lane_id]["states"][frame_idx] = detection.status
+            elements[lane_id].states[frame_idx] = detection.status
 
     return elements
 
@@ -315,29 +314,29 @@ def _get_map_objects(map_api: MapAPI, layers: list[MapLayer]) -> list:
 
 
 def _make_empty_agent(episode_length, agent_type):
-    return {
-        "type": agent_type,
-        "position": np.zeros((episode_length, 3), dtype=np.float64),
-        "heading": np.zeros((episode_length,), dtype=np.float64),
-        "velocity": np.zeros((episode_length, 2), dtype=np.float64),
-        "valid": np.zeros((episode_length,), dtype=np.int32),
-        "length": np.zeros((episode_length,), dtype=np.float64),
-        "width": np.zeros((episode_length,), dtype=np.float64),
-        "height": np.zeros((episode_length,), dtype=np.float64),
-    }
+    return DynamicState(
+        type=agent_type,
+        position=np.zeros((episode_length, 3), dtype=np.float64),
+        heading=np.zeros((episode_length,), dtype=np.float64),
+        velocity=np.zeros((episode_length, 2), dtype=np.float64),
+        valid=np.zeros((episode_length,), dtype=np.int32),
+        length=np.zeros((episode_length,), dtype=np.float64),
+        width=np.zeros((episode_length,), dtype=np.float64),
+        height=np.zeros((episode_length,), dtype=np.float64),
+    )
 
 
-def _apply_detection_state(obj: dict, frame_idx: int, center_se3, bbox, centroid: np.ndarray):
-    obj["position"][frame_idx] = [
+def _apply_detection_state(obj, frame_idx, center_se3, bbox, centroid):
+    obj.position[frame_idx] = [
         float(center_se3.x) - float(centroid[0]),
         float(center_se3.y) - float(centroid[1]),
         float(center_se3.z),
     ]
-    obj["heading"][frame_idx] = center_se3.pose_se2.yaw
-    obj["valid"][frame_idx] = 1
-    obj["length"][frame_idx] = float(bbox.length)
-    obj["width"][frame_idx] = float(bbox.width)
-    obj["height"][frame_idx] = float(bbox.height)
+    obj.heading[frame_idx] = center_se3.pose_se2.yaw
+    obj.valid[frame_idx] = 1
+    obj.length[frame_idx] = float(bbox.length)
+    obj.width[frame_idx] = float(bbox.width)
+    obj.height[frame_idx] = float(bbox.height)
 
 
 def _fix_lane_topology(lanes, undefined_lane_ids, valid_lane_ids):
