@@ -480,7 +480,7 @@ syncCanvasCursor();
 // ── Layer builders ─────────────────────────────────────────────────────────
 
 function getStaticLayers(scenario, layerFlags) {
-  const cacheKey = scenario.scenario_id + JSON.stringify(layerFlags);
+  const cacheKey = scenario.metadata.id + JSON.stringify(layerFlags);
   if (state.staticLayerCacheKey === cacheKey) return state.staticLayerCache;
 
   const roads = scenario.road_map_elements;
@@ -1258,7 +1258,7 @@ async function loadScenario(filename) {
     setFollowEgo(false);
 
     document.getElementById('scenario-title').textContent =
-      `${data.scenario_id} [${data.metadata.dataset_name}]`;
+      `${data.metadata.id} [${data.metadata.dataset}]`;
 
     renderScenarioMeta(data);
     document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
@@ -1289,7 +1289,7 @@ function renderScenarioMeta(data) {
   const ooi = getObjectsOfInterest(m);
   const el = document.getElementById('scenario-meta');
   el.innerHTML = `
-    <div class="info-row"><span class="info-label">Dataset</span><span class="info-val">${escapeHtml(m.dataset_name)}</span></div>
+    <div class="info-row"><span class="info-label">Dataset</span><span class="info-val">${escapeHtml(m.dataset)}</span></div>
     <div class="info-row"><span class="info-label">Length</span><span class="info-val">${escapeHtml(m.scenario_length)}</span></div>
     <div class="info-row"><span class="info-label">Agents</span><span class="info-val">${escapeHtml(data.agents.length)}</span></div>
     <div class="info-row"><span class="info-label">Roads</span><span class="info-val">${escapeHtml(data.road_map_elements.length)}</span></div>

@@ -16,7 +16,7 @@
   }
 
   function getObjectsOfInterest(metadata) {
-    return metadata.objects_of_interest || metadata.objects_of_interests || [];
+    return metadata.objects_of_interest || [];
   }
 
   function setAppStatus(message = '', level = 'info') {

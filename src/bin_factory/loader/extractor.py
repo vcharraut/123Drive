@@ -35,52 +35,54 @@ _OBJECT_LABELS = {
 }
 
 
-def convert_py123d_data(data: SceneAPI | MapAPI) -> dict:
+def convert_py123d_data(py123_arrow: SceneAPI | MapAPI) -> dict:
     """Convert 123D SceneAPI or MapAPI to intermediate format."""
     # Build base scenario
-    if isinstance(data, MapAPI):
-        scene = None
-        map_api = data
-        scenario_id = data.location
-        dataset_name = data.dataset
+    if isinstance(py123_arrow, MapAPI):
+        scene_api = None
+        map_api = py123_arrow
+        scenario_id = py123_arrow.location
     else:
-        scene = data
-        map_api = scene.map_api
-        scenario_id = f"{scene.log_name}"
-        dataset_name = scene.dataset
+        scene_api = py123_arrow
+        map_api = scene_api.map_api
+        scenario_id = f"{scene_api.log_name}"
 
     if map_api is None:
         raise ValueError("Map API is required to convert scenario")
 
     py123d_dict = {
-        "id": scenario_id,
         "agents": {},
         "map": {},
-        "objects": {},
         "traffic_lights": {},
-        "dataset_name": dataset_name,
-        "scenario_length": 0,
-        "sdc_index": 0,
-        "timestep_seconds": 0.0,
+        "objects": {},
+        "metadata": {
+            "id": scenario_id,
+            "dataset": py123_arrow.dataset,
+            "scenario_length": 0,
+            "timestep_seconds": 0.0,
+        },
     }
 
-    centroid = _compute_centroid(scene, map_api)
+    centroid = _compute_centroid(scene_api, map_api)
 
-    map_only = scene is None
-    map_result, map_lane_ids = _extract_map(map_api, centroid, map_only)
-    py123d_dict["map"] = map_result
+    map_only = scene_api is None
+    # Extract map elements from MapAPI
+    py123d_dict["map"], map_lane_ids = _extract_map(map_api, centroid, map_only)
 
-    if scene is not None:
-        objects = _extract_objects(scene, centroid)
-        for oid, obj in objects.items():
-            if obj["type"] in _AGENT_LABELS:
-                py123d_dict["agents"][oid] = obj
-            elif obj["type"] in _OBJECT_LABELS:
-                py123d_dict["objects"][oid] = obj
+    if map_only:
+        return py123d_dict
 
-        py123d_dict["traffic_lights"] = _extract_traffic_lights(scene, map_api, centroid, map_lane_ids)
-        py123d_dict["scenario_length"] = scene.number_of_iterations
-        py123d_dict["timestep_seconds"] = scene.log_metadata.timestep_seconds
+    # Extract detections from scene API
+    objects = _extract_objects(scene_api, centroid)
+    for oid, obj in objects.items():
+        if obj["type"] in _AGENT_LABELS:
+            py123d_dict["agents"][oid] = obj
+        elif obj["type"] in _OBJECT_LABELS:
+            py123d_dict["objects"][oid] = obj
+
+    py123d_dict["traffic_lights"] = _extract_traffic_lights(scene_api, map_api, centroid, map_lane_ids)
+    py123d_dict["metadata"]["scenario_length"] = scene_api.number_of_iterations
+    py123d_dict["metadata"]["timestep_seconds"] = scene_api.log_metadata.timestep_seconds
 
     return py123d_dict
 

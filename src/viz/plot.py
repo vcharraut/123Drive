@@ -169,11 +169,8 @@ def _build_scene(puffer_scenario, show_routes):
         "traffic_controls": traffic_controls,
         "ego_xyz": ego_xyz,
         "ego_valid": ego_valid,
-        "title": (
-            f"PufferDrive - {metadata.get('dataset_name', 'unknown')} | "
-            f"Scenario: {puffer_scenario.get('scenario_id', 'unknown')}"
-        ),
-        "video_title": f"PufferDrive Scenario {puffer_scenario.get('scenario_id', 'unknown')}",
+        "title": (f"PufferDrive - {metadata.get('dataset', 'unknown')} | Scenario: {metadata.get('id', 'unknown')}"),
+        "video_title": f"PufferDrive Scenario {metadata.get('id', 'unknown')}",
     }
 
 

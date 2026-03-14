@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from bin_factory.convert.types import is_road_lane
-from bin_factory.serialize import DATASET_NAME_BYTES, SCENARIO_ID_BYTES
+from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES
 
 
 MAX_COUNT = 1_000_000
@@ -38,9 +38,9 @@ def _read_body(f):
     objects = [_read_object(f) for _ in range(num_objects)]
     lane_graph_distances = _read_lane_graph(f)
 
-    scenario_id = _read_string(f, SCENARIO_ID_BYTES)
+    scenario_id = _read_string(f, METADATA_ID_BYTES)
     map_id = _read_int32(f)
-    dataset_name = _read_string(f, DATASET_NAME_BYTES)
+    dataset = _read_string(f, METADATA_DATASET_BYTES)
     scenario_length = _read_int32(f)
     sdc_index = _read_int32(f)
     timestep_seconds = _read_float32(f)
@@ -48,18 +48,18 @@ def _read_body(f):
     tracks_to_predict = _read_int_list(f, "tracks_to_predict")
 
     return {
-        "scenario_id": scenario_id,
         "agents": dynamic_agents,
         "road_map_elements": road_map_elements,
         "traffic_control_elements": traffic_control_elements,
         "objects": objects,
         "metadata": {
+            "id": scenario_id,
             "num_agents": num_agents,
             "num_roads": num_roads,
             "num_traffic": num_traffic,
             "num_objects": num_objects,
             "map_id": map_id,
-            "dataset_name": dataset_name,
+            "dataset": dataset,
             "scenario_length": scenario_length,
             "sdc_index": sdc_index,
             "timestep_seconds": timestep_seconds,

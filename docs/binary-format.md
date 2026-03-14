@@ -110,11 +110,12 @@ All-pairs shortest lane-to-lane distances precomputed via Dijkstra on FREEWAY an
 
 | Type | Field | Notes |
 |------|-------|-------|
-| char[128] | `scenario_id` | UTF-8, null-padded |
+| char[128] | `id` | UTF-8, null-padded |
 | int32 | `map_id` | |
-| char[64] | `dataset_name` | UTF-8, null-padded |
+| char[64] | `dataset` | UTF-8, null-padded |
 | int32 | `scenario_length` | Number of timesteps |
 | int32 | `sdc_index` | Index into agents array for ego vehicle |
+| float32 | `timestep_seconds` | Seconds between timesteps |
 | int32 | `n_objects_of_interest` | |
 | int32 × n | `objects_of_interest_ids` | |
 | int32 | `n_tracks_to_predict` | |

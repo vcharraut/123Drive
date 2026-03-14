@@ -19,7 +19,6 @@ LANE_TYPES = set(range(10))
 VALID_TL_STATES = {0, 1, 2, 3, 4}
 
 REQUIRED_TOP_LEVEL_KEYS = {
-    "scenario_id",
     "agents",
     "objects",
     "road_map_elements",
@@ -27,10 +26,12 @@ REQUIRED_TOP_LEVEL_KEYS = {
     "metadata",
 }
 REQUIRED_METADATA_KEYS = {
-    "dataset_name",
+    "id",
+    "dataset",
     "scenario_length",
     "sdc_index",
-    "objects_of_interests",
+    "timestep_seconds",
+    "objects_of_interest",
     "tracks_to_predict",
 }
 REQUIRED_AGENT_KEYS = {"id", "type", "states", "route"}
@@ -100,9 +101,6 @@ def _validate_top_level_schema(puffer_dict: dict, errors: list[str]):
         if key not in puffer_dict:
             errors.append(f"Missing required top-level key: '{key}'")
 
-    if "scenario_id" in puffer_dict and not isinstance(puffer_dict["scenario_id"], str):
-        errors.append(f"'scenario_id' must be string, got {type(puffer_dict['scenario_id']).__name__}")
-
     for key, expected_type in [
         ("agents", list),
         ("objects", list),
@@ -123,13 +121,18 @@ def _validate_metadata_schema(metadata: dict, errors: list[str]) -> int:
         if key not in metadata:
             errors.append(f"Missing metadata key: '{key}'")
 
+    if "id" in metadata and not isinstance(metadata["id"], str):
+        errors.append(f"metadata['id'] must be str, got {type(metadata['id']).__name__}")
     scenario_length = metadata.get("scenario_length")
-    if "dataset_name" in metadata and not isinstance(metadata["dataset_name"], str):
-        errors.append(f"metadata['dataset_name'] must be str, got {type(metadata['dataset_name']).__name__}")
+    if "dataset" in metadata and not isinstance(metadata["dataset"], str):
+        errors.append(f"metadata['dataset'] must be str, got {type(metadata['dataset']).__name__}")
     if "scenario_length" in metadata and not _is_int_like(scenario_length):
         errors.append(f"metadata['scenario_length'] must be int, got {type(scenario_length).__name__}")
         scenario_length = None
-    scenario_length_int = metadata.get("scenario_length") if _is_int_like(scenario_length) else 0
+    if isinstance(scenario_length, int | np.integer) and not isinstance(scenario_length, bool):
+        scenario_length_int = int(scenario_length)
+    else:
+        scenario_length_int = 0
     if _is_int_like(scenario_length) and scenario_length_int < 0:
         errors.append("metadata['scenario_length'] must be non-negative")
     if "sdc_index" in metadata and not _is_int_like(metadata["sdc_index"]):
@@ -139,15 +142,16 @@ def _validate_metadata_schema(metadata: dict, errors: list[str]) -> int:
             f"metadata['timestep_seconds'] must be numeric, got {type(metadata['timestep_seconds']).__name__}"
         )
     timestep_seconds = metadata.get("timestep_seconds", 0)
+    timestep_seconds_value = float(timestep_seconds) if _is_number(timestep_seconds) else 0.0
     if (
         _is_int_like(scenario_length)
         and scenario_length_int > 0
         and _is_number(timestep_seconds)
-        and timestep_seconds <= 0
+        and timestep_seconds_value <= 0
     ):
         errors.append("metadata['timestep_seconds'] must be > 0")
 
-    for key in ["objects_of_interests", "tracks_to_predict"]:
+    for key in ["objects_of_interest", "tracks_to_predict"]:
         if key in metadata and not isinstance(metadata[key], list):
             errors.append(f"metadata['{key}'] must be list, got {type(metadata[key]).__name__}")
 

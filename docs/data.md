@@ -14,7 +14,7 @@ This project intentionally exposes a small subset of `123D` into the PufferDrive
 | Road edges | polyline + mapped edge type |
 | Crosswalks | polygon |
 | Traffic lights | per-timestep state + controlled lane ids |
-| Metadata | scenario id, dataset name, scenario length, ego index |
+| Metadata | id, dataset, scenario length, ego index, timestep seconds |
 
 ## Not included in v0.1
 
