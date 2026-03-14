@@ -40,11 +40,11 @@ class MiscRoadType(IntEnum):
 
 
 class TLState(IntEnum):
-    GREEN = 0
-    YELLOW = 1
-    RED = 2
-    OFF = 3
-    UNKNOWN = 4
+    UNKNOWN = 0
+    GREEN = 1
+    YELLOW = 2
+    RED = 3
+    OFF = 4
 
 
 class TCType(IntEnum):
