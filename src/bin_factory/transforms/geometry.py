@@ -1,14 +1,12 @@
 import logging
 
 import numpy as np
-from py123d.datatypes.map_objects import MapLayer
-from shapely.geometry import LineString
+from shapely import geometry as shapely_geom
+
+from bin_factory import types as puffer_types
 
 
 logger = logging.getLogger(__name__)
-
-
-REVERSE_ROAD_EDGE_DATASETS = ["av2", "nuplan", "carla"]
 
 
 # ── Interpolate polygons to ensure they are all the same spacing ───────────────────────
@@ -38,17 +36,17 @@ def _interpolate_polygon(xyz, spacing=3.0):
     num_points = max(int(total_length / spacing), 2)
     target_dists = np.linspace(0, total_length, num_points, endpoint=False)
 
-    interpolated = np.empty((num_points, xyz.shape[1]))
-    for i, d in enumerate(target_dists):
-        idx = np.searchsorted(cum_lengths[1:], d, side="right")
-        idx = min(idx, len(seg_lengths) - 1)
-        t = (d - cum_lengths[idx]) / seg_lengths[idx] if seg_lengths[idx] > 0 else 0
-        interpolated[i] = xyz[idx] + t * diffs[idx]
+    idx = np.clip(np.searchsorted(cum_lengths[1:], target_dists, side="right"), 0, len(seg_lengths) - 1)
+    safe_lengths = np.where(seg_lengths[idx] > 0, seg_lengths[idx], 1.0)
+    t = ((target_dists - cum_lengths[idx]) / safe_lengths)[:, np.newaxis]
+    interpolated = xyz[idx] + t * diffs[idx]
 
     return np.vstack([interpolated, interpolated[0:1]])
 
 
 # ── Reverse road edges for certain datasets to face opposite direction to lanes ────────
+
+REVERSE_ROAD_EDGE_DATASETS = ["av2", "nuplan", "carla"]
 
 
 def reverse_road_edges(scenario):
@@ -56,7 +54,7 @@ def reverse_road_edges(scenario):
     if dataset.split("-")[0] not in REVERSE_ROAD_EDGE_DATASETS:
         return
     for element_data in scenario.map.values():
-        if element_data.get("layer") == MapLayer.ROAD_EDGE and "polyline" in element_data:
+        if puffer_types.is_road_edge(element_data["type"]) and "polyline" in element_data:
             element_data["polyline"] = element_data["polyline"][::-1]
 
 
@@ -144,7 +142,7 @@ def _distance_based_interpolate(polyline, max_segment_length):
 def _simplify_polyline(polyline, tolerance):
     if len(polyline) < 3:
         return polyline
-    simplified_2d = np.array(LineString(polyline[:, :2]).simplify(tolerance).coords)
+    simplified_2d = np.array(shapely_geom.LineString(polyline[:, :2]).simplify(tolerance).coords)
     # Re-interpolate z from original polyline at simplified 2D positions
     cum_orig = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1))])
     cum_simp = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(simplified_2d, axis=0), axis=1))])

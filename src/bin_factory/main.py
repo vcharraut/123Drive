@@ -1,18 +1,13 @@
 import argparse
 import logging
 import os
+import pathlib
 import warnings
-from pathlib import Path
 
-from joblib import Parallel, delayed
-from tqdm import tqdm
+import joblib
+import tqdm
 
-from bin_factory.convert.pipeline import build_puffer_dict
-from bin_factory.convert.serialize import puffer_dict_to_binary
-from bin_factory.loader.extractor import convert_py123d_data
-from bin_factory.loader.load import get_py123d_data
-from bin_factory.loader.validation import ValidationError, validate_scenario
-from bin_factory.processors import process_scenario
+from bin_factory import loader, serialize, transforms
 
 
 logger = logging.getLogger(__name__)
@@ -59,38 +54,38 @@ def build_parser():
     return parser
 
 
-def _worker_fn(py123d_data, map_id, output, config):
-    scenario = convert_py123d_data(py123d_data)
+def _convert_one(py123d_data, map_id, output, config):
+    scenario, extras = loader.extract_scenario(py123d_data)
 
     if config["validate_level"] > 0:
-        errors = validate_scenario(scenario, level=config["validate_level"])
+        errors = loader.validate_scenario(scenario, extras=extras, level=config["validate_level"])
         scenario_id = scenario.metadata.id
         for error in errors:
             logger.error(f"{scenario_id}: {error}")
         if errors:
-            raise ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
+            raise loader.ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
-    process_scenario(
+    scenario = transforms.process_scenario(
         scenario,
+        extras,
         max_segment_length=config["max_segment_length"],
         area_threshold=config["area_threshold"],
         min_route_valid_points=config["min_route_valid_points"],
         route_check_timestep=config["route_check_timestep"],
     )
-    puffer_dict = build_puffer_dict(scenario, reindex_id=config["reindex_id"])
-    binary_data = puffer_dict_to_binary(puffer_dict, map_id=map_id)
-    output_path = Path(output) / f"map_{map_id:03d}.bin"
+    binary_data = serialize.scenario_to_binary(scenario, map_id=map_id, reindex_id=config["reindex_id"])
+    output_path = pathlib.Path(output) / f"map_{map_id:03d}.bin"
     with output_path.open("wb") as f:
         f.write(binary_data)
 
 
-def _safe_process(py123d_data, map_id, output, config):
+def _convert_one_safe(py123d_data, map_id, output, config):
     scenario_id = getattr(py123d_data, "scenario_id", None) or getattr(py123d_data, "log_name", "unknown")
     dataset = getattr(py123d_data, "dataset", "unknown")
     try:
-        _worker_fn(py123d_data, map_id, output, config)
+        _convert_one(py123d_data, map_id, output, config)
         return {"ok": True, "scenario_id": scenario_id, "map_id": map_id, "error": ""}
-    except ValidationError as ve:
+    except loader.ValidationError as ve:
         logger.error("[%s][%s][%s] Validation error: %s", dataset, scenario_id, map_id, ve)
         return {"ok": False, "scenario_id": scenario_id, "map_id": map_id, "error": str(ve)}
     except Exception as e:
@@ -138,7 +133,7 @@ def main():
     parser = build_parser()
     args, py123d_data_root = _validate_args(parser.parse_args(), parser)
 
-    Path(args.output).mkdir(parents=True, exist_ok=True)
+    pathlib.Path(args.output).mkdir(parents=True, exist_ok=True)
 
     logger.info("123Drive: %s -> %s", py123d_data_root, args.output)
     logger.info(
@@ -154,7 +149,7 @@ def main():
     )
 
     py123d_data = list(
-        get_py123d_data(
+        loader.load_scenes(
             py123d_data_root=py123d_data_root,
             workers=args.workers,
             num_scenes=args.num_scenes,
@@ -184,14 +179,14 @@ def main():
     logger.info(
         "Loaded %d scenarios after filtering. Starting conversion with %d workers", len(py123d_data), args.workers
     )
-    worker = _worker_fn if args.fail_fast else _safe_process
+    worker = _convert_one if args.fail_fast else _convert_one_safe
 
     warnings.filterwarnings("ignore", message="A worker stopped while some jobs were given")
-    with Parallel(n_jobs=args.workers) as parallel:
+    with joblib.Parallel(n_jobs=args.workers) as parallel:
         results = list(
             parallel(
-                delayed(worker)(data, map_id=i, output=args.output, config=config)
-                for i, data in tqdm(enumerate(py123d_data), total=len(py123d_data))
+                joblib.delayed(worker)(data, map_id=i, output=args.output, config=config)
+                for i, data in tqdm.tqdm(enumerate(py123d_data), total=len(py123d_data))
             )
         )
 

@@ -3,11 +3,11 @@
 import json
 import os
 
-from py123d_config import DATASET_CONFIGS, HYDRA_OVERRIDES, INPUT_MOUNT, OUTPUT_MOUNT
+import py123d_config
 
 
 def build_hydra_args(dataset, args):
-    config = DATASET_CONFIGS[dataset]
+    config = py123d_config.DATASET_CONFIGS[dataset]
 
     hydra_args = [
         f"dataset={dataset}",
@@ -20,7 +20,7 @@ def build_hydra_args(dataset, args):
             f"dataset_paths.{key}={args.input}/{subpath}" for key, subpath in config["input_subpaths"].items()
         )
 
-    hydra_args.extend(HYDRA_OVERRIDES)
+    hydra_args.extend(py123d_config.HYDRA_OVERRIDES)
 
     if args.splits:
         hydra_args.append(f"dataset.parser.splits={json.dumps(args.splits)}")
@@ -37,13 +37,13 @@ if __name__ == "__main__":
     import sys
 
     dataset = os.environ.get("DATASET")
-    if not dataset or dataset not in DATASET_CONFIGS:
-        print(f"Error: DATASET env var must be one of {list(DATASET_CONFIGS)}", file=sys.stderr)
+    if not dataset or dataset not in py123d_config.DATASET_CONFIGS:
+        print(f"Error: DATASET env var must be one of {list(py123d_config.DATASET_CONFIGS)}", file=sys.stderr)
         sys.exit(1)
 
     parser = argparse.ArgumentParser(description="py123d extraction entrypoint")
-    parser.add_argument("--input", "-i", default=INPUT_MOUNT)
-    parser.add_argument("--output", "-o", default=OUTPUT_MOUNT)
+    parser.add_argument("--input", "-i", default=py123d_config.INPUT_MOUNT)
+    parser.add_argument("--output", "-o", default=py123d_config.OUTPUT_MOUNT)
     parser.add_argument("--splits", nargs="+", default=None)
     parser.add_argument("--worker_type", choices=["ray", "process_pool", "thread_pool"], default="ray")
     parser.add_argument("--workers", type=int, default=max(1, int((os.cpu_count() or 4) * 0.8)))

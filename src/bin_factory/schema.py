@@ -1,9 +1,9 @@
-from dataclasses import dataclass, field
+import dataclasses
 
 import numpy as np
 
 
-@dataclass
+@dataclasses.dataclass
 class ScenarioMetadata:
     id: str
     dataset: str
@@ -11,8 +11,8 @@ class ScenarioMetadata:
     timestep_seconds: float
 
 
-@dataclass
-class DynamicState:
+@dataclasses.dataclass
+class Track:
     type: object
     position: np.ndarray
     heading: np.ndarray
@@ -21,23 +21,21 @@ class DynamicState:
     length: np.ndarray
     width: np.ndarray
     height: np.ndarray
-    route: list = field(default_factory=list)
+    route: list = dataclasses.field(default_factory=list)
 
 
-@dataclass
-class TrafficLightState:
+@dataclasses.dataclass
+class TrafficLightTrack:
     position: np.ndarray
     states: list
     controlled_lane: int
 
 
-@dataclass
-class ArrowScenario:
-    agents: dict[int, DynamicState]
+@dataclasses.dataclass
+class PufferScenario:
+    agents: dict[int, Track]
+    objects: dict[int, Track]
     map: dict[int, dict]
-    traffic_lights: dict[int, TrafficLightState]
-    objects: dict[int, DynamicState]
     metadata: ScenarioMetadata
-    # Additional fields created in processing
-    traffic_controls: list[dict] = field(default_factory=list)
+    traffic_controls: list[dict] = dataclasses.field(default_factory=list)
     lane_graph: dict | None = None

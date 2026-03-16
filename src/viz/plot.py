@@ -16,7 +16,7 @@ try:
 except ImportError as exc:  # pragma: no cover - import guard
     raise SystemExit("Install viz dependencies first: uv sync --extra viz") from exc
 
-from bin_factory.convert.puffer_types import MiscRoadType, TCType, is_road_edge, is_road_lane, is_road_line
+from bin_factory.types import MiscRoadType, TCType, is_road_edge, is_road_lane, is_road_line
 from viz.binary_loader import BinaryFormatError, load_puffer_binary
 from viz.utils import (
     build_lane_map,

@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+import pathlib
 from typing import Any
 
-from py123d.api import SceneFilter, get_filtered_scenes
-from py123d.api.map.arrow.arrow_map_api import ArrowMapAPI
-from py123d.common.execution import ProcessPoolExecutor, SequentialExecutor
+from py123d import api as py123d_api
+from py123d.api.map.arrow import arrow_map_api
+from py123d.common import execution
 
 
 logger = logging.getLogger(__name__)
 
 
-def get_py123d_data(
+def load_scenes(
     py123d_data_root: str,
     workers: int,
     num_scenes: int | None = None,
@@ -41,44 +41,44 @@ def get_py123d_data(
     Returns:
         List of ArrowSceneAPI or ArrowMapAPI.
     """
-    data_root = Path(py123d_data_root)
+    data_root = pathlib.Path(py123d_data_root)
 
     if map_only:
         maps_root = data_root / "maps"
         map_paths = _discover_map_arrow_paths(maps_root, datasets, num_scenes)
 
-        maps: list[ArrowMapAPI] = []
+        maps: list[arrow_map_api.ArrowMapAPI] = []
         for map_path in map_paths:
-            maps.append(ArrowMapAPI(map_path))
+            maps.append(arrow_map_api.ArrowMapAPI(map_path))
 
         return maps
 
     # TODO: To delete at release
     map_api_required = datasets is not None and any(d.startswith(("nuplan",)) for d in datasets)
 
-    scene_filter = SceneFilter(
+    scene_filter = py123d_api.SceneFilter(
         datasets=datasets,
         split_types=split_types,
         split_names=split_names,
         log_names=log_names,
         duration_s=duration_s,
         history_s=history_s,
-        map_api_required=map_api_required,
+        map_api_required=True,
         max_num_scenes=num_scenes,
     )
 
-    return get_filtered_scenes(
+    return py123d_api.get_filtered_scenes(
         scene_filter=scene_filter,
         data_root=data_root,
-        executor=ProcessPoolExecutor(max_workers=workers) if workers > 1 else SequentialExecutor(),
+        executor=execution.ProcessPoolExecutor(max_workers=workers) if workers > 1 else execution.SequentialExecutor(),
     )
 
 
 def _discover_map_arrow_paths(
-    maps_root: Path,
+    maps_root: pathlib.Path,
     datasets: list[str] | None = None,
     num_scenes: int | None = None,
-) -> list[Path]:
+) -> list[pathlib.Path]:
     if not maps_root.exists():
         return []
 

@@ -1,10 +1,11 @@
 import numpy as np
-from py123d.datatypes.map_objects import LaneType
-from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import dijkstra
+from scipy import sparse as scipy_sparse
+from scipy.sparse import csgraph as scipy_csgraph
+
+from bin_factory import types as puffer_types
 
 
-GRAPH_LANE_TYPES = {LaneType.FREEWAY, LaneType.SURFACE_STREET}
+GRAPH_LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}
 
 
 def build_lane_distance_matrix(map_elements):
@@ -27,8 +28,8 @@ def build_lane_distance_matrix(map_elements):
                 cols.append(id_to_idx[exit_id])
                 weights.append(lane_lengths[src])
 
-    graph = csr_matrix((weights, (rows, cols)), shape=(n, n)) if rows else csr_matrix((n, n))
-    dist_matrix = dijkstra(graph, directed=True).astype(np.float32)
+    graph = scipy_sparse.csr_matrix((weights, (rows, cols)), shape=(n, n)) if rows else scipy_sparse.csr_matrix((n, n))
+    dist_matrix = scipy_csgraph.dijkstra(graph, directed=True).astype(np.float32)
 
     return {"lane_ids": lane_ids, "distances": dist_matrix, "lane_lengths": lane_lengths}
 

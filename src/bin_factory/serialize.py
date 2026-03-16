@@ -2,7 +2,7 @@ import struct
 
 import numpy as np
 
-from bin_factory.convert import puffer_types
+from bin_factory import types as puffer_types
 
 
 METADATA_ID_BYTES = 128
@@ -41,8 +41,6 @@ def _pack_dynamic_states(buffer, states):
 
 def _pack_fixed_string(buffer, value, size):
     encoded = str(value).encode("utf-8")[:size]
-    while len(encoded) > size:
-        encoded = encoded[:-1]
     buffer.extend(encoded.ljust(size, b"\0"))
 
 
@@ -120,3 +118,109 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
     _pack_int_list(buffer, metadata["tracks_to_predict"])
 
     return bytes(buffer)
+
+
+def scenario_to_binary(scenario, map_id=0, reindex_id=False):
+    agents = _flatten_tracks(scenario.agents, include_route=True)
+    road_map_elements = _flatten_road_map(scenario.map)
+    traffic_control_elements = _flatten_traffic_controls(scenario.traffic_controls)
+    objects = _flatten_tracks(scenario.objects)
+
+    if reindex_id:
+        _reindex(agents, road_map_elements, traffic_control_elements, objects)
+
+    puffer_dict = {
+        "agents": agents,
+        "road_map_elements": road_map_elements,
+        "traffic_control_elements": traffic_control_elements,
+        "objects": objects,
+        "lane_graph_distances": scenario.lane_graph,
+        "metadata": {
+            "id": scenario.metadata.id,
+            "dataset": scenario.metadata.dataset,
+            "scenario_length": scenario.metadata.scenario_length,
+            "timestep_seconds": scenario.metadata.timestep_seconds,
+            "objects_of_interest": [],
+            "tracks_to_predict": [],
+        },
+    }
+    return puffer_dict_to_binary(puffer_dict, map_id=map_id)
+
+
+def _flatten_tracks(tracks, include_route=False):
+    return [
+        {
+            "id": eid,
+            "type": track.type,
+            "states": {k: getattr(track, k) for k in ("heading", "velocity", "length", "width", "height", "valid")}
+            | {"xyz": track.position},
+            **({"route": track.route} if include_route else {}),
+        }
+        for eid, track in tracks.items()
+    ]
+
+
+def _flatten_road_map(static_map):
+    elements = []
+    for eid, elem in static_map.items():
+        road_type = elem["type"]
+
+        if (
+            puffer_types.is_road_lane(road_type)
+            or puffer_types.is_road_line(road_type)
+            or puffer_types.is_road_edge(road_type)
+        ):
+            xyz = elem.get("polyline")
+            if xyz is None or len(xyz) <= 1:
+                continue
+        else:
+            xyz = elem.get("polygon")
+            if xyz is None or len(xyz) <= 1:
+                continue
+
+        puffer_elem = {"id": eid, "type": road_type, "xyz": xyz}
+
+        if puffer_types.is_road_lane(road_type):
+            puffer_elem["speed_limit"] = elem["speed_limit_mps"]
+            puffer_elem["entry_lanes"] = elem["entry_lanes"]
+            puffer_elem["exit_lanes"] = elem["exit_lanes"]
+
+        elements.append(puffer_elem)
+
+    return elements
+
+
+def _flatten_traffic_controls(traffic_controls):
+    return [
+        {
+            "id": tc["id"],
+            "type": tc["type"],
+            "stop_line": tc["stop_line"],
+            "heading": tc["heading"],
+            "states": np.array(tc["states"]),
+            "controlled_lanes": tc["controlled_lanes"],
+        }
+        for tc in traffic_controls
+    ]
+
+
+def _reindex(agents, road_map_elements, traffic_control_elements, objects):
+    road_id_map = {r["id"]: i for i, r in enumerate(road_map_elements)}
+
+    for i, road in enumerate(road_map_elements):
+        road["id"] = i
+        if "entry_lanes" in road:
+            road["entry_lanes"] = [road_id_map[lid] for lid in road["entry_lanes"]]
+        if "exit_lanes" in road:
+            road["exit_lanes"] = [road_id_map[lid] for lid in road["exit_lanes"]]
+
+    for i, agent in enumerate(agents):
+        agent["id"] = i
+        agent["route"] = [road_id_map[lid] for lid in agent["route"]]
+
+    for i, tc in enumerate(traffic_control_elements):
+        tc["id"] = i
+        tc["controlled_lanes"] = [road_id_map[lid] for lid in tc["controlled_lanes"]]
+
+    for i, obj in enumerate(objects):
+        obj["id"] = i

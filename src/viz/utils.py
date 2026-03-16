@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from bin_factory.convert.puffer_types import (
+from bin_factory.types import (
     AGENT_TYPE_NAMES,
     LANE_RANGE,
     OBJECT_TYPE_NAMES,

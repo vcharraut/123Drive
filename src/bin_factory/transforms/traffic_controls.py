@@ -1,16 +1,16 @@
 import numpy as np
-from py123d.datatypes.map_objects import MapLayer
+
+from bin_factory import types as puffer_types
 
 
 DEFAULT_LANE_WIDTH = 3.7
 
 
-def process_traffic_controls(scenario):
-    traffic_lights = scenario.traffic_lights
+def process_traffic_controls(scenario, traffic_lights, stop_zones):
     map_data = scenario.map
     scenario_length = scenario.metadata.scenario_length
 
-    lanes_by_id = {eid: edata for eid, edata in map_data.items() if edata.get("layer") == MapLayer.LANE}
+    lanes_by_id = {eid: edata for eid, edata in map_data.items() if puffer_types.is_road_lane(edata["type"])}
 
     elements = []
     covered_lanes = set()
@@ -24,23 +24,21 @@ def process_traffic_controls(scenario):
         heading = _heading_from_entry_lanes(controlled_lane_id, lanes_by_id)
         stop_line = _stop_line_from_position(position, lane, heading)
 
+        states = [s if s is not None else puffer_types.TLState.UNKNOWN for s in element_data.states]
         elements.append(
             {
                 "id": int(element_id),
                 "controlled_lanes": [controlled_lane_id],
                 "stop_line": stop_line,
                 "heading": heading,
-                "states": element_data.states,
-                "type_hint": "observed_tl",
+                "states": states,
+                "type": puffer_types.TCType.TRAFFIC_LIGHT,
             }
         )
 
     if scenario_length <= 0:
         next_id = max((e["id"] for e in elements), default=-1) + 1
-        for element_data in map_data.values():
-            if element_data.get("layer") != MapLayer.STOP_ZONE:
-                continue
-
+        for element_data in stop_zones:
             stop_zone_type = element_data["type"]
             controlled_lanes = [lid for lid in element_data["controlled_lanes"] if lid not in covered_lanes]
             if not controlled_lanes:
@@ -55,8 +53,8 @@ def process_traffic_controls(scenario):
                     "controlled_lanes": controlled_lanes,
                     "stop_line": stop_line,
                     "heading": heading,
-                    "states": [None] * scenario_length,
-                    "type_hint": stop_zone_type,
+                    "states": [puffer_types.TLState.UNKNOWN] * scenario_length,
+                    "type": stop_zone_type,
                 }
             )
             next_id += 1
@@ -106,11 +104,6 @@ def _heading_from_entry_lanes(controlled_lane_id, lanes_by_id):
 
 def _longest_polygon_edge(polygon):
     polygon = np.asarray(polygon, dtype=np.float64)
-    n = len(polygon)
-    best_len, best_a, best_b = -1.0, 0, 1
-    for i in range(n):
-        j = (i + 1) % n
-        edge_len = float(np.linalg.norm(polygon[j] - polygon[i]))
-        if edge_len > best_len:
-            best_len, best_a, best_b = edge_len, i, j
-    return np.array([polygon[best_a], polygon[best_b]], dtype=np.float64)
+    edges = np.roll(polygon, -1, axis=0) - polygon
+    best = np.argmax(np.linalg.norm(edges, axis=1))
+    return np.array([polygon[best], polygon[(best + 1) % len(polygon)]], dtype=np.float64)

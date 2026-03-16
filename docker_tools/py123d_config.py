@@ -1,5 +1,10 @@
 """Shared dataset config for the py123d Docker tooling."""
 
+from importlib import resources
+
+import yaml
+
+
 INPUT_MOUNT = "/input"
 OUTPUT_MOUNT = "/output"
 
@@ -33,4 +38,15 @@ DATASET_CONFIGS = {
         "extras": "waymo",
         "data_root_key": "wod_motion_data_root",
     },
+    "av2-sensor": {
+        "extras": "av2",
+        "data_root_key": "av2_data_root",
+    },
 }
+
+
+def get_default_splits(dataset):
+    cfg_path = resources.files("py123d.script.config.conversion.dataset").joinpath(f"{dataset}.yaml")
+    if not cfg_path.is_file():
+        return []
+    return yaml.safe_load(cfg_path.read_text()).get("parser", {}).get("splits", [])

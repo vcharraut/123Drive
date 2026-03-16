@@ -1,14 +1,14 @@
-from enum import IntEnum
+import enum
 
 
-class AgentType(IntEnum):
+class AgentType(enum.IntEnum):
     VEHICLE = 1
     PEDESTRIAN = 2
     CYCLIST = 3
     OTHER = 4
 
 
-class LaneType(IntEnum):
+class LaneType(enum.IntEnum):
     UNKNOWN = 0
     FREEWAY = 1
     SURFACE_STREET = 2
@@ -16,7 +16,7 @@ class LaneType(IntEnum):
     BUS_LANE = 4
 
 
-class RoadLineType(IntEnum):
+class RoadLineType(enum.IntEnum):
     UNKNOWN = 10
     BROKEN_SINGLE_WHITE = 11
     SOLID_SINGLE_WHITE = 12
@@ -28,18 +28,19 @@ class RoadLineType(IntEnum):
     PASSING_DOUBLE_YELLOW = 18
 
 
-class RoadEdgeType(IntEnum):
+class RoadEdgeType(enum.IntEnum):
     UNKNOWN = 20
     BOUNDARY = 21
     MEDIAN = 22
 
 
-class MiscRoadType(IntEnum):
+class MiscRoadType(enum.IntEnum):
+    UNKNOWN = 30
     CROSSWALK = 31
     SPEED_BUMP = 32
 
 
-class TLState(IntEnum):
+class TLState(enum.IntEnum):
     UNKNOWN = 0
     GREEN = 1
     YELLOW = 2
@@ -47,13 +48,13 @@ class TLState(IntEnum):
     OFF = 4
 
 
-class TCType(IntEnum):
+class TCType(enum.IntEnum):
     TRAFFIC_LIGHT = 1
     STOP_SIGN = 2
     YIELD_SIGN = 3
 
 
-class ObjectType(IntEnum):
+class ObjectType(enum.IntEnum):
     TRAFFIC_SIGN = 1
     TRAFFIC_CONE = 2
     TRAFFIC_LIGHT = 3
@@ -96,6 +97,10 @@ def is_yellow_line(t):
         RoadLineType.SOLID_DOUBLE_YELLOW,
         RoadLineType.PASSING_DOUBLE_YELLOW,
     )
+
+
+def is_crosswalk(t):
+    return t == MiscRoadType.CROSSWALK
 
 
 def is_broken_line(t):

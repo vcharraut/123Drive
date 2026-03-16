@@ -1,14 +1,14 @@
 """CLI for building Docker images for the py123d/123Drive pipeline."""
 
 import argparse
+import pathlib
 import subprocess
 import sys
-from pathlib import Path
 
-from docker_tools.py123d_config import DATASET_CONFIGS
+from docker_tools import py123d_config
 
 
-DOCKERFILES_DIR = Path(__file__).parent / "dockerfiles"
+DOCKERFILES_DIR = pathlib.Path(__file__).parent / "dockerfiles"
 
 
 def _sanitize_tag(ref):
@@ -48,8 +48,8 @@ def run_cmd(cmd: list[str], dry_run: bool, label: str = "") -> None:
 def cmd_list(_args: argparse.Namespace) -> None:
     """Print available datasets and build targets."""
     print("Available py123d datasets:")
-    for name, cfg in DATASET_CONFIGS.items():
-        splits = ", ".join(cfg["default_splits"]) if cfg["default_splits"] else "default"
+    for name, cfg in py123d_config.DATASET_CONFIGS.items():
+        splits = ", ".join(py123d_config.get_default_splits(name)) or "none"
         print(f"  {name:<30} extras={cfg['extras']}  splits=[{splits}]")
 
 
@@ -59,11 +59,11 @@ def cmd_py123d(args: argparse.Namespace) -> None:
         print("Error: --dataset is required for 'py123d'", file=sys.stderr)
         sys.exit(1)
 
-    if args.dataset not in DATASET_CONFIGS:
+    if args.dataset not in py123d_config.DATASET_CONFIGS:
         print(f"Unknown dataset: {args.dataset!r}. Use 'build list' to see available datasets.", file=sys.stderr)
         sys.exit(1)
 
-    config = DATASET_CONFIGS[args.dataset]
+    config = py123d_config.DATASET_CONFIGS[args.dataset]
     ref = args.ref or "main"
     name = f"py123d-{args.dataset}:{_sanitize_tag(ref)}"
     build_args = {

@@ -14,6 +14,12 @@ raw dataset -> [123D] -> .arrow -> [123Drive] -> .bin
 uv sync --extra all
 ```
 
+If you only need conversion:
+
+```bash
+uv sync
+```
+
 ## Quickstart
 
 ```bash

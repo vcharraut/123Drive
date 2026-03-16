@@ -14,10 +14,10 @@ trajectory while preserving the original directional consistency check.
 import logging
 
 import numpy as np
-from py123d.datatypes.detections import DefaultBoxDetectionLabel
-from py123d.datatypes.map_objects import LaneType, RoadEdgeType
-from shapely import prepare
-from shapely.geometry import LineString, Polygon
+import shapely
+from shapely import geometry as shapely_geom
+
+from bin_factory import types as puffer_types
 
 
 logger = logging.getLogger(__name__)
@@ -35,12 +35,6 @@ DISTANCE_WEIGHT = 0.3
 OFFROAD_DISTANCE_THRESHOLD = 5.0
 STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0
 MOVEMENT_THRESHOLD = 0.5
-ROAD_EDGE_TYPES = {
-    RoadEdgeType.ROAD_EDGE_BOUNDARY,
-    RoadEdgeType.ROAD_EDGE_MEDIAN,
-}
-
-_VEHICLE_LABELS = {DefaultBoxDetectionLabel.EGO, DefaultBoxDetectionLabel.VEHICLE}
 
 
 def process_agent_routes(scenario, min_route_valid_points=0, route_check_timestep=0):
@@ -48,8 +42,8 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
     route_cache = build_route_cache(scenario.map, lane_data)
 
     for agent_id, agent_data in scenario.agents.items():
-        is_ego = agent_data.type == DefaultBoxDetectionLabel.EGO
-        is_vehicle = agent_data.type in _VEHICLE_LABELS
+        is_ego = agent_data.type == puffer_types.AgentType.VEHICLE and agent_id == 0
+        is_vehicle = agent_data.type == puffer_types.AgentType.VEHICLE
 
         if not is_vehicle:
             agent_data.route = []
@@ -82,7 +76,7 @@ def _extract_lane_centers(static_map_elements):
     for element_id, element_data in static_map_elements.items():
         element_type = element_data["type"]
 
-        if element_type in (LaneType.SURFACE_STREET, LaneType.FREEWAY):
+        if element_type in (puffer_types.LaneType.SURFACE_STREET, puffer_types.LaneType.FREEWAY):
             polyline = element_data["polyline"]
 
             if len(polyline) > 0:
@@ -458,8 +452,8 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0):
     rotation = np.array([[cos_h, -sin_h], [sin_h, cos_h]])
     corners = local_corners @ rotation.T + position
 
-    agent_poly = Polygon(corners)
-    prepare(agent_poly)
+    agent_poly = shapely_geom.Polygon(corners)
+    shapely.prepare(agent_poly)
 
     bbox_min = corners.min(axis=0) - max(half_len, half_w)
     bbox_max = corners.max(axis=0) + max(half_len, half_w)
@@ -469,7 +463,7 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0):
             continue
         if edge_max[1] < bbox_min[1] or edge_min[1] > bbox_max[1]:
             continue
-        if agent_poly.intersects(LineString(polyline_2d)):
+        if agent_poly.intersects(shapely_geom.LineString(polyline_2d)):
             return True
 
     return False
@@ -538,7 +532,7 @@ def _get_lane_directions_at_indices_batch(polylines, indices):
 
 
 def _extract_road_edge(element):
-    if element["type"] not in ROAD_EDGE_TYPES:
+    if not puffer_types.is_road_edge(element["type"]):
         return None
 
     polyline = element.get("polyline")
