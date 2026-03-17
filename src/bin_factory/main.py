@@ -55,8 +55,10 @@ def build_parser():
 
 
 def _convert_one(py123d_data, map_id, output, config):
+    # 1. Load and convert 123D scenario to PufferDrive format
     scenario, extras = loader.extract_scenario(py123d_data)
 
+    # 2. Validate scenario
     if config["validate_level"] > 0:
         errors = loader.validate_scenario(scenario, extras=extras, level=config["validate_level"])
         scenario_id = scenario.metadata.id
@@ -65,15 +67,25 @@ def _convert_one(py123d_data, map_id, output, config):
         if errors:
             raise loader.ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
-    scenario = transforms.process_scenario(
-        scenario,
-        extras,
-        max_segment_length=config["max_segment_length"],
-        area_threshold=config["area_threshold"],
-        min_route_valid_points=config["min_route_valid_points"],
-        route_check_timestep=config["route_check_timestep"],
-    )
-    binary_data = serialize.scenario_to_binary(scenario, map_id=map_id, reindex_id=config["reindex_id"])
+    # 3. Process scenario (geometry, routes, traffic controls, lane graph)
+    if config["reindex_id"]:
+        # Reindexing all IDs to a contiguous range (0, n)
+        scenario, extras = transforms.reindex_scenario_and_extras(scenario, extras)
+    # Clean polylines and apply Douglas-Peucker simplification
+    transforms.process_polylines(scenario, config["max_segment_length"], config["area_threshold"])
+    # Interpolate polygons to ensure they are properly closed and have enough points
+    transforms.interpolate_all_polygons(scenario)
+    # Reverse road edges for certain datasets to ensure consistent directionality
+    transforms.reverse_road_edges(scenario)
+    # Create traffic controls (traffic lights, stop zones) and associate them with map elements
+    transforms.process_traffic_controls(scenario, extras["traffic_lights"], extras["stop_zones"])
+    # Process agent routes based on their trajectories and the lane graph
+    transforms.process_agent_routes(scenario, config["min_route_valid_points"], config["route_check_timestep"])
+    # Build lane graph distance matrix for Dijkstra's algorithm
+    scenario.lane_graph = transforms.build_lane_distance_matrix(scenario.map)
+
+    # 4. Serialize to binary and save
+    binary_data = serialize.scenario_to_binary(scenario, map_id=map_id)
     output_path = pathlib.Path(output) / f"map_{map_id:03d}.bin"
     with output_path.open("wb") as f:
         f.write(binary_data)

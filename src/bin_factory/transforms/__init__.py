@@ -1,21 +1,16 @@
-from . import geometry, graph, routes, traffic_controls
+from .geometry import interpolate_all_polygons, process_polylines, reverse_road_edges
+from .graph import build_lane_distance_matrix
+from .reindex import reindex_scenario_and_extras
+from .routes import process_agent_routes
+from .traffic_controls import process_traffic_controls
 
 
-__all__ = []
-
-
-def process_scenario(
-    scenario,
-    extras,
-    max_segment_length=2.0,
-    area_threshold=0.1,
-    min_route_valid_points=0,
-    route_check_timestep=0,
-):
-    geometry.process_polylines(scenario, max_segment_length, area_threshold)
-    geometry.interpolate_all_polygons(scenario)
-    geometry.reverse_road_edges(scenario)
-    traffic_controls.process_traffic_controls(scenario, extras["traffic_lights"], extras["stop_zones"])
-    routes.process_agent_routes(scenario, min_route_valid_points, route_check_timestep)
-    scenario.lane_graph = graph.build_lane_distance_matrix(scenario.map)
-    return scenario
+__all__ = [
+    "build_lane_distance_matrix",
+    "interpolate_all_polygons",
+    "process_agent_routes",
+    "process_polylines",
+    "process_traffic_controls",
+    "reindex_scenario_and_extras",
+    "reverse_road_edges",
+]

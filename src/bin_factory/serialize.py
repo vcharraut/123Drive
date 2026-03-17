@@ -120,14 +120,11 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
     return bytes(buffer)
 
 
-def scenario_to_binary(scenario, map_id=0, reindex_id=False):
+def scenario_to_binary(scenario, map_id=0):
     agents = _flatten_tracks(scenario.agents, include_route=True)
     road_map_elements = _flatten_road_map(scenario.map)
     traffic_control_elements = _flatten_traffic_controls(scenario.traffic_controls)
     objects = _flatten_tracks(scenario.objects)
-
-    if reindex_id:
-        _reindex(agents, road_map_elements, traffic_control_elements, objects)
 
     puffer_dict = {
         "agents": agents,
@@ -202,25 +199,3 @@ def _flatten_traffic_controls(traffic_controls):
         }
         for tc in traffic_controls
     ]
-
-
-def _reindex(agents, road_map_elements, traffic_control_elements, objects):
-    road_id_map = {r["id"]: i for i, r in enumerate(road_map_elements)}
-
-    for i, road in enumerate(road_map_elements):
-        road["id"] = i
-        if "entry_lanes" in road:
-            road["entry_lanes"] = [road_id_map[lid] for lid in road["entry_lanes"]]
-        if "exit_lanes" in road:
-            road["exit_lanes"] = [road_id_map[lid] for lid in road["exit_lanes"]]
-
-    for i, agent in enumerate(agents):
-        agent["id"] = i
-        agent["route"] = [road_id_map[lid] for lid in agent["route"]]
-
-    for i, tc in enumerate(traffic_control_elements):
-        tc["id"] = i
-        tc["controlled_lanes"] = [road_id_map[lid] for lid in tc["controlled_lanes"]]
-
-    for i, obj in enumerate(objects):
-        obj["id"] = i

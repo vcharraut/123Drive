@@ -62,4 +62,3 @@ TL_STATE_MAP = {
     detections.TrafficLightStatus.OFF: puffer_types.TLState.OFF,
     detections.TrafficLightStatus.UNKNOWN: puffer_types.TLState.UNKNOWN,
 }
-
