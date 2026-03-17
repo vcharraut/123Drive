@@ -1,6 +1,6 @@
 # PufferDrive Binary Format (.bin)
 
-Binary files are written by `puffer_dict_to_binary()` in `src/bin_factory/serialize.py`. All multi-byte values are little-endian. Floats are 32-bit IEEE 754 unless noted.
+Binary files are written by `scenario_to_binary()` in `src/bin_factory/serialize.py`. All multi-byte values are little-endian. Floats are 32-bit IEEE 754 unless noted.
 
 ## Header
 
@@ -17,7 +17,7 @@ Each agent is laid out sequentially:
 
 | Type | Field | Notes |
 |------|-------|-------|
-| int32 | `id` | Sequential index (0-based) |
+| int32 | `id` | Track ID as stored in the scenario |
 | int32 | `type` | 1=VEHICLE, 2=PEDESTRIAN, 3=CYCLIST, 4=OTHER |
 | int32 | `T` | Trajectory length (number of timesteps) |
 | float32 × T | `x` | Column-major: all x values first |
@@ -48,7 +48,7 @@ Each agent is laid out sequentially:
 | float32 × N | `y` | |
 | float32 × N | `z` | |
 
-**Lane-only fields** (type 1–9):
+**Lane-only fields** (type 0–9):
 
 | Type | Field |
 |------|-------|
@@ -62,10 +62,10 @@ Each agent is laid out sequentially:
 
 | Range | Category | Values |
 |-------|----------|--------|
-| 1–9 | Lanes | 1=FREEWAY, 2=SURFACE_STREET, 3=BIKE_LANE |
+| 0–9 | Lanes | 0=UNKNOWN, 1=FREEWAY, 2=SURFACE_STREET, 3=BIKE_LANE, 4=BUS_LANE |
 | 10–19 | Road lines | 10=UNKNOWN, 11=BROKEN_WHITE, 12=SOLID_WHITE, 13=DOUBLE_SOLID_WHITE, 14=BROKEN_YELLOW, 15=BROKEN_DOUBLE_YELLOW, 16=SOLID_YELLOW, 17=DOUBLE_SOLID_YELLOW, 18=PASSING_DOUBLE_YELLOW |
-| 20–29 | Road edges | 20=UNKNOWN, 21=BOUNDARY, 22=MEDIAN, 23=SIDEWALK |
-| 31+ | Areas | 31=CROSSWALK, 32=SPEED_BUMP |
+| 20–29 | Road edges | 20=UNKNOWN, 21=BOUNDARY, 22=MEDIAN |
+| 30+ | Areas | 30=UNKNOWN, 31=CROSSWALK, 32=SPEED_BUMP |
 
 ## Traffic Control Elements (× n_traffic_controls)
 
@@ -76,7 +76,7 @@ Each agent is laid out sequentially:
 | float32 × 6 | `stop_line` | Two 3D points |
 | float32 | `heading` | |
 | int32 | `n_states` | |
-| int32 × n_states | `states` | 0=GREEN, 1=YELLOW, 2=RED, 3=OFF, 4=UNKNOWN |
+| int32 × n_states | `states` | 0=UNKNOWN, 1=GREEN, 2=YELLOW, 3=RED, 4=OFF |
 | int32 | `n_controlled_lanes` | |
 | int32 × n_controlled_lanes | `controlled_lane_ids` | |
 

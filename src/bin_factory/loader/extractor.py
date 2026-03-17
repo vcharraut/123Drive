@@ -10,7 +10,7 @@ from py123d.datatypes import detections, map_objects
 
 from bin_factory import schema
 from bin_factory import types as puffer_types
-from src.bin_factory.loader import mapping
+from bin_factory.loader import mapping
 
 
 logger = logging.getLogger(__name__)

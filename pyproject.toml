@@ -27,6 +27,7 @@ dependencies = [
   "scipy",
   "joblib",
   "tqdm",
+  "shapely",
   "py123d",
 ]
 

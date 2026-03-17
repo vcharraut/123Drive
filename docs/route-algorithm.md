@@ -1,6 +1,6 @@
 # Route Computation Algorithm
 
-Routes assign each vehicle agent an ordered sequence of lane IDs representing the path it follows. The algorithm lives in `src/bin_factory/convert/routes.py`.
+Routes assign each vehicle agent an ordered sequence of lane IDs representing the path it follows. The algorithm lives in `src/bin_factory/transforms/routes.py`.
 
 ## Pipeline
 

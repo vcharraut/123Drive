@@ -26,7 +26,7 @@ uv sync
 # Install
 uv sync --extra all
 
-# Convert Arrow to PufferDrive .bin
+# Convert py123d Arrow output to PufferDrive .bin
 uv run convert --py123d_path /data/123d --output ./output
 
 # Inspect in the browser
@@ -38,9 +38,11 @@ uv run viz ./output/map_000.bin ./output/map_000.mp4
 
 Open `http://localhost:8080`.
 
+`viz` uses `ffmpeg` through Matplotlib's `FFMpegWriter`, so install `ffmpeg` on your system first.
+
 ## CLIs
 
-- `convert`: 123D Arrow -> PufferDrive `.bin`
+- `convert`: py123d output root (`logs/` + `maps/`) -> PufferDrive `.bin`
 - `build`: build Docker images for the extraction/conversion pipeline
 - `web`: browser viewer for `.bin` files
 - `viz`: render `.bin` files to mp4
@@ -51,6 +53,12 @@ Basic use:
 
 ```bash
 uv run convert --py123d_path /path/to/123d --output ./output
+```
+
+Mental model:
+
+```text
+py123d output root -> load scene/map -> extract PufferScenario -> transforms -> serialize -> .bin
 ```
 
 Examples:
@@ -117,6 +125,7 @@ Validation levels:
 
 ```bash
 # Browser viewer
+uv sync --extra viz
 uv run web --dir ./output --port 8080
 
 # MP4 renderer
@@ -126,6 +135,8 @@ uv run viz ./output/map_000.bin ./videos/map_000.mp4
 - browse `.bin` scenarios from a directory
 - inspect map, agents, route, and traffic controls
 - playback, follow-ego, selection, and layer toggles
+- `web` and `viz` require `uv sync --extra viz` or `uv sync --extra all`
+- `viz` requires `ffmpeg` on your system
 
 ## Docker Images
 
@@ -147,8 +158,9 @@ uv run build 123drive --ref v0.2.0
 Images are portable — run them however you want (`docker run`, Kubernetes, etc.).
 
 - `py123d-<dataset>` is an opinionated BEV-oriented extractor with raw sensors disabled
-- `123drive:<ref>` is a thin runtime image that forwards args directly to `convert`
+- `123drive:<ref>` is a thin uv-backed runtime image that forwards args directly to `convert`
 - `build` requires Docker
+- Dockerfiles require BuildKit because they use `RUN --mount=type=cache`
 
 ## Docs
 

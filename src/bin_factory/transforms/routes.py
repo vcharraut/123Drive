@@ -38,6 +38,10 @@ MOVEMENT_THRESHOLD = 0.5
 
 
 def process_agent_routes(scenario, min_route_valid_points=0, route_check_timestep=0):
+    scenario_length = scenario.metadata.scenario_length
+    if scenario_length > 0 and route_check_timestep >= scenario_length:
+        return
+
     lane_data = _extract_lane_centers(scenario.map)
     route_cache = build_route_cache(scenario.map, lane_data)
 

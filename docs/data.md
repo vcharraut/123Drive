@@ -13,7 +13,7 @@ This project intentionally exposes a small subset of `123D` into the PufferDrive
 | Road lines | polyline + mapped line type |
 | Road edges | polyline + mapped edge type |
 | Crosswalks | polygon |
-| Traffic lights | per-timestep state + controlled lane ids |
+| Traffic controls | traffic lights, stop signs, and yield signs with controlled lane ids |
 | Metadata | id, dataset, scenario length, timestep seconds |
 
 ## Not included in v0.1
@@ -22,5 +22,5 @@ This project intentionally exposes a small subset of `123D` into the PufferDrive
 |------|--------------|
 | Agent dynamics | acceleration, angular rates, steering, wheelbase |
 | Map detail | lane boundaries, lane groups, intersections, walkways, carparks, generic drivable areas |
-| Rich traffic controls | stop signs, yield signs, speed-limit signs, cones, barriers |
+| Rich traffic controls | speed-limit signs, cones, barriers |
 | Multiple route hypotheses | only one route is stored today |
