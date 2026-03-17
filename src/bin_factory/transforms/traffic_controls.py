@@ -6,7 +6,7 @@ from bin_factory import types as puffer_types
 DEFAULT_LANE_WIDTH = 3.7
 
 
-def process_traffic_controls(scenario, traffic_lights, stop_zones):
+def process_traffic_controls(scenario, extras):
     map_data = scenario.map
     scenario_length = scenario.metadata.scenario_length
 
@@ -15,7 +15,7 @@ def process_traffic_controls(scenario, traffic_lights, stop_zones):
     elements = []
     covered_lanes = set()
 
-    for element_id, element_data in traffic_lights.items():
+    for element_id, element_data in extras["traffic_lights"].items():
         controlled_lane_id = element_data.controlled_lane
         covered_lanes.add(controlled_lane_id)
 
@@ -36,27 +36,28 @@ def process_traffic_controls(scenario, traffic_lights, stop_zones):
             }
         )
 
-    next_id = max((e["id"] for e in elements), default=-1) + 1
-    for element_data in stop_zones:
-        stop_zone_type = element_data["type"]
-        controlled_lanes = [lid for lid in element_data["controlled_lanes"] if lid not in covered_lanes]
-        if not controlled_lanes:
-            continue
+    if scenario_length <= 0:
+        next_id = max((e["id"] for e in elements), default=-1) + 1
+        for element_data in extras["stop_zones"]:
+            stop_zone_type = element_data["type"]
+            controlled_lanes = [lid for lid in element_data["controlled_lanes"] if lid not in covered_lanes]
+            if not controlled_lanes:
+                continue
 
-        heading = _heading_from_entry_lanes(controlled_lanes[0], lanes_by_id)
-        stop_line = _longest_polygon_edge(element_data["polygon"])
+            heading = _heading_from_entry_lanes(controlled_lanes[0], lanes_by_id)
+            stop_line = _longest_polygon_edge(element_data["polygon"])
 
-        elements.append(
-            {
-                "id": next_id,
-                "controlled_lanes": controlled_lanes,
-                "stop_line": stop_line,
-                "heading": heading,
-                "states": [puffer_types.TLState.UNKNOWN] * scenario_length,
-                "type": stop_zone_type,
-            }
-        )
-        next_id += 1
+            elements.append(
+                {
+                    "id": next_id,
+                    "controlled_lanes": controlled_lanes,
+                    "stop_line": stop_line,
+                    "heading": heading,
+                    "states": [puffer_types.TLState.UNKNOWN] * scenario_length,
+                    "type": stop_zone_type,
+                }
+            )
+            next_id += 1
 
     scenario.traffic_controls = elements
 

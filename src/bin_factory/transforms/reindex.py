@@ -16,8 +16,6 @@ def reindex_scenario_and_extras(scenario, extras):
     }
     extras["stop_zones"] = [_remap_stop_zone(stop_zone, map_id_map) for stop_zone in extras["stop_zones"]]
 
-    return scenario, extras
-
 
 def _remap_map_element(element, map_id_map):
     remapped = {**element}

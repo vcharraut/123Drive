@@ -8,7 +8,12 @@ raw dataset -> [123D] -> .arrow -> [123Drive] -> .bin
 
 ## Install
 
-`123Drive` is `uv`-first. Use Python `3.10`-`3.13`.
+`123Drive` is `uv`-only for now. Use Python `3.10`-`3.13`.
+
+| Workflow | Status |
+|------|------|
+| `uv sync`, `uv run` | supported |
+| Docker build flow | supported |
 
 ```bash
 uv sync --extra all

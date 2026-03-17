@@ -70,7 +70,7 @@ def _convert_one(py123d_data, map_id, output, config):
     # 3. Process scenario (geometry, routes, traffic controls, lane graph)
     if config["reindex_id"]:
         # Reindexing all IDs to a contiguous range (0, n)
-        scenario, extras = transforms.reindex_scenario_and_extras(scenario, extras)
+        transforms.reindex_scenario_and_extras(scenario, extras)
     # Clean polylines and apply Douglas-Peucker simplification
     transforms.process_polylines(scenario, config["max_segment_length"], config["area_threshold"])
     # Interpolate polygons to ensure they are properly closed and have enough points
@@ -78,7 +78,7 @@ def _convert_one(py123d_data, map_id, output, config):
     # Reverse road edges for certain datasets to ensure consistent directionality
     transforms.reverse_road_edges(scenario)
     # Create traffic controls (traffic lights, stop zones) and associate them with map elements
-    transforms.process_traffic_controls(scenario, extras["traffic_lights"], extras["stop_zones"])
+    transforms.process_traffic_controls(scenario, extras)
     # Process agent routes based on their trajectories and the lane graph
     transforms.process_agent_routes(scenario, config["min_route_valid_points"], config["route_check_timestep"])
     # Build lane graph distance matrix for Dijkstra's algorithm
