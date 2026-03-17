@@ -144,21 +144,22 @@ uv run viz ./output/map_000.bin ./videos/map_000.mp4
 # List available datasets
 uv run build list
 
-# Build py123d dataset image
+# Build py123d image
 uv run build py123d --dataset nuplan-mini
 
 # Build 123Drive converter image
 uv run build 123drive
 
-# Build with custom refs
+# Build py123d with a custom ref
 uv run build py123d --dataset nuplan --ref my-branch --no_cache
-uv run build 123drive --ref v0.2.0
 ```
+
+To build a specific `123Drive` version, check out that branch, tag, or commit locally first, then run `uv run build 123drive`.
 
 Images are portable — run them however you want (`docker run`, Kubernetes, etc.).
 
 - `py123d-<dataset>` is an opinionated BEV-oriented extractor with raw sensors disabled
-- `123drive:<ref>` is a thin uv-backed runtime image that forwards args directly to `convert`
+- `123drive:latest` is a thin uv-backed runtime image built from the current checkout and forwards args directly to `convert`
 - `build` requires Docker
 - Dockerfiles require BuildKit because they use `RUN --mount=type=cache`
 

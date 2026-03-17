@@ -5,6 +5,7 @@ import sys
 
 
 if __name__ == "__main__":
-    cmd = ["convert", "--py123d_path", "/input", "--output", "/output", *sys.argv[1:]]
+    os.chdir("/app/123Drive")
+    cmd = ["uv", "run", "convert", "--py123d_path", "/input", "--output", "/output", *sys.argv[1:]]
     print(f"$ {' '.join(cmd)}")
-    os.execvp("convert", cmd)
+    os.execvp("uv", cmd)

@@ -2,12 +2,19 @@
 
 Build-only CLI for 123Drive Docker images. Produces reusable images for both pipeline steps — users run them however they want.
 
+Install policy:
+
+- `123Drive` remains uv-only
+- the `123drive` image installs the repo with `uv sync`
+- plain `pip install 123Drive` is not a supported public install path
+- Docker builds require BuildKit because the Dockerfiles use `RUN --mount=type=cache`
+
 ## Images
 
 | Image              | Dockerfile                        | Purpose                         |
 | ------------------ | --------------------------------- | ------------------------------- |
 | `py123d-{dataset}` | `dockerfiles/py123d.Dockerfile`   | Raw dataset → 123D Arrow        |
-| `123drive:{ref}`   | `dockerfiles/123drive.Dockerfile` | 123D Arrow → PufferDrive `.bin` |
+| `123drive:latest`  | `dockerfiles/123drive.Dockerfile` | 123D Arrow → PufferDrive `.bin` |
 
 ## Build
 
@@ -19,14 +26,15 @@ uv run build list
 uv run build py123d --dataset nuplan-mini
 uv run build py123d --dataset nuplan --ref my-branch
 
-# Build 123Drive runtime image
+# Build 123Drive runtime image from the current checkout
 uv run build 123drive
-uv run build 123drive --ref v0.2.0
 
 # Print docker commands without executing
 uv run build py123d --dataset wod-motion --dry_run
 uv run build 123drive --dry_run
 ```
+
+To build a specific `123Drive` version, check out that branch, tag, or commit locally first, then run `uv run build 123drive`.
 
 ## Run
 
@@ -57,16 +65,17 @@ docker run --rm \
   -e CUDA_VISIBLE_DEVICES= \
   -e TF_CPP_MIN_LOG_LEVEL=3 \
   --shm-size=10g \
-  # or --ipc=host to share the host's /dev/shm (unlimited, but no isolation)
   py123d-nuplan-mini \
   --splits nuplan-mini_train nuplan-mini_val
 ```
+
+Use `--ipc=host` instead of `--shm-size` only if you explicitly want to share the host's `/dev/shm`.
 
 For nuPlan datasets, mount the dataset root that contains both `maps/` and `nuplan-v1.1/`.
 
 ### 123Drive image
 
-The 123Drive image is runtime only. Pass any `convert` argument supported by `src/bin_factory/main.py`. The entrypoint auto-wires `--py123d_path /input --output /output`.
+The 123Drive image is runtime only. Pass any `convert` argument supported by `src/bin_factory/main.py`. The image installs the current checkout with `uv sync`, and the entrypoint auto-wires `--py123d_path /input --output /output`.
 
 Example:
 
@@ -76,8 +85,9 @@ docker run --rm \
   -v /host/bin_output:/output \
   -e CUDA_VISIBLE_DEVICES= \
   --shm-size=10g \
-  # or --ipc=host to share the host's /dev/shm (unlimited, but no isolation)
-  123drive:main \
+  123drive:local \
   --workers 8 \
   --validate_level 1
 ```
+
+Use `--ipc=host` instead of `--shm-size` only if you explicitly want to share the host's `/dev/shm`.

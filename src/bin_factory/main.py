@@ -135,6 +135,7 @@ def _validate_args(args, parser):
     py123d_data_root = args.py123d_path or os.environ.get("PY123D_DATA_ROOT")
     if not py123d_data_root:
         parser.error("--py123d_path is required (or set PY123D_DATA_ROOT environment variable)")
+    assert py123d_data_root is not None
 
     return args, py123d_data_root
 

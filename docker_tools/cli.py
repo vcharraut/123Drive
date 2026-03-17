@@ -9,6 +9,7 @@ from docker_tools import py123d_config
 
 
 DOCKERFILES_DIR = pathlib.Path(__file__).parent / "dockerfiles"
+REPO_ROOT = DOCKERFILES_DIR.parent.parent
 
 
 def _sanitize_tag(ref):
@@ -20,6 +21,7 @@ def _docker_build_cmd(
     tag: str,
     build_args: dict[str, str] | None = None,
     no_cache: bool = False,
+    context_dir: pathlib.Path | None = None,
 ) -> list[str]:
     """Assemble a docker build command."""
     cmd = ["docker", "build"]
@@ -30,7 +32,7 @@ def _docker_build_cmd(
     for k, v in (build_args or {}).items():
         cmd += ["--build-arg", f"{k}={v}"]
 
-    cmd += ["-f", str(DOCKERFILES_DIR / dockerfile), "-t", tag, str(DOCKERFILES_DIR.parent)]
+    cmd += ["-f", str(DOCKERFILES_DIR / dockerfile), "-t", tag, str(context_dir or DOCKERFILES_DIR.parent)]
     return cmd
 
 
@@ -79,10 +81,7 @@ def cmd_py123d(args: argparse.Namespace) -> None:
 
 def cmd_123drive(args: argparse.Namespace) -> None:
     """Build the 123Drive converter Docker image."""
-    ref = args.ref or "main"
-    name = f"123drive:{_sanitize_tag(ref)}"
-
-    cmd = _docker_build_cmd("123drive.Dockerfile", name, {"DRIVE123_REF": ref}, args.no_cache)
+    cmd = _docker_build_cmd("123drive.Dockerfile", "123drive", None, args.no_cache, context_dir=REPO_ROOT)
     run_cmd(cmd, args.dry_run, label="docker build")
 
 
@@ -100,7 +99,6 @@ def main() -> None:
     py123d_parser.add_argument("--dry_run", action="store_true", help="Print commands without running")
 
     drive_parser = sub.add_parser("123drive", help="Build 123Drive converter image")
-    drive_parser.add_argument("--ref", default="main", help="123Drive git ref (branch/commit). Default: main")
     drive_parser.add_argument("--no_cache", action="store_true", help="Build without Docker cache")
     drive_parser.add_argument("--dry_run", action="store_true", help="Print commands without running")
 
