@@ -10,6 +10,7 @@ from docker_tools import py123d_config
 
 DOCKERFILES_DIR = pathlib.Path(__file__).parent / "dockerfiles"
 REPO_ROOT = DOCKERFILES_DIR.parent.parent
+DEFAULT_PY_VERSION = "3.13"
 
 
 def _sanitize_tag(ref):
@@ -69,7 +70,7 @@ def cmd_py123d(args: argparse.Namespace) -> None:
     ref = args.ref or "main"
     name = f"py123d-{args.dataset}:{_sanitize_tag(ref)}"
     build_args = {
-        "PYTHON_VERSION": config.get("python_version", "3.12"),
+        "PYTHON_VERSION": config.get("python_version", DEFAULT_PY_VERSION),
         "EXTRAS": config["extras"],
         "DATASET": args.dataset,
         "PY123D_REF": ref,
