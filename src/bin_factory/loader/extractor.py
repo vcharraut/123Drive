@@ -156,7 +156,7 @@ def _extract_traffic_lights(
                 position = _get_lane_position(map_api, lane_id, centroid)
                 elements[lane_id] = schema.TrafficLightTrack(
                     position=np.array(position, dtype=np.float64),
-                    states=[None] * scene_api.number_of_iterations,
+                    states=[puffer_types.TLState.UNKNOWN] * scene_api.number_of_iterations,
                     controlled_lane=lane_id,
                 )
 
