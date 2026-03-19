@@ -53,17 +53,13 @@ def load_scenes(
 
         return maps
 
-    # TODO: To delete at release
-    map_api_required = datasets is not None and any(d.startswith(("nuplan",)) for d in datasets)
-
     scene_filter = py123d_api.SceneFilter(
         datasets=datasets,
         split_types=split_types,
         split_names=split_names,
         log_names=log_names,
-        duration_s=duration_s,
-        history_s=history_s,
-        map_api_required=True,
+        future_duration_s=duration_s,
+        history_duration_s=history_s,
         max_num_scenes=num_scenes,
     )
 
