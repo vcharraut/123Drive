@@ -32,6 +32,7 @@ def build_parser():
     parser.add_argument("--split_types", nargs="+", help="Split types to include (e.g. train, val, test)")
     parser.add_argument("--split_names", nargs="+", help="Split names to include (e.g. nuplan-mini_val)")
     parser.add_argument("--log_names", nargs="+", help="Log names to include")
+    parser.add_argument("--scene_uuids", nargs="+", help="Scene UUIDs to include (for debugging specific scenarios)")
     parser.add_argument("--duration_s", type=float, default=0.0, help="Duration of scenario in seconds")
     parser.add_argument("--history_s", type=float, default=0.0, help="History duration in seconds")
     parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios (no logs)")
@@ -106,7 +107,7 @@ def _convert_one_safe(py123d_data, map_id, output, config):
 
 
 def _validate_args(args, parser):
-    for attr in ("datasets", "split_types", "split_names", "log_names"):
+    for attr in ("datasets", "split_types", "split_names", "log_names", "scene_uuids"):
         values = getattr(args, attr)
         cleaned = [v.strip() for v in (values or []) if v and v.strip()] or None
         setattr(args, attr, cleaned)
@@ -170,6 +171,7 @@ def main():
             split_types=args.split_types,
             split_names=args.split_names,
             log_names=args.log_names,
+            scene_uuids=args.scene_uuids,
             history_s=args.history_s,
             duration_s=None if args.duration_s == 0.0 else args.duration_s,
             map_only=args.map_only,

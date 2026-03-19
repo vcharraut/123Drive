@@ -267,10 +267,6 @@ def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> d
             "speed_limit_mps": speed_limit_mps,
             "entry_lanes": map_object.predecessor_ids,
             "exit_lanes": map_object.successor_ids,
-            "left_boundary": map_object.left_boundary,
-            "right_boundary": map_object.right_boundary,
-            "left_lane": map_object.left_lane,
-            "right_lane": map_object.right_lane,
         }
 
     if layer in (map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE):
