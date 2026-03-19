@@ -9,14 +9,10 @@ INPUT_MOUNT = "/input"
 OUTPUT_MOUNT = "/output"
 
 HYDRA_OVERRIDES = [
-    "force_map_conversion=true",
-    "force_log_conversion=true",
+    "dataset.log_writer_config.force_log_conversion=true",
+    "dataset.map_writer.force_map_conversion=true",
     "scene_filter.shuffle=false",
-    "dataset.dataset_converter_config.include_pinhole_cameras=false",
-    "dataset.dataset_converter_config.include_lidars=false",
-    "dataset.dataset_converter_config.include_fisheye_mei_cameras=false",
-    "dataset.dataset_converter_config.include_route=false",
-    "dataset.dataset_converter_config.include_scenario_tags=false",
+    "+dataset.log_writer_config.exclude_modality_types=[camera,lidar,custom]", # NOTE: We shouldn't make the +
 ]
 
 DATASET_CONFIGS = {

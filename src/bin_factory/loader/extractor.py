@@ -27,7 +27,7 @@ def extract_scenario(py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI) -> tu
         scenario_id = py123_arrow.location
     else:
         scene_api = py123_arrow
-        map_api = scene_api.map_api
+        map_api = scene_api.get_map_api()
         scenario_id = scene_api.log_name
 
     if map_api is None:
@@ -110,7 +110,7 @@ def _extract_objects(scene_api: py123d_api.SceneAPI, centroid: np.ndarray, ego_s
         if not detections_list:
             continue
         for detection in detections_list:
-            track_token = detection.metadata.track_token
+            track_token = detection.attributes.track_token
             if track_token in tokens_to_object_id:
                 object_id = tokens_to_object_id[track_token]
             else:
@@ -119,7 +119,7 @@ def _extract_objects(scene_api: py123d_api.SceneAPI, centroid: np.ndarray, ego_s
                 tokens_to_object_id[track_token] = object_id
 
             if object_id not in objects:
-                objects[object_id] = _make_empty_track(episode_length, detection.metadata.default_label)
+                objects[object_id] = _make_empty_track(episode_length, detection.attributes.default_label)
 
             bbox = detection.bounding_box_se3
             obj = objects[object_id]
@@ -392,7 +392,7 @@ def _centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
 
 
 def _get_lane_position(map_api: py123d_api.MapAPI, lane_id: int, center: np.ndarray) -> list[float]:
-    lane = map_api.get_map_object(lane_id, map_objects.MapLayer.LANE)
+    lane = map_api.get_map_object_in_layer(lane_id, map_objects.MapLayer.LANE)
     if lane is None or not isinstance(lane, map_objects.Lane):
         raise ValueError(f"Lane {lane_id} not found or has no centerline")
 
