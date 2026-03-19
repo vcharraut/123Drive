@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 
 import numpy as np
-import shapely.geometry as geom
 from py123d import api as py123d_api
 from py123d import geometry as py123d_geometry
 from py123d.datatypes import detections, map_objects
@@ -28,7 +27,7 @@ def extract_scenario(py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI) -> tu
     else:
         scene_api = py123_arrow
         map_api = scene_api.get_map_api()
-        scenario_id = scene_api.log_name
+        scenario_id = scene_api.scene_uuid
 
     if map_api is None:
         raise ValueError("Map API is required to convert scenario")
@@ -195,15 +194,19 @@ def _extract_map(map_api, centroid: np.ndarray, map_only: bool = False) -> tuple
     stop_zones = []
     non_lane_objects = []
     undefined_lane = []
-    skipped_layers = {
-        map_objects.MapLayer.LANE_GROUP,
-        map_objects.MapLayer.INTERSECTION,
-        map_objects.MapLayer.WALKWAY,
-        map_objects.MapLayer.CARPARK,
-        map_objects.MapLayer.GENERIC_DRIVABLE,
+    all_map_layers = {
+        map_objects.MapLayer.LANE,
+        # map_objects.MapLayer.LANE_GROUP,
+        # map_objects.MapLayer.INTERSECTION,
+        map_objects.MapLayer.CROSSWALK,
+        # map_objects.MapLayer.WALKWAY,
+        # map_objects.MapLayer.CARPARK,
+        # map_objects.MapLayer.GENERIC_DRIVABLE,
+        map_objects.MapLayer.STOP_ZONE,
+        map_objects.MapLayer.ROAD_EDGE,
+        map_objects.MapLayer.ROAD_LINE,
     }
 
-    all_map_layers = map_api.get_available_map_layers()
     if map_only or map_api.map_is_per_log:
         map_objs = _get_map_objects(map_api, all_map_layers)
     else:
@@ -231,16 +234,12 @@ def _extract_map(map_api, centroid: np.ndarray, map_only: bool = False) -> tuple
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
     next_id = max(result.keys(), default=-1) + 1
     for obj in non_lane_objects:
-        if obj.layer not in skipped_layers:
-            if obj.layer == map_objects.MapLayer.STOP_ZONE:
-                sz = _convert_stop_zone(obj, centroid)
-                if sz is not None:
-                    stop_zones.append(sz)
-                continue
-
-            element = _convert_map_object_to_static_element(obj, centroid)
-            if element is None:
-                continue
+        element = _convert_map_object_to_static_element(obj, centroid)
+        if element is None:
+            continue
+        if obj.layer == map_objects.MapLayer.STOP_ZONE:
+            stop_zones.append(element)
+        else:
             result[next_id] = element
             next_id += 1
 
@@ -293,25 +292,21 @@ def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> d
             "polygon": _centered_array(map_object.outline_3d.array, centroid),
         }
 
+    if layer == map_objects.MapLayer.STOP_ZONE:
+        puffer_type = mapping.STOP_ZONE_TYPE_MAP.get(map_object.stop_zone_type)
+        if puffer_type is None:
+            return None
+        return {
+            "type": puffer_type,
+            "polygon": _centered_array(map_object.outline_3d.array, centroid),
+            "controlled_lanes": map_object.lane_ids,
+        }
+
     raise ValueError(f"Unsupported map object layer: {layer}")
 
 
-def _convert_stop_zone(map_object, centroid: np.ndarray) -> dict | None:
-    """Convert stop zone to separate dict with puffer TCType."""
-    puffer_type = mapping.STOP_ZONE_TYPE_MAP.get(map_object.stop_zone_type)
-    if puffer_type is None:
-        return None
-    return {
-        "type": puffer_type,
-        "polygon": _centered_array(map_object.outline_3d.array, centroid),
-        "controlled_lanes": map_object.lane_ids,
-    }
-
-
 def _get_map_objects(map_api: py123d_api.MapAPI, layers: list[map_objects.MapLayer]) -> list:
-    objects_by_layer = map_api.query(geom.box(-1e9, -1e9, 1e9, 1e9), layers=layers, predicate="intersects")
-
-    return [obj for layer in layers for obj in objects_by_layer.get(layer, [])]
+    return [obj for layer in layers for obj in map_api.get_all_map_objects_in_layer(layer)]
 
 
 def _make_empty_track(episode_length, agent_type):

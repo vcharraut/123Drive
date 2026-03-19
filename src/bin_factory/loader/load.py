@@ -20,6 +20,7 @@ def load_scenes(
     split_types: list[str] | None = None,
     split_names: list[str] | None = None,
     log_names: list[str] | None = None,
+    scene_uuids: list[str] | None = None,
     duration_s: float | None = None,
     history_s: float | None = 0.0,
     map_only: bool = False,
@@ -58,9 +59,11 @@ def load_scenes(
         split_types=split_types,
         split_names=split_names,
         log_names=log_names,
+        scene_uuids=scene_uuids,
         future_duration_s=duration_s,
         history_duration_s=history_s,
         max_num_scenes=num_scenes,
+        required_scene_modalities=["box_detections_se3:any"],
     )
 
     return py123d_api.get_filtered_scenes(
