@@ -11,6 +11,8 @@
 # Documentation and other files
 *.json
 *.pdf
-*.lock
+
 # IDE and environment files
 .vscode/
+.venv/
+.ruff_cache/
