@@ -8,7 +8,7 @@ raw dataset -> [123D] -> .arrow -> [123Drive] -> .bin
 
 ## Install
 
-`123Drive` is `uv`-only. Use Python `3.10`-`3.13` from a local git checkout.
+`123Drive` is `uv`-only. Use Python `3.11`-`3.13` from a local git checkout.
 
 Pick the smallest extra that matches your workflow:
 

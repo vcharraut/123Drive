@@ -7,7 +7,7 @@ name = "123Drive"
 version = "0.1.0"
 description = "123D arrow files -> PufferDrive binaries"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
@@ -15,7 +15,6 @@ authors = [
 ]
 keywords = ["autonomous-driving", "dataset-conversion", "pufferdrive", "123d"]
 classifiers = [
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
