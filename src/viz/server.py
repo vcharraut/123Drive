@@ -13,7 +13,6 @@ try:
 except ImportError as exc:  # pragma: no cover - import guard
     raise SystemExit("Install viz dependencies first: uv sync --extra viz") from exc
 
-from viz.binary_loader import BinaryFormatError, load_puffer_binary
 from viz.utils import as_json_dict
 
 
@@ -65,10 +64,6 @@ def get_scenario(filename: str):
     path = _resolve_scenario_path(filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Scenario not found")
-    try:
-        load_puffer_binary(path)
-    except BinaryFormatError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return FileResponse(path, media_type="application/octet-stream")
 
 

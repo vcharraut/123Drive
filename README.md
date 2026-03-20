@@ -16,12 +16,6 @@ raw dataset -> [123D] -> .arrow -> [123Drive] -> .bin
 | Docker build flow | supported |
 
 ```bash
-uv sync --extra all
-```
-
-If you only need conversion:
-
-```bash
 uv sync
 ```
 
@@ -36,21 +30,15 @@ uv run convert --py123d_path /data/123d --output ./output
 
 # Inspect in the browser
 uv run web --dir ./output
-
-# Or render an mp4
-uv run viz ./output/map_000.bin ./output/map_000.mp4
 ```
 
 Open `http://localhost:8080`.
-
-`viz` uses `ffmpeg` through Matplotlib's `FFMpegWriter`, so install `ffmpeg` on your system first.
 
 ## CLIs
 
 - `convert`: py123d output root (`logs/` + `maps/`) -> PufferDrive `.bin`
 - `build`: build Docker images for the extraction/conversion pipeline
 - `web`: browser viewer for `.bin` files
-- `viz`: render `.bin` files to mp4
 
 ## Convert
 
@@ -126,22 +114,17 @@ Validation levels:
 | `1` | Schema checks: required keys, container types, array shapes, and length consistency |
 | `2` | Semantic checks: schema plus topology refs, finite values, valid traffic-light states, and ego-only temporal sanity |
 
-## Viz
+## Web Viewer
 
 ```bash
 # Browser viewer
 uv sync --extra viz
 uv run web --dir ./output --port 8080
-
-# MP4 renderer
-uv run viz ./output/map_000.bin ./videos/map_000.mp4
 ```
 
 - browse `.bin` scenarios from a directory
 - inspect map, agents, route, and traffic controls
 - playback, follow-ego, selection, and layer toggles
-- `web` and `viz` require `uv sync --extra viz` or `uv sync --extra all`
-- `viz` requires `ffmpeg` on your system
 
 ## Docker Images
 

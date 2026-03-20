@@ -11,6 +11,7 @@ The score favors routes whose concatenated centerline stays close to the
 trajectory while preserving the original directional consistency check.
 """
 
+from dataclasses import dataclass
 import logging
 
 import numpy as np
@@ -35,6 +36,13 @@ DISTANCE_WEIGHT = 0.3
 OFFROAD_DISTANCE_THRESHOLD = 5.0
 STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0
 MOVEMENT_THRESHOLD = 0.5
+
+
+@dataclass(frozen=True)
+class BeamState:
+    route: tuple[int, ...]
+    visited: frozenset[int]
+    score: float
 
 
 def process_agent_routes(scenario, min_route_valid_points=0, route_check_timestep=0):
@@ -221,78 +229,90 @@ def _search_route_beam(root_candidates, route_cache, agent_context, max_length=M
     lane_id_to_idx = route_cache["lane_id_to_idx"]
     trimmed_polylines = route_cache["trimmed_polylines"]
 
-    def rank(state):
-        return (state["score"], len(state["route"]))
-
-    def merge_lane_centerlines(route):
-        parts = []
-        for lane_id in route:
-            lane_idx = lane_id_to_idx.get(lane_id)
-            if lane_idx is None:
-                continue
-            polyline = trimmed_polylines[lane_idx]
-            if len(polyline) == 0:
-                continue
-            if parts and np.allclose(parts[-1][-1], polyline[0]):
-                parts.append(polyline[1:])
-            else:
-                parts.append(polyline)
-        if not parts:
-            return np.zeros((0, 2), dtype=np.float64)
-        return np.concatenate(parts) if len(parts) > 1 else parts[0].copy()
-
-    def score_route_candidates(lane_sequences):
-        if not lane_sequences:
-            return []
-        polylines = [merge_lane_centerlines(seq) for seq in lane_sequences]
-        scores = _score_route_polylines_batch(polylines, agent_context)
-        return [
-            {"route": seq, "visited": set(seq), "score": float(sc)}
-            for seq, sc in zip(lane_sequences, scores, strict=False)
-            if sc > 0
-        ]
-
-    def select_top_states(states):
-        selected, seen = [], set()
-        for state in sorted(states, key=rank, reverse=True):
-            key = tuple(state["route"])
-            if key in seen:
-                continue
-            selected.append(state)
-            seen.add(key)
-            if len(selected) == beam_width:
-                break
-        return selected
-
-    initial_states = score_route_candidates([[lane_id] for lane_id, _ in root_candidates])
-    beam = select_top_states(initial_states)
+    initial_sequences = [(lane_id,) for lane_id, _ in root_candidates]
+    beam = _select_top_beam(
+        _score_lane_sequences(initial_sequences, lane_id_to_idx, trimmed_polylines, agent_context),
+        beam_width,
+    )
     if not beam:
         return [], 0.0
 
-    best_beam_state = max(beam, key=rank)
+    best_beam_state = max(beam, key=_beam_rank)
 
     for _ in range(max_length - 1):
-        candidates = []
-        for beam_state in beam:
-            last_lane = beam_state["route"][-1]
-            exit_lanes = route_cache["lane_graph"].get(last_lane, ())
-            candidates.extend(
-                beam_state["route"] + [exit_id] for exit_id in exit_lanes if exit_id not in beam_state["visited"]
-            )
-
-        if not candidates:
+        candidate_sequences = _expand_beam(beam, route_cache["lane_graph"])
+        if not candidate_sequences:
             break
 
-        expanded_states = score_route_candidates(candidates)
-        beam = select_top_states(expanded_states)
+        beam = _select_top_beam(
+            _score_lane_sequences(candidate_sequences, lane_id_to_idx, trimmed_polylines, agent_context),
+            beam_width,
+        )
         if not beam:
             break
 
-        candidate_best = max(beam, key=rank)
-        if rank(candidate_best) > rank(best_beam_state):
+        candidate_best = max(beam, key=_beam_rank)
+        if _beam_rank(candidate_best) > _beam_rank(best_beam_state):
             best_beam_state = candidate_best
 
-    return best_beam_state["route"], best_beam_state["score"]
+    return list(best_beam_state.route), best_beam_state.score
+
+
+def _beam_rank(state):
+    return (state.score, len(state.route))
+
+
+def _merge_route_centerlines(route, lane_id_to_idx, trimmed_polylines):
+    parts = []
+    for lane_id in route:
+        lane_idx = lane_id_to_idx.get(lane_id)
+        if lane_idx is None:
+            continue
+        polyline = trimmed_polylines[lane_idx]
+        if len(polyline) == 0:
+            continue
+        if parts and np.allclose(parts[-1][-1], polyline[0]):
+            parts.append(polyline[1:])
+        else:
+            parts.append(polyline)
+
+    if not parts:
+        return np.zeros((0, 2), dtype=np.float64)
+    return np.concatenate(parts) if len(parts) > 1 else parts[0].copy()
+
+
+def _score_lane_sequences(lane_sequences, lane_id_to_idx, trimmed_polylines, agent_context):
+    if not lane_sequences:
+        return []
+
+    polylines = [_merge_route_centerlines(sequence, lane_id_to_idx, trimmed_polylines) for sequence in lane_sequences]
+    scores = _score_route_polylines_batch(polylines, agent_context)
+    return [
+        BeamState(route=sequence, visited=frozenset(sequence), score=float(score))
+        for sequence, score in zip(lane_sequences, scores, strict=False)
+        if score > 0
+    ]
+
+
+def _select_top_beam(states, beam_width):
+    selected = []
+    seen = set()
+    for state in sorted(states, key=_beam_rank, reverse=True):
+        if state.route in seen:
+            continue
+        selected.append(state)
+        seen.add(state.route)
+        if len(selected) == beam_width:
+            break
+    return selected
+
+
+def _expand_beam(beam, lane_graph):
+    candidates = []
+    for state in beam:
+        exit_lanes = lane_graph.get(state.route[-1], ())
+        candidates.extend(state.route + (exit_id,) for exit_id in exit_lanes if exit_id not in state.visited)
+    return candidates
 
 
 def _select_root_lane_candidates(

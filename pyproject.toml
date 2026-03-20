@@ -24,23 +24,21 @@ classifiers = [
 ]
 dependencies = [
   "numpy",
-  "scipy",
-  "joblib",
   "tqdm",
+  "ruff",
+  "joblib",
+  "scipy",
   "shapely",
   "py123d",
+  "fastapi",
+  "uvicorn[standard]",
+  "orjson",
 ]
-
-[project.optional-dependencies]
-dev = ["ruff"]
-viz = ["fastapi", "uvicorn[standard]", "orjson", "matplotlib"]
-all = ["ruff", "fastapi", "uvicorn[standard]", "orjson", "matplotlib"]
 
 [project.scripts]
 convert = "bin_factory.main:main"
 build = "docker_tools.cli:main"
 web = "viz.server:main"
-viz = "viz.plot:main"
 
 [tool.setuptools.packages.find]
 where = ["src", "."]

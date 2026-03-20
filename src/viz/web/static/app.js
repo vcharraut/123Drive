@@ -557,21 +557,12 @@ function getStaticLayers(scenario, layerFlags) {
     if (layerFlags.unknowns && unknownEdges.length) layers.push(roadLayer('edges-unknown', unknownEdges, [124, 58, 237], 1.5));
   }
 
-  // Crosswalks + speed bumps + stop signs
+  // Crosswalks + speed bumps
   if (layerFlags.crosswalks) {
     const cw = roads.filter(r => r.type === 31);
     const sb = roads.filter(r => r.type === 32);
-    const ss = roads.filter(r => r.type === 33);
     if (cw.length) layers.push(roadLayer('crosswalks', cw, [217,119,6], 2));
     if (sb.length) layers.push(roadLayer('speed-bumps', sb, [219,39,119], 2));
-    if (ss.length) layers.push(new ScatterplotLayer({
-      id: 'stop-signs', data: ss,
-      getPosition: d => [d.xyz[0], d.xyz[1]],
-      getRadius: 3, radiusUnits: 'pixels',
-      getFillColor: [220,38,38], getLineColor: [255,255,255],
-      stroked: true, lineWidthUnits: 'pixels', getLineWidth: 1,
-      ...onClick(obj => selectElement('road', obj)),
-    }));
   }
 
   // Routes — render lane-by-lane to avoid artificial connector jumps.
