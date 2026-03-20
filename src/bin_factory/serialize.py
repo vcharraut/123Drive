@@ -78,9 +78,11 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
         road_type = int(road["type"])
         buffer.extend(struct.pack("<ii", int(road["id"]), road_type))
         xyz = np.asarray(road["xyz"], dtype=np.float32)
+        heading = np.asarray(road["heading"], dtype=np.float32)
         buffer.extend(struct.pack("<i", len(xyz)))
         for i in range(3):
             buffer.extend(xyz[:, i].tobytes())
+        buffer.extend(heading.tobytes())
         if puffer_types.is_road_lane(road_type):
             _pack_int_list(buffer, road["entry_lanes"])
             _pack_int_list(buffer, road["exit_lanes"])
@@ -175,7 +177,8 @@ def _flatten_road_map(static_map):
             if xyz is None or len(xyz) <= 1:
                 continue
 
-        puffer_elem = {"id": eid, "type": road_type, "xyz": xyz}
+        heading = _compute_road_heading(xyz)
+        puffer_elem = {"id": eid, "type": road_type, "xyz": xyz, "heading": heading}
 
         if puffer_types.is_road_lane(road_type):
             puffer_elem["speed_limit"] = elem["speed_limit_mps"]
@@ -185,6 +188,13 @@ def _flatten_road_map(static_map):
         elements.append(puffer_elem)
 
     return elements
+
+
+def _compute_road_heading(xyz):
+    pts = np.asarray(xyz, dtype=np.float64)
+    diffs = np.diff(pts[:, :2], axis=0)
+    seg_headings = np.arctan2(diffs[:, 1], diffs[:, 0])
+    return np.append(seg_headings, seg_headings[-1]).astype(np.float32)
 
 
 def _flatten_traffic_controls(traffic_controls):

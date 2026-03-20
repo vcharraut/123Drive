@@ -2,10 +2,10 @@ import enum
 
 
 class AgentType(enum.IntEnum):
+    OTHER = 0
     VEHICLE = 1
     PEDESTRIAN = 2
     CYCLIST = 3
-    OTHER = 4
 
 
 class LaneType(enum.IntEnum):

@@ -119,6 +119,7 @@ def _read_road_map_element(f):
         ],
         axis=1,
     )
+    heading = _read_float_array(f, segment_length)
     entry_lanes = []
     exit_lanes = []
     speed_limit = 0.0
@@ -130,6 +131,7 @@ def _read_road_map_element(f):
         "id": road_id,
         "type": road_type,
         "xyz": xyz,
+        "heading": heading,
         "entry_lanes": entry_lanes,
         "exit_lanes": exit_lanes,
         "speed_limit": speed_limit,

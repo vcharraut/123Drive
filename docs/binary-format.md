@@ -32,9 +32,9 @@ Each agent is laid out sequentially:
 | int32 × T | `valid` | 1 if observation exists at this timestep |
 | int32 | `n_route_lanes` | Number of lane IDs in route |
 | int32 × n_route_lanes | `route_lane_ids` | Ordered lane ID sequence |
-| float32 | `goal_x` | Last valid position x |
-| float32 | `goal_y` | Last valid position y |
-| float32 | `goal_z` | Last valid position z |
+| float32 | `goal_x` | Last valid x position |
+| float32 | `goal_y` | Last valid y position |
+| float32 | `goal_z` | Last valid z position |
 | int32 | `mark_as_expert` | 0 if route exists, 1 otherwise |
 
 ## Road Map Elements (× n_road_elements)
@@ -47,6 +47,7 @@ Each agent is laid out sequentially:
 | float32 × N | `x` | Column-major |
 | float32 × N | `y` | |
 | float32 × N | `z` | |
+| float32 × N | `heading` | Per-point heading (radians) |
 
 **Lane-only fields** (type 0–9):
 
@@ -79,6 +80,26 @@ Each agent is laid out sequentially:
 | int32 × n_states | `states` | 0=UNKNOWN, 1=GREEN, 2=YELLOW, 3=RED, 4=OFF |
 | int32 | `n_controlled_lanes` | |
 | int32 × n_controlled_lanes | `controlled_lane_ids` | |
+
+## Objects (× n_objects)
+
+Same dynamic state layout as agents, without route/goal/mark_as_expert:
+
+| Type | Field | Notes |
+|------|-------|-------|
+| int32 | `id` | Object ID |
+| int32 | `type` | Object type enum |
+| int32 | `T` | Trajectory length |
+| float32 × T | `x` | Column-major |
+| float32 × T | `y` | |
+| float32 × T | `z` | |
+| float32 × T | `heading` | Radians |
+| float32 × T | `vx` | Velocity x component |
+| float32 × T | `vy` | Velocity y component |
+| float32 × T | `length` | Bounding box length per timestep |
+| float32 × T | `width` | Bounding box width per timestep |
+| float32 × T | `height` | Bounding box height per timestep |
+| int32 × T | `valid` | 1 if observation exists at this timestep |
 
 ## Lane Graph Distances
 
