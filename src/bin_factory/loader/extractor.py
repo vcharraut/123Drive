@@ -194,18 +194,7 @@ def _extract_map(map_api, centroid: np.ndarray, map_only: bool = False) -> tuple
     stop_zones = []
     non_lane_objects = []
     undefined_lane = []
-    all_map_layers = {
-        map_objects.MapLayer.LANE,
-        # map_objects.MapLayer.LANE_GROUP,
-        # map_objects.MapLayer.INTERSECTION,
-        map_objects.MapLayer.CROSSWALK,
-        # map_objects.MapLayer.WALKWAY,
-        # map_objects.MapLayer.CARPARK,
-        # map_objects.MapLayer.GENERIC_DRIVABLE,
-        map_objects.MapLayer.STOP_ZONE,
-        map_objects.MapLayer.ROAD_EDGE,
-        map_objects.MapLayer.ROAD_LINE,
-    }
+    all_map_layers = map_api.get_available_map_layers()
 
     if map_only or map_api.map_is_per_log:
         map_objs = _get_map_objects(map_api, all_map_layers)
@@ -221,10 +210,11 @@ def _extract_map(map_api, centroid: np.ndarray, map_only: bool = False) -> tuple
     for obj in map_objs:
         if obj.layer == map_objects.MapLayer.LANE:
             element = _convert_map_object_to_static_element(obj, centroid)
-            if element is not None:
-                result[obj.object_id] = element
-                if obj.lane_type == map_objects.LaneType.UNDEFINED:
-                    undefined_lane.append(obj.object_id)
+            if element is None:
+                continue
+            result[obj.object_id] = element
+            if obj.lane_type == map_objects.LaneType.UNDEFINED:
+                undefined_lane.append(obj.object_id)
         else:
             non_lane_objects.append(obj)
 
@@ -249,14 +239,12 @@ def _extract_map(map_api, centroid: np.ndarray, map_only: bool = False) -> tuple
 def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> dict | None:
     """Convert 123D map object to unified static element dict with puffer types."""
     layer = map_object.layer
-    type_map_for_layer = mapping.ROAD_TYPE_MAP.get(layer)
-    if type_map_for_layer is None:
-        raise ValueError(f"Unsupported map object layer: {layer}")
+    layer_map = mapping.MAP_TYPE_MAP.get(layer)
+    if layer_map is None:
+        return None
 
     if layer == map_objects.MapLayer.LANE:
-        puffer_type = type_map_for_layer.get(map_object.lane_type, -1)
-        if puffer_type == -1:
-            return None
+        puffer_type = mapping.MAP_TYPE_MAP.get(layer).get(map_object.lane_type, -1)
         if not map_object.speed_limit_mps or np.isnan(map_object.speed_limit_mps):
             speed_limit_mps = -1.0
         else:
@@ -267,38 +255,34 @@ def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> d
             "speed_limit_mps": speed_limit_mps,
             "entry_lanes": map_object.predecessor_ids,
             "exit_lanes": map_object.successor_ids,
+            "left_boundary": _centered_array(map_object.left_boundary.array, centroid),
+            "right_boundary": _centered_array(map_object.right_boundary.array, centroid),
         }
 
     if layer in (map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE):
         subtype = map_object.road_line_type if layer == map_objects.MapLayer.ROAD_LINE else map_object.road_edge_type
-        puffer_type = type_map_for_layer.get(subtype, -1)
-        if puffer_type == -1:
-            return None
+        puffer_type = mapping.MAP_TYPE_MAP.get(layer).get(subtype, -1)
         return {
             "type": puffer_type,
             "polyline": _centered_array(map_object.polyline_3d.array, centroid),
         }
 
     if layer == map_objects.MapLayer.CROSSWALK:
-        puffer_type = type_map_for_layer.get(None, -1)
-        if puffer_type == -1:
-            return None
+        puffer_type = mapping.MAP_TYPE_MAP.get(layer).get(None, -1)
         return {
             "type": puffer_type,
             "polygon": _centered_array(map_object.outline_3d.array, centroid),
         }
 
     if layer == map_objects.MapLayer.STOP_ZONE:
-        puffer_type = mapping.STOP_ZONE_TYPE_MAP.get(map_object.stop_zone_type)
-        if puffer_type is None:
-            return None
+        puffer_type = mapping.MAP_TYPE_MAP.get(layer).get(map_object.stop_zone_type, -1)
         return {
             "type": puffer_type,
             "polygon": _centered_array(map_object.outline_3d.array, centroid),
             "controlled_lanes": map_object.lane_ids,
         }
 
-    raise ValueError(f"Unsupported map object layer: {layer}")
+    raise ValueError(f"Unsupported map layer {layer} for object ID {map_object.object_id}")
 
 
 def _get_map_objects(map_api: py123d_api.MapAPI, layers: list[map_objects.MapLayer]) -> list:

@@ -244,7 +244,7 @@ function cropPathToStart(path, startPos) {
 
 function getAgentRouteSegments(agent, roadMap) {
   const startPos = getAgentRouteStart(agent);
-  const laneSegments = (agent.route || [])
+  return (agent.route || [])
     .map(laneId => roadMap.get(laneId))
     .filter(road => road && Array.isArray(road.xyz) && road.xyz.length > 1)
     .map((road, idx) => {
@@ -253,12 +253,6 @@ function getAgentRouteSegments(agent, roadMap) {
       return {path: croppedPath, laneId: road.id, agentId: agent.id};
     })
     .filter(seg => seg.path.length > 1);
-
-  if (laneSegments.length) return laneSegments;
-  if (Array.isArray(agent.route_polyline) && agent.route_polyline.length > 1) {
-    return [{path: agent.route_polyline.map(([x, y]) => [x, y]), agentId: agent.id}];
-  }
-  return [];
 }
 
 // ── deck.gl setup ──────────────────────────────────────────────────────────
