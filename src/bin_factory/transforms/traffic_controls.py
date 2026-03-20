@@ -3,9 +3,6 @@ import numpy as np
 from bin_factory import types as puffer_types
 
 
-DEFAULT_LANE_WIDTH = 3.7
-
-
 def process_traffic_controls(scenario, extras) -> None:
     map_data = scenario.map
     scenario_length = scenario.metadata.scenario_length
