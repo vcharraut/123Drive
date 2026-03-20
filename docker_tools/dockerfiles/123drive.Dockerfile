@@ -17,7 +17,7 @@ COPY . /app/123Drive
 WORKDIR /app/123Drive
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --no-dev
+    uv sync --extra convert --frozen --no-dev
 
 COPY docker_tools/123drive_entrypoint.py /app/123drive_entrypoint.py
 

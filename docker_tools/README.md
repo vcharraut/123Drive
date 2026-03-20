@@ -1,11 +1,12 @@
 # docker_tools
 
-Build-only CLI for 123Drive Docker images. Produces reusable images for both pipeline steps — users run them however they want.
+Build-only CLI for 123Drive Docker images. Produce reusable images for both pipeline steps, then run them however you want.
 
 Install policy:
 
+- `build` requires `uv sync --extra docker` or `uv sync --extra all`
 - `123Drive` remains uv-only
-- the `123drive` image installs the repo with `uv sync`
+- the `123drive` image installs the repo with `uv sync --extra convert --frozen`
 - plain `pip install 123Drive` is not a supported public install path
 - Docker builds require BuildKit because the Dockerfiles use `RUN --mount=type=cache`
 
@@ -19,6 +20,8 @@ Install policy:
 ## Build
 
 ```bash
+uv sync --extra docker
+
 # List supported py123d datasets
 uv run build list
 
@@ -38,7 +41,7 @@ To build a specific `123Drive` version, check out that branch, tag, or commit lo
 
 ## Run
 
-The CLI only builds images. Run them directly with Docker. Both images use `/input` and `/output` as standard mount points — bind-mount your host folders there.
+The CLI only builds images. Run them directly with Docker. Both images use `/input` and `/output` as standard mount points - bind-mount your host folders there.
 
 ### py123d image
 
@@ -75,7 +78,7 @@ For nuPlan datasets, mount the dataset root that contains both `maps/` and `nupl
 
 ### 123Drive image
 
-The 123Drive image is runtime only. Pass any `convert` argument supported by `src/bin_factory/main.py`. The image installs the current checkout with `uv sync`, and the entrypoint auto-wires `--py123d_path /input --output /output`.
+The 123Drive image is runtime only. Pass any `convert` argument supported by `src/bin_factory/main.py`. The image installs the current checkout with `uv sync --extra convert --frozen`, and the entrypoint auto-wires `--py123d_path /input --output /output`.
 
 Example:
 

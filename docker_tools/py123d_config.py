@@ -12,7 +12,7 @@ HYDRA_OVERRIDES = [
     "dataset.log_writer_config.force_log_conversion=true",
     "dataset.map_writer.force_map_conversion=true",
     "scene_filter.shuffle=false",
-    "+dataset.log_writer_config.exclude_modality_types=[camera,lidar,custom]", # NOTE: We shouldn't make the +
+    "+dataset.log_writer_config.exclude_modality_types=[camera,lidar,custom]",  # NOTE: We shouldn't make the +
 ]
 
 DATASET_CONFIGS = {

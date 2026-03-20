@@ -8,28 +8,38 @@ raw dataset -> [123D] -> .arrow -> [123Drive] -> .bin
 
 ## Install
 
-`123Drive` is `uv`-only for now. Use Python `3.10`-`3.13`.
+`123Drive` is `uv`-only. Use Python `3.10`-`3.13` from a local git checkout.
 
-| Workflow | Status |
-|------|------|
-| `uv sync`, `uv run` | supported |
-| Docker build flow | supported |
+Pick the smallest extra that matches your workflow:
+
+- `uv sync --extra convert`: dataset conversion
+- `uv sync --extra viz`: browser viewer
+- `uv sync --extra docker`: Docker image builder
+- `uv sync --extra all`: everything
+
+`uv sync` without extras installs only the minimal base package.
+
+## First 5 Minutes
+
+Convert only:
 
 ```bash
-uv sync
+uv sync --extra convert
+uv run convert --py123d_path /data/123d --output ./output
 ```
 
-## Quickstart
+Inspect existing `.bin` output in the browser:
 
 ```bash
-# Install
-uv sync --extra all
-
-# Convert py123d Arrow output to PufferDrive .bin
-uv run convert --py123d_path /data/123d --output ./output
-
-# Inspect in the browser
+uv sync --extra viz
 uv run web --dir ./output
+```
+
+Build Docker images:
+
+```bash
+uv sync --extra docker
+uv run build list
 ```
 
 Open `http://localhost:8080`.
@@ -101,7 +111,6 @@ Geometry + route flags:
 |------|---------|-------------|
 | `--max_segment_length` | `2.0` | Max segment length for polyline interpolation |
 | `--area_threshold` | `0.1` | Polyline simplification threshold, `0` = off |
-| `--dist_threshold` | `10.0` | Distance threshold for road graph processing |
 | `--min_route_valid_points` | `0` | Min valid trajectory points for route computation |
 | `--route_check_timestep` | `0` | Timestep that must be valid for route computation |
 | `--reindex_id` | off | Reindex all element IDs to contiguous `range(0, n)` |
@@ -117,7 +126,6 @@ Validation levels:
 ## Web Viewer
 
 ```bash
-# Browser viewer
 uv sync --extra viz
 uv run web --dir ./output --port 8080
 ```
@@ -125,10 +133,13 @@ uv run web --dir ./output --port 8080
 - browse `.bin` scenarios from a directory
 - inspect map, agents, route, and traffic controls
 - playback, follow-ego, selection, and layer toggles
+- path finder uses serialized lane-graph data
 
 ## Docker Images
 
 ```bash
+uv sync --extra docker
+
 # List available datasets
 uv run build list
 
@@ -144,7 +155,7 @@ uv run build py123d --dataset nuplan --ref my-branch --no_cache
 
 To build a specific `123Drive` version, check out that branch, tag, or commit locally first, then run `uv run build 123drive`.
 
-Images are portable — run them however you want (`docker run`, Kubernetes, etc.).
+Images are portable - run them however you want (`docker run`, Kubernetes, etc.).
 
 - `py123d-<dataset>` is an opinionated BEV-oriented extractor with raw sensors disabled
 - `123drive:latest` is a thin uv-backed runtime image built from the current checkout and forwards args directly to `convert`

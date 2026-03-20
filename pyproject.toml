@@ -24,15 +24,38 @@ classifiers = [
 ]
 dependencies = [
   "numpy",
+]
+
+[project.optional-dependencies]
+convert = [
   "tqdm",
+  "joblib",
+  "scipy",
+  "shapely",
+  "py123d",
+]
+viz = [
+  "fastapi",
+  "uvicorn[standard]",
+]
+docker = [
+  "PyYAML",
+]
+dev = [
+  "pytest",
   "ruff",
+]
+all = [
+  "tqdm",
   "joblib",
   "scipy",
   "shapely",
   "py123d",
   "fastapi",
   "uvicorn[standard]",
-  "orjson",
+  "PyYAML",
+  "pytest",
+  "ruff",
 ]
 
 [project.scripts]
