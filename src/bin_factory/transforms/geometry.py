@@ -66,7 +66,7 @@ def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1):
     if not map_elements:
         return
 
-    for element_id, element in map_elements.items():
+    for element in map_elements.values():
         if "polyline" not in element:
             continue
 
@@ -75,34 +75,15 @@ def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1):
         if len(polyline) < 2:
             continue
 
-        if not _validate_polyline(polyline, element_id=str(element_id)):
-            continue
-
         polyline = _remove_duplicate_points(polyline)
-
-        if max_segment_length > 0:
-            polyline = _distance_based_interpolate(polyline, max_segment_length)
 
         if area_threshold > 0 and len(polyline) >= 3:
             polyline = _simplify_polyline(polyline, area_threshold)
 
+        if max_segment_length > 0:
+            polyline = _distance_based_interpolate(polyline, max_segment_length)
+
         element["polyline"] = polyline
-
-
-def _validate_polyline(polyline, element_id=""):
-    if not isinstance(polyline, np.ndarray):
-        logger.warning(f"Element {element_id}: polyline is not ndarray (got {type(polyline).__name__})")
-        return False
-    if polyline.ndim != 2 or polyline.shape[1] != 3:
-        logger.warning(f"Element {element_id}: polyline has invalid shape {polyline.shape}, expected (N, 3)")
-        return False
-    if np.any(np.isnan(polyline)):
-        logger.warning(f"Element {element_id}: polyline contains NaN values")
-        return False
-    if np.any(np.isinf(polyline)):
-        logger.warning(f"Element {element_id}: polyline contains infinite values")
-        return False
-    return True
 
 
 def _remove_duplicate_points(polyline, tol=1e-9):

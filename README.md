@@ -109,7 +109,7 @@ Geometry + route flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--max_segment_length` | `2.0` | Max segment length for polyline interpolation |
+| `--max_segment_length` | `10.0` | Max segment length for polyline interpolation |
 | `--area_threshold` | `0.1` | Polyline simplification threshold, `0` = off |
 | `--min_route_valid_points` | `0` | Min valid trajectory points for route computation |
 | `--route_check_timestep` | `0` | Timestep that must be valid for route computation |
