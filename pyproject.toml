@@ -80,7 +80,7 @@ py123d = { git = "https://github.com/autonomousvision/py123d", branch = "dev_v0.
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py313"
 
 [tool.ruff.lint]
 select = [

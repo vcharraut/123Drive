@@ -11,8 +11,8 @@ The score favors routes whose concatenated centerline stays close to the
 trajectory while preserving the original directional consistency check.
 """
 
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 
 import numpy as np
 import shapely
@@ -311,7 +311,7 @@ def _expand_beam(beam, lane_graph):
     candidates = []
     for state in beam:
         exit_lanes = lane_graph.get(state.route[-1], ())
-        candidates.extend(state.route + (exit_id,) for exit_id in exit_lanes if exit_id not in state.visited)
+        candidates.extend((*state.route, exit_id) for exit_id in exit_lanes if exit_id not in state.visited)
     return candidates
 
 

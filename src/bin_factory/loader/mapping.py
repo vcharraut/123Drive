@@ -25,14 +25,14 @@ MAP_TYPE_MAP = {
         map_objects.LaneType.SURFACE_STREET: puffer_types.LaneType.SURFACE_STREET,
         map_objects.LaneType.BIKE_LANE: puffer_types.LaneType.BIKE_LANE,
     },
-    map_objects.MapLayer.LANE_GROUP: None, # Not Supported
-    map_objects.MapLayer.INTERSECTION: None, # Not Supported
+    map_objects.MapLayer.LANE_GROUP: None,  # Not Supported
+    map_objects.MapLayer.INTERSECTION: None,  # Not Supported
     map_objects.MapLayer.CROSSWALK: {
         None: puffer_types.MiscRoadType.CROSSWALK,
     },
-    map_objects.MapLayer.WALKWAY: None, # Not Supported
-    map_objects.MapLayer.CARPARK: None, # Not Supported
-    map_objects.MapLayer.GENERIC_DRIVABLE: None, # Not Supported
+    map_objects.MapLayer.WALKWAY: None,  # Not Supported
+    map_objects.MapLayer.CARPARK: None,  # Not Supported
+    map_objects.MapLayer.GENERIC_DRIVABLE: None,  # Not Supported
     map_objects.MapLayer.STOP_ZONE: {
         map_objects.StopZoneType.TRAFFIC_LIGHT: puffer_types.TCType.TRAFFIC_LIGHT,
         map_objects.StopZoneType.STOP_SIGN: puffer_types.TCType.STOP_SIGN,
