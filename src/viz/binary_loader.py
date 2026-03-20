@@ -143,7 +143,7 @@ def _read_traffic_control_element(f):
         [
             [_read_float32(f), _read_float32(f), _read_float32(f)],
             [_read_float32(f), _read_float32(f), _read_float32(f)],
-        ]
+        ],
     )
     heading = _read_float32(f)
     states = _read_int_list(f, "traffic states")

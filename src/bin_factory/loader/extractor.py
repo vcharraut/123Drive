@@ -81,7 +81,9 @@ def extract_scenario(
 
 
 def _extract_objects(
-    scene_api: py123d_api.SceneAPI, centroid: np.ndarray, ego_states: list[Any]
+    scene_api: py123d_api.SceneAPI,
+    centroid: np.ndarray,
+    ego_states: list[Any],
 ) -> dict[int, schema.Track]:
     """Extract dynamic objects from 123D box detections and ego state."""
     episode_length = scene_api.number_of_iterations
@@ -167,7 +169,8 @@ def _extract_traffic_lights(
                 )
 
             elements[lane_id].states[frame_idx] = mapping.TL_STATE_MAP.get(
-                detection.status, puffer_types.TLState.UNKNOWN
+                detection.status,
+                puffer_types.TLState.UNKNOWN,
             )
 
     return elements
@@ -196,7 +199,9 @@ def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) 
 
 
 def _extract_map(
-    map_api: py123d_api.MapAPI, centroid: np.ndarray, map_only: bool = False
+    map_api: py123d_api.MapAPI,
+    centroid: np.ndarray,
+    map_only: bool = False,
 ) -> tuple[dict[int, dict[str, Any]], list[dict[str, Any]], set[int]]:
     """Extract static map elements from a 123D MapAPI. Returns (elements, stop_zones, lane_ids)."""
     result: dict[int, dict[str, Any]] = {}
@@ -330,7 +335,9 @@ def _write_detection_frame(obj: schema.Track, frame_idx: int, center_se3: Any, b
 
 
 def _fix_lane_topology(
-    lanes: dict[int, dict[str, Any]], undefined_lane_ids: list[int], valid_lane_ids: set[int]
+    lanes: dict[int, dict[str, Any]],
+    undefined_lane_ids: list[int],
+    valid_lane_ids: set[int],
 ) -> None:
     """Infer undefined lane types from neighbors + fix reversed entry/exit refs (nuPlan bandage)."""
     for lane_id, lane in lanes.items():

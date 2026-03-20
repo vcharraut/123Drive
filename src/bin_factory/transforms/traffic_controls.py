@@ -28,7 +28,7 @@ def process_traffic_controls(scenario, extras):
                 "stop_line": stop_line,
                 "heading": heading,
                 "states": traffic_light.states,
-            }
+            },
         )
         covered_lanes.add(traffic_light.controlled_lane)
         next_id += 1
@@ -58,7 +58,7 @@ def process_traffic_controls(scenario, extras):
                 "stop_line": stop_line,
                 "heading": heading,
                 "states": states,
-            }
+            },
         )
         next_id += 1
 

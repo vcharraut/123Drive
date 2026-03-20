@@ -316,7 +316,10 @@ def _expand_beam(beam, lane_graph):
 
 
 def _select_root_lane_candidates(
-    agent_context, route_cache, max_candidates=MAX_ROOT_CANDIDATES, min_score=ROOT_LANE_MIN_SCORE
+    agent_context,
+    route_cache,
+    max_candidates=MAX_ROOT_CANDIDATES,
+    min_score=ROOT_LANE_MIN_SCORE,
 ):
     trajectory = agent_context["trajectory"]
     heading = agent_context["heading_valid"]

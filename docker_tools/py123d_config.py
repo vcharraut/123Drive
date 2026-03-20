@@ -16,6 +16,7 @@ HYDRA_OVERRIDES = [
     "+dataset.log_writer_config.exclude_modality_types=[camera,lidar,custom]",  # NOTE: We shouldn't make the +
 ]
 
+
 class DatasetConfig(TypedDict):
     extras: str
     data_root_key: str

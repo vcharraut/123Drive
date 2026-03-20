@@ -54,7 +54,7 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
 
     buffer = bytearray()
     buffer.extend(
-        struct.pack("<iiii", len(agents), len(road_map_elements), len(traffic_control_elements), len(objects))
+        struct.pack("<iiii", len(agents), len(road_map_elements), len(traffic_control_elements), len(objects)),
     )
 
     for agent in agents:

@@ -40,10 +40,16 @@ def build_parser():
     parser.add_argument("--validate_level", type=int, choices=[0, 1, 2], default=1, help="0=off, 1=schema, 2=semantic")
     parser.add_argument("--max_segment_length", type=float, default=10.0, help="Max segment length for interpolation")
     parser.add_argument(
-        "--area_threshold", type=float, default=0.1, help="Tolerance for polyline simplification (0=disabled)"
+        "--area_threshold",
+        type=float,
+        default=0.1,
+        help="Tolerance for polyline simplification (0=disabled)",
     )
     parser.add_argument(
-        "--min_route_valid_points", type=int, default=0, help="Min valid trajectory points for route computation"
+        "--min_route_valid_points",
+        type=int,
+        default=0,
+        help="Min valid trajectory points for route computation",
     )
     parser.add_argument(
         "--route_check_timestep",
@@ -175,7 +181,7 @@ def main():
             history_s=args.history_s,
             duration_s=None if args.duration_s == 0.0 else args.duration_s,
             map_only=args.map_only,
-        )
+        ),
     )
 
     if not py123d_data:
@@ -192,7 +198,9 @@ def main():
     }
 
     logger.info(
-        "Loaded %d scenarios after filtering. Starting conversion with %d workers", len(py123d_data), args.workers
+        "Loaded %d scenarios after filtering. Starting conversion with %d workers",
+        len(py123d_data),
+        args.workers,
     )
     worker = _convert_one if args.fail_fast else _convert_one_safe
 
@@ -202,7 +210,7 @@ def main():
             parallel(
                 joblib.delayed(worker)(data, map_id=i, output=args.output, config=config)
                 for i, data in tqdm.tqdm(enumerate(py123d_data), total=len(py123d_data))
-            )
+            ),
         )
 
     if args.fail_fast:
@@ -212,7 +220,10 @@ def main():
     results = [r for r in results if r is not None]
     failed = [r for r in results if not r["ok"]]
     logger.info(
-        "Conversion complete. %d/%d succeeded, %d failed.", len(results) - len(failed), len(results), len(failed)
+        "Conversion complete. %d/%d succeeded, %d failed.",
+        len(results) - len(failed),
+        len(results),
+        len(failed),
     )
     return 1 if failed else 0
 
