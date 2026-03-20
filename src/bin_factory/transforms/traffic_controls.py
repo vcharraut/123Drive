@@ -83,9 +83,16 @@ def _compute_heading_from_incoming_lanes(lane_id, lanes_by_id):
     headings = []
     for entry_id in lane.get("entry_lanes", []):
         entry_lane = lanes_by_id.get(entry_id)
+        if entry_lane is None:
+            continue
         polyline = entry_lane["polyline"]
         dxy = polyline[-1] - polyline[-2]
         headings.append(np.arctan2(dxy[1], dxy[0]))
+
+    if not headings:
+        polyline = lane["polyline"]
+        dxy = polyline[1] - polyline[0]
+        return float(np.arctan2(dxy[1], dxy[0]))
 
     return float(np.arctan2(np.mean(np.sin(headings)), np.mean(np.cos(headings))))
 
