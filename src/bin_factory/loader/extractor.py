@@ -350,21 +350,29 @@ def _fix_lane_topology(
 
         lane_start, lane_end = lane["polyline"][0], lane["polyline"][-1]
 
-        for entry_id in list(lane.get("entry_lanes", [])):
+        new_entry, new_exit = [], []
+        for entry_id in lane.get("entry_lanes", []):
             if entry_id not in lanes or "polyline" not in lanes[entry_id]:
+                new_entry.append(entry_id)
                 continue
             entry_end = lanes[entry_id]["polyline"][-1]
             if np.linalg.norm(entry_end - lane_start) > np.linalg.norm(entry_end - lane_end):
-                lane["entry_lanes"].remove(entry_id)
-                lane["exit_lanes"].append(entry_id)
+                new_exit.append(entry_id)
+            else:
+                new_entry.append(entry_id)
 
-        for exit_id in list(lane.get("exit_lanes", [])):
+        for exit_id in lane.get("exit_lanes", []):
             if exit_id not in lanes or "polyline" not in lanes[exit_id]:
+                new_exit.append(exit_id)
                 continue
             exit_start = lanes[exit_id]["polyline"][0]
             if np.linalg.norm(exit_start - lane_end) > np.linalg.norm(exit_start - lane_start):
-                lane["exit_lanes"].remove(exit_id)
-                lane["entry_lanes"].append(exit_id)
+                new_entry.append(exit_id)
+            else:
+                new_exit.append(exit_id)
+
+        lane["entry_lanes"] = new_entry
+        lane["exit_lanes"] = new_exit
 
     for element in lanes.values():
         element["entry_lanes"] = [lid for lid in element["entry_lanes"] if lid in valid_lane_ids]

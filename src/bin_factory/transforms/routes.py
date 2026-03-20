@@ -24,18 +24,18 @@ from bin_factory import types as puffer_types
 logger = logging.getLogger(__name__)
 
 
-LANE_WIDTH_THRESHOLD = 6.0
-ALIGNMENT_THRESHOLD = 0.3
-MAX_PATH_LENGTH = 10
-MAX_ROOT_CANDIDATES = 3
-ROOT_LANE_MIN_SCORE = 0.3
-BEAM_WIDTH = 3
-ROOT_CANDIDATE_BBOX_MARGIN = 12.0
-ALIGNMENT_WEIGHT = 0.7
-DISTANCE_WEIGHT = 0.3
-OFFROAD_DISTANCE_THRESHOLD = 5.0
-STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0
-MOVEMENT_THRESHOLD = 0.5
+LANE_WIDTH_THRESHOLD = 6.0  # meters — reject point-to-lane matches farther than this
+ALIGNMENT_THRESHOLD = 0.3  # cos(heading) — minimum dot product for "same direction"
+MAX_PATH_LENGTH = 10  # max lanes in a route sequence
+MAX_ROOT_CANDIDATES = 3  # top-k starting lanes to seed beam search
+ROOT_LANE_MIN_SCORE = 0.3  # minimum aggregate score to consider a root lane
+BEAM_WIDTH = 3  # parallel candidates kept at each beam expansion step
+ROOT_CANDIDATE_BBOX_MARGIN = 12.0  # meters — bbox expansion when filtering candidate lanes
+ALIGNMENT_WEIGHT = 0.7  # weight of heading alignment in combined lane score
+DISTANCE_WEIGHT = 0.3  # weight of proximity in combined lane score
+OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters — max lane distance for moving agents
+STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0  # meters — max lane distance for stationary agents
+MOVEMENT_THRESHOLD = 0.5  # meters — total displacement below this = stationary
 
 
 @dataclass(frozen=True)

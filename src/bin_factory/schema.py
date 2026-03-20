@@ -13,7 +13,7 @@ class ScenarioMetadata:
 
 @dataclasses.dataclass
 class Track:
-    type: object
+    type: int
     position: np.ndarray
     heading: np.ndarray
     velocity: np.ndarray
