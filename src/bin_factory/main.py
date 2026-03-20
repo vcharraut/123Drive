@@ -61,7 +61,7 @@ def build_parser():
     return parser
 
 
-def _convert_one(py123d_data, map_id, output, config):
+def _convert_one(py123d_data, map_id, output, config) -> None:
     # 1. Load and convert 123D scenario to PufferDrive format
     scenario, extras = loader.extract_scenario(py123d_data)
 
@@ -105,7 +105,7 @@ def _convert_one_safe(py123d_data, map_id, output, config):
         _convert_one(py123d_data, map_id, output, config)
         return {"ok": True, "scenario_id": scenario_id, "map_id": map_id, "error": ""}
     except loader.ValidationError as ve:
-        logger.error("[%s][%s][%s] Validation error: %s", dataset, scenario_id, map_id, ve)
+        logger.exception("[%s][%s][%s] Validation error: %s", dataset, scenario_id, map_id, ve)
         return {"ok": False, "scenario_id": scenario_id, "map_id": map_id, "error": str(ve)}
     except Exception as e:
         logger.exception("[%s][%s][%s] Scenario failed", dataset, scenario_id, map_id)
@@ -147,7 +147,7 @@ def _validate_args(args, parser):
     return args, py123d_data_root
 
 
-def main():
+def main() -> int:
     logging.basicConfig(format="%(levelname)s %(name)s: %(message)s", level=logging.INFO)
 
     parser = build_parser()

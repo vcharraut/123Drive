@@ -9,7 +9,7 @@ METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
 
 
-def _pack_int_list(buffer, items):
+def _pack_int_list(buffer, items) -> None:
     n = len(items)
     buffer.extend(struct.pack("<i", n))
     if n > 0:
@@ -39,7 +39,7 @@ def _pack_dynamic_states(buffer, states):
     return xyz, valid
 
 
-def _pack_fixed_string(buffer, value, size):
+def _pack_fixed_string(buffer, value, size) -> None:
     encoded = str(value).encode("utf-8")[:size]
     buffer.extend(encoded.ljust(size, b"\0"))
 

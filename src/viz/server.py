@@ -67,7 +67,7 @@ def get_scenario(filename: str):
     return FileResponse(path, media_type="application/octet-stream")
 
 
-def main():
+def main() -> None:
     import uvicorn
 
     parser = argparse.ArgumentParser(description="123Drive Server")

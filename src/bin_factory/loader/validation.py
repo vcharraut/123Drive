@@ -67,7 +67,7 @@ def validate_scenario(scenario, extras=None, level=1):
     return errors
 
 
-def _validate_dynamic_states(items, prefix, length, errors):
+def _validate_dynamic_states(items, prefix, length, errors) -> None:
     for eid, ds in items.items():
         for field, (ndim, dim1) in _DYNAMIC_STATE_SPECS.items():
             arr = getattr(ds, field)
@@ -83,7 +83,7 @@ def _validate_dynamic_states(items, prefix, length, errors):
                 errors.append(f"{prefix} {eid} {field} length {arr.shape[0]} != scenario_length {length}")
 
 
-def _validate_map_elements(map_data, errors):
+def _validate_map_elements(map_data, errors) -> None:
     for eid, elem in map_data.items():
         t = elem["type"]
         if puffer_types.is_road_lane(t) or puffer_types.is_road_line(t) or puffer_types.is_road_edge(t):
@@ -110,7 +110,7 @@ def _validate_map_elements(map_data, errors):
                 errors.append(f"Map {eid} polygon needs >= 3 points, got {len(poly)}")
 
 
-def _validate_stop_zones(stop_zones, errors):
+def _validate_stop_zones(stop_zones, errors) -> None:
     for i, sz in enumerate(stop_zones):
         poly = sz.get("polygon")
         if poly is None:
@@ -123,7 +123,7 @@ def _validate_stop_zones(stop_zones, errors):
             errors.append(f"StopZone {i} missing or invalid controlled_lanes")
 
 
-def _validate_traffic_lights(tl_data, length, map_data, errors):
+def _validate_traffic_lights(tl_data, length, map_data, errors) -> None:
     for eid, tl in tl_data.items():
         if not isinstance(tl.position, np.ndarray) or tl.position.shape != (3,):
             errors.append(f"TL {eid} position must be shape (3,), got {getattr(tl.position, 'shape', None)}")
@@ -136,7 +136,7 @@ def _validate_traffic_lights(tl_data, length, map_data, errors):
 # ── Semantic checks ──
 
 
-def _validate_no_nan_inf(scenario, errors):
+def _validate_no_nan_inf(scenario, errors) -> None:
     for prefix, items in [("Agent", scenario.agents), ("Object", scenario.objects)]:
         for eid, ds in items.items():
             for field in _DYNAMIC_STATE_SPECS:
@@ -151,7 +151,7 @@ def _validate_no_nan_inf(scenario, errors):
                 errors.append(f"Map {eid} {key} contains NaN or Inf")
 
 
-def _validate_ego(agents, length, errors):
+def _validate_ego(agents, length, errors) -> None:
     if 0 not in agents:
         errors.append("Ego agent (id=0) missing")
         return
@@ -176,7 +176,7 @@ def _validate_ego(agents, length, errors):
         errors.append(f"Ego teleports at timestep {i}: moved {dists[i]:.2f}m")
 
 
-def _validate_lane_topology(map_data, lane_ids, errors):
+def _validate_lane_topology(map_data, lane_ids, errors) -> None:
     for eid, elem in map_data.items():
         if not puffer_types.is_road_lane(elem["type"]):
             continue
@@ -186,13 +186,13 @@ def _validate_lane_topology(map_data, lane_ids, errors):
                     errors.append(f"Lane {eid} {key} references non-existent lane {ref}")
 
 
-def _validate_tl_lane_refs(tl_data, lane_ids, errors):
+def _validate_tl_lane_refs(tl_data, lane_ids, errors) -> None:
     for eid, tl in tl_data.items():
         if tl.controlled_lane not in lane_ids:
             errors.append(f"TL {eid} controlled_lane {tl.controlled_lane} references non-lane element")
 
 
-def _validate_agent_sizes(items, prefix, errors):
+def _validate_agent_sizes(items, prefix, errors) -> None:
     for eid, ds in items.items():
         valid = ds.valid.astype(bool)
         if not np.any(valid):

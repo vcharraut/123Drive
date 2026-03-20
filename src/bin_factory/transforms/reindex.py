@@ -2,7 +2,7 @@ _MAP_LIST_REF_KEYS = ("entry_lanes", "exit_lanes")
 _MAP_SINGLE_REF_KEYS = ("left_lane", "right_lane")
 
 
-def reindex_scenario_and_extras(scenario, extras):
+def reindex_scenario_and_extras(scenario, extras) -> None:
     map_id_map = {element_id: idx for idx, element_id in enumerate(scenario.map)}
 
     scenario.map = {

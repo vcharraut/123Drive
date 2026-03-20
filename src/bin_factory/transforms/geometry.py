@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 # ── Interpolate polygons to ensure they are all the same spacing ───────────────────────
 
 
-def interpolate_all_polygons(scenario, spacing=3.0):
+def interpolate_all_polygons(scenario, spacing=3.0) -> None:
     for element_data in scenario.map.values():
         if "polygon" in element_data:
             element_data["polygon"] = _interpolate_polygon(element_data["polygon"], spacing)
@@ -49,7 +49,7 @@ def _interpolate_polygon(xyz, spacing=3.0):
 REVERSE_ROAD_EDGE_DATASETS = ["av2", "nuplan", "carla"]
 
 
-def reverse_road_edges(scenario):
+def reverse_road_edges(scenario) -> None:
     dataset = scenario.metadata.dataset
     if dataset.split("-")[0] not in REVERSE_ROAD_EDGE_DATASETS:
         return
@@ -61,7 +61,7 @@ def reverse_road_edges(scenario):
 # ── Downsample and simplify polylines ──────────────────────────────────────────────────
 
 
-def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1):
+def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1) -> None:
     map_elements = scenario.map
     if not map_elements:
         return

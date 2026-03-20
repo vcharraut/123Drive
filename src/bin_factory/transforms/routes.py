@@ -45,7 +45,7 @@ class BeamState:
     score: float
 
 
-def process_agent_routes(scenario, min_route_valid_points=0, route_check_timestep=0):
+def process_agent_routes(scenario, min_route_valid_points=0, route_check_timestep=0) -> None:
     scenario_length = scenario.metadata.scenario_length
     if scenario_length > 0 and route_check_timestep >= scenario_length:
         return
@@ -209,7 +209,7 @@ def compute_agent_route(
     return best_route
 
 
-def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=0, min_route_valid_points=0):
+def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=0, min_route_valid_points=0) -> bool:
     if is_ego:
         return True
 
@@ -452,7 +452,7 @@ def _score_route_polylines_batch(route_polylines, agent_context):
     return scores
 
 
-def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0):
+def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) -> bool:
     position = agent_context["positions_2d"][route_check_timestep]
     heading = agent_context["headings"][route_check_timestep]
     length = agent_context["lengths"][route_check_timestep]
