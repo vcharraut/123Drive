@@ -18,47 +18,55 @@ OBJECT_TYPE_MAP = {
     detections.DefaultBoxDetectionLabel.GENERIC_OBJECT: puffer_types.ObjectType.GENERIC_OBJECT,
 }
 
+LANE_TYPE_MAP = {
+    map_objects.LaneType.UNDEFINED: int(puffer_types.LaneType.UNKNOWN),
+    map_objects.LaneType.FREEWAY: int(puffer_types.LaneType.FREEWAY),
+    map_objects.LaneType.SURFACE_STREET: int(puffer_types.LaneType.SURFACE_STREET),
+    map_objects.LaneType.BIKE_LANE: int(puffer_types.LaneType.BIKE_LANE),
+}
+
+CROSSWALK_TYPE = int(puffer_types.MiscRoadType.CROSSWALK)
+
+STOP_ZONE_TYPE_MAP = {
+    map_objects.StopZoneType.TRAFFIC_LIGHT: int(puffer_types.TCType.TRAFFIC_LIGHT),
+    map_objects.StopZoneType.STOP_SIGN: int(puffer_types.TCType.STOP_SIGN),
+    map_objects.StopZoneType.YIELD_SIGN: int(puffer_types.TCType.YIELD_SIGN),
+}
+
+ROAD_EDGE_TYPE_MAP = {
+    map_objects.RoadEdgeType.UNKNOWN: int(puffer_types.RoadEdgeType.UNKNOWN),
+    map_objects.RoadEdgeType.ROAD_EDGE_BOUNDARY: int(puffer_types.RoadEdgeType.BOUNDARY),
+    map_objects.RoadEdgeType.ROAD_EDGE_MEDIAN: int(puffer_types.RoadEdgeType.MEDIAN),
+}
+
+ROAD_LINE_TYPE_MAP = {
+    map_objects.RoadLineType.UNKNOWN: int(puffer_types.RoadLineType.UNKNOWN),
+    map_objects.RoadLineType.DASHED_WHITE: int(puffer_types.RoadLineType.BROKEN_SINGLE_WHITE),
+    map_objects.RoadLineType.SOLID_WHITE: int(puffer_types.RoadLineType.SOLID_SINGLE_WHITE),
+    map_objects.RoadLineType.DOUBLE_SOLID_WHITE: int(puffer_types.RoadLineType.SOLID_DOUBLE_WHITE),
+    map_objects.RoadLineType.DASHED_YELLOW: int(puffer_types.RoadLineType.BROKEN_SINGLE_YELLOW),
+    map_objects.RoadLineType.DOUBLE_DASH_YELLOW: int(puffer_types.RoadLineType.BROKEN_DOUBLE_YELLOW),
+    map_objects.RoadLineType.SOLID_YELLOW: int(puffer_types.RoadLineType.SOLID_SINGLE_YELLOW),
+    map_objects.RoadLineType.DOUBLE_SOLID_YELLOW: int(puffer_types.RoadLineType.SOLID_DOUBLE_YELLOW),
+    map_objects.RoadLineType.DASH_SOLID_YELLOW: int(puffer_types.RoadLineType.PASSING_DOUBLE_YELLOW),
+    map_objects.RoadLineType.SOLID_DASH_YELLOW: int(puffer_types.RoadLineType.PASSING_DOUBLE_YELLOW),
+    map_objects.RoadLineType.DOUBLE_DASH_WHITE: int(puffer_types.RoadLineType.BROKEN_SINGLE_WHITE),
+    map_objects.RoadLineType.DASH_SOLID_WHITE: int(puffer_types.RoadLineType.SOLID_SINGLE_WHITE),
+    map_objects.RoadLineType.SOLID_DASH_WHITE: int(puffer_types.RoadLineType.SOLID_SINGLE_WHITE),
+    map_objects.RoadLineType.SOLID_BLUE: int(puffer_types.RoadLineType.SOLID_SINGLE_WHITE),
+}
+
 MAP_TYPE_MAP = {
-    map_objects.MapLayer.LANE: {
-        map_objects.LaneType.UNDEFINED: puffer_types.LaneType.UNKNOWN,
-        map_objects.LaneType.FREEWAY: puffer_types.LaneType.FREEWAY,
-        map_objects.LaneType.SURFACE_STREET: puffer_types.LaneType.SURFACE_STREET,
-        map_objects.LaneType.BIKE_LANE: puffer_types.LaneType.BIKE_LANE,
-    },
+    map_objects.MapLayer.LANE: LANE_TYPE_MAP,
     map_objects.MapLayer.LANE_GROUP: None,  # Not Supported
     map_objects.MapLayer.INTERSECTION: None,  # Not Supported
-    map_objects.MapLayer.CROSSWALK: {
-        None: puffer_types.MiscRoadType.CROSSWALK,
-    },
+    map_objects.MapLayer.CROSSWALK: {None: CROSSWALK_TYPE},
     map_objects.MapLayer.WALKWAY: None,  # Not Supported
     map_objects.MapLayer.CARPARK: None,  # Not Supported
     map_objects.MapLayer.GENERIC_DRIVABLE: None,  # Not Supported
-    map_objects.MapLayer.STOP_ZONE: {
-        map_objects.StopZoneType.TRAFFIC_LIGHT: puffer_types.TCType.TRAFFIC_LIGHT,
-        map_objects.StopZoneType.STOP_SIGN: puffer_types.TCType.STOP_SIGN,
-        map_objects.StopZoneType.YIELD_SIGN: puffer_types.TCType.YIELD_SIGN,
-    },
-    map_objects.MapLayer.ROAD_EDGE: {
-        map_objects.RoadEdgeType.UNKNOWN: puffer_types.RoadEdgeType.UNKNOWN,
-        map_objects.RoadEdgeType.ROAD_EDGE_BOUNDARY: puffer_types.RoadEdgeType.BOUNDARY,
-        map_objects.RoadEdgeType.ROAD_EDGE_MEDIAN: puffer_types.RoadEdgeType.MEDIAN,
-    },
-    map_objects.MapLayer.ROAD_LINE: {
-        map_objects.RoadLineType.UNKNOWN: puffer_types.RoadLineType.UNKNOWN,
-        map_objects.RoadLineType.DASHED_WHITE: puffer_types.RoadLineType.BROKEN_SINGLE_WHITE,
-        map_objects.RoadLineType.SOLID_WHITE: puffer_types.RoadLineType.SOLID_SINGLE_WHITE,
-        map_objects.RoadLineType.DOUBLE_SOLID_WHITE: puffer_types.RoadLineType.SOLID_DOUBLE_WHITE,
-        map_objects.RoadLineType.DASHED_YELLOW: puffer_types.RoadLineType.BROKEN_SINGLE_YELLOW,
-        map_objects.RoadLineType.DOUBLE_DASH_YELLOW: puffer_types.RoadLineType.BROKEN_DOUBLE_YELLOW,
-        map_objects.RoadLineType.SOLID_YELLOW: puffer_types.RoadLineType.SOLID_SINGLE_YELLOW,
-        map_objects.RoadLineType.DOUBLE_SOLID_YELLOW: puffer_types.RoadLineType.SOLID_DOUBLE_YELLOW,
-        map_objects.RoadLineType.DASH_SOLID_YELLOW: puffer_types.RoadLineType.PASSING_DOUBLE_YELLOW,
-        map_objects.RoadLineType.SOLID_DASH_YELLOW: puffer_types.RoadLineType.PASSING_DOUBLE_YELLOW,
-        map_objects.RoadLineType.DOUBLE_DASH_WHITE: puffer_types.RoadLineType.BROKEN_SINGLE_WHITE,
-        map_objects.RoadLineType.DASH_SOLID_WHITE: puffer_types.RoadLineType.SOLID_SINGLE_WHITE,
-        map_objects.RoadLineType.SOLID_DASH_WHITE: puffer_types.RoadLineType.SOLID_SINGLE_WHITE,
-        map_objects.RoadLineType.SOLID_BLUE: puffer_types.RoadLineType.SOLID_SINGLE_WHITE,
-    },
+    map_objects.MapLayer.STOP_ZONE: STOP_ZONE_TYPE_MAP,
+    map_objects.MapLayer.ROAD_EDGE: ROAD_EDGE_TYPE_MAP,
+    map_objects.MapLayer.ROAD_LINE: ROAD_LINE_TYPE_MAP,
 }
 
 

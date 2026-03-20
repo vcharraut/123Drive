@@ -129,3 +129,7 @@ convention = "google"
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[tool.ty.environment]
+python-version = "3.13"
+extra-paths = ["src"]

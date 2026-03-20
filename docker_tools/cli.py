@@ -69,7 +69,7 @@ def cmd_py123d(args: argparse.Namespace) -> None:
     config = py123d_config.DATASET_CONFIGS[args.dataset]
     ref = args.ref or "main"
     name = f"py123d-{args.dataset}:{_sanitize_tag(ref)}"
-    build_args = {
+    build_args: dict[str, str] = {
         "PYTHON_VERSION": config.get("python_version", DEFAULT_PY_VERSION),
         "EXTRAS": config["extras"],
         "DATASET": args.dataset,

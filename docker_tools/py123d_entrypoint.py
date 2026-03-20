@@ -3,7 +3,7 @@
 import json
 import os
 
-import py123d_config
+from docker_tools import py123d_config
 
 
 def build_hydra_args(dataset, args):

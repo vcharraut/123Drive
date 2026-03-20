@@ -1,6 +1,7 @@
 """Shared dataset config for the py123d Docker tooling."""
 
 from importlib import resources
+from typing import NotRequired, TypedDict
 
 import yaml
 
@@ -15,7 +16,14 @@ HYDRA_OVERRIDES = [
     "+dataset.log_writer_config.exclude_modality_types=[camera,lidar,custom]",  # NOTE: We shouldn't make the +
 ]
 
-DATASET_CONFIGS = {
+class DatasetConfig(TypedDict):
+    extras: str
+    data_root_key: str
+    input_subpaths: NotRequired[dict[str, str]]
+    python_version: NotRequired[str]
+
+
+DATASET_CONFIGS: dict[str, DatasetConfig] = {
     "nuplan": {
         "extras": "nuplan",
         "data_root_key": "nuplan_data_root",
@@ -41,8 +49,20 @@ DATASET_CONFIGS = {
 }
 
 
-def get_default_splits(dataset):
+def get_default_splits(dataset: str) -> list[str]:
     cfg_path = resources.files("py123d.script.config.conversion.dataset").joinpath(f"{dataset}.yaml")
     if not cfg_path.is_file():
         return []
-    return yaml.safe_load(cfg_path.read_text()).get("parser", {}).get("splits", [])
+    raw_config = yaml.safe_load(cfg_path.read_text())
+    if not isinstance(raw_config, dict):
+        return []
+
+    parser_config = raw_config.get("parser")
+    if not isinstance(parser_config, dict):
+        return []
+
+    splits = parser_config.get("splits")
+    if not isinstance(splits, list):
+        return []
+
+    return [str(split) for split in splits]

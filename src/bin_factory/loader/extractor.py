@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import numpy as np
 from py123d import api as py123d_api
@@ -15,7 +16,9 @@ from bin_factory.loader import mapping
 logger = logging.getLogger(__name__)
 
 
-def extract_scenario(py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI) -> tuple[schema.PufferScenario, dict]:
+def extract_scenario(
+    py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI,
+) -> tuple[schema.PufferScenario, dict[str, Any]]:
     """Convert 123D SceneAPI or MapAPI to (PufferScenario, extras).
 
     extras = {"traffic_lights": ..., "stop_zones": ...} — consumed by traffic_controls processor.
@@ -31,10 +34,12 @@ def extract_scenario(py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI) -> tu
 
     if map_api is None:
         raise ValueError("Map API is required to convert scenario")
+    if scenario_id is None:
+        raise ValueError("Scenario ID is required to convert scenario")
 
-    agents = {}
-    traffic_lights = {}
-    objects = {}
+    agents: dict[int, schema.Track] = {}
+    traffic_lights: dict[int, schema.TrafficLightTrack] = {}
+    objects: dict[int, schema.Track] = {}
     metadata = schema.ScenarioMetadata(
         id=scenario_id,
         dataset=py123_arrow.dataset,
@@ -43,14 +48,14 @@ def extract_scenario(py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI) -> tu
     )
 
     map_only = scene_api is None
-    ego_states = None
-    if not map_only:
+    ego_states: list[Any] | None = None
+    if scene_api is not None:
         ego_states = [scene_api.get_ego_state_se3_at_iteration(i) for i in range(scene_api.number_of_iterations)]
 
     centroid = _compute_centroid(ego_states, map_api)
     map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, map_only)
 
-    if not map_only:
+    if scene_api is not None and ego_states is not None:
         all_objects = _extract_objects(scene_api, centroid, ego_states)
         for oid, obj in all_objects.items():
             label = obj.type
@@ -75,10 +80,12 @@ def extract_scenario(py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI) -> tu
     return scenario, extras
 
 
-def _extract_objects(scene_api: py123d_api.SceneAPI, centroid: np.ndarray, ego_states: list) -> dict[int, dict]:
+def _extract_objects(
+    scene_api: py123d_api.SceneAPI, centroid: np.ndarray, ego_states: list[Any]
+) -> dict[int, schema.Track]:
     """Extract dynamic objects from 123D box detections and ego state."""
     episode_length = scene_api.number_of_iterations
-    objects: dict[int, dict] = {0: _make_empty_track(episode_length, detections.DefaultBoxDetectionLabel.EGO)}
+    objects: dict[int, schema.Track] = {0: _make_empty_track(episode_length, detections.DefaultBoxDetectionLabel.EGO)}
     tokens_to_object_id: dict[str, int] = {}
 
     # Ego agent is always object ID 0, built from cached ego states
@@ -137,7 +144,7 @@ def _extract_traffic_lights(
     map_api: py123d_api.MapAPI,
     centroid: np.ndarray,
     lane_ids: set[int],
-) -> dict[int, dict]:
+) -> dict[int, schema.TrafficLightTrack]:
     """Extract dynamic traffic light states from 123D logs."""
     elements: dict[int, schema.TrafficLightTrack] = {}
 
@@ -166,7 +173,7 @@ def _extract_traffic_lights(
     return elements
 
 
-def _compute_centroid(ego_states: list | None, map_api: py123d_api.MapAPI) -> np.ndarray:
+def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) -> np.ndarray:
     """Compute scene centroid from ego trajectory, falling back to road geometry."""
     if ego_states is not None:
         positions = np.array(
@@ -188,12 +195,14 @@ def _compute_centroid(ego_states: list | None, map_api: py123d_api.MapAPI) -> np
     return np.zeros(2, dtype=np.float64)
 
 
-def _extract_map(map_api, centroid: np.ndarray, map_only: bool = False) -> tuple[dict[int, dict], list[dict], set[int]]:
+def _extract_map(
+    map_api: py123d_api.MapAPI, centroid: np.ndarray, map_only: bool = False
+) -> tuple[dict[int, dict[str, Any]], list[dict[str, Any]], set[int]]:
     """Extract static map elements from a 123D MapAPI. Returns (elements, stop_zones, lane_ids)."""
-    result = {}
-    stop_zones = []
-    non_lane_objects = []
-    undefined_lane = []
+    result: dict[int, dict[str, Any]] = {}
+    stop_zones: list[dict[str, Any]] = []
+    non_lane_objects: list[Any] = []
+    undefined_lane: list[int] = []
     all_map_layers = map_api.get_available_map_layers()
 
     if map_only or map_api.map_is_per_log:
@@ -236,15 +245,14 @@ def _extract_map(map_api, centroid: np.ndarray, map_only: bool = False) -> tuple
     return result, stop_zones, lane_ids
 
 
-def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> dict | None:
+def _convert_map_object_to_static_element(map_object: Any, centroid: np.ndarray) -> dict[str, Any] | None:
     """Convert 123D map object to unified static element dict with puffer types."""
     layer = map_object.layer
-    layer_map = mapping.MAP_TYPE_MAP.get(layer)
-    if layer_map is None:
+    if mapping.MAP_TYPE_MAP.get(layer) is None:
         return None
 
     if layer == map_objects.MapLayer.LANE:
-        puffer_type = mapping.MAP_TYPE_MAP.get(layer).get(map_object.lane_type, -1)
+        puffer_type = mapping.LANE_TYPE_MAP.get(map_object.lane_type, -1)
         if not map_object.speed_limit_mps or np.isnan(map_object.speed_limit_mps):
             speed_limit_mps = -1.0
         else:
@@ -259,23 +267,29 @@ def _convert_map_object_to_static_element(map_object, centroid: np.ndarray) -> d
             "right_boundary": _centered_array(map_object.right_boundary.array, centroid),
         }
 
-    if layer in (map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE):
-        subtype = map_object.road_line_type if layer == map_objects.MapLayer.ROAD_LINE else map_object.road_edge_type
-        puffer_type = mapping.MAP_TYPE_MAP.get(layer).get(subtype, -1)
+    if layer == map_objects.MapLayer.ROAD_LINE:
+        puffer_type = mapping.ROAD_LINE_TYPE_MAP.get(map_object.road_line_type, -1)
+        return {
+            "type": puffer_type,
+            "polyline": _centered_array(map_object.polyline_3d.array, centroid),
+        }
+
+    if layer == map_objects.MapLayer.ROAD_EDGE:
+        puffer_type = mapping.ROAD_EDGE_TYPE_MAP.get(map_object.road_edge_type, -1)
         return {
             "type": puffer_type,
             "polyline": _centered_array(map_object.polyline_3d.array, centroid),
         }
 
     if layer == map_objects.MapLayer.CROSSWALK:
-        puffer_type = mapping.MAP_TYPE_MAP.get(layer).get(None, -1)
+        puffer_type = mapping.CROSSWALK_TYPE
         return {
             "type": puffer_type,
             "polygon": _centered_array(map_object.outline_3d.array, centroid),
         }
 
     if layer == map_objects.MapLayer.STOP_ZONE:
-        puffer_type = mapping.MAP_TYPE_MAP.get(layer).get(map_object.stop_zone_type, -1)
+        puffer_type = mapping.STOP_ZONE_TYPE_MAP.get(map_object.stop_zone_type, -1)
         return {
             "type": puffer_type,
             "polygon": _centered_array(map_object.outline_3d.array, centroid),
@@ -289,7 +303,7 @@ def _get_map_objects(map_api: py123d_api.MapAPI, layers: list[map_objects.MapLay
     return [obj for layer in layers for obj in map_api.get_all_map_objects_in_layer(layer)]
 
 
-def _make_empty_track(episode_length, agent_type):
+def _make_empty_track(episode_length: int, agent_type: object) -> schema.Track:
     return schema.Track(
         type=agent_type,
         position=np.zeros((episode_length, 3), dtype=np.float64),
@@ -302,7 +316,7 @@ def _make_empty_track(episode_length, agent_type):
     )
 
 
-def _write_detection_frame(obj, frame_idx, center_se3, bbox, centroid):
+def _write_detection_frame(obj: schema.Track, frame_idx: int, center_se3: Any, bbox: Any, centroid: np.ndarray) -> None:
     obj.position[frame_idx] = [
         float(center_se3.x) - float(centroid[0]),
         float(center_se3.y) - float(centroid[1]),
@@ -315,7 +329,9 @@ def _write_detection_frame(obj, frame_idx, center_se3, bbox, centroid):
     obj.height[frame_idx] = float(bbox.height)
 
 
-def _fix_lane_topology(lanes, undefined_lane_ids, valid_lane_ids):
+def _fix_lane_topology(
+    lanes: dict[int, dict[str, Any]], undefined_lane_ids: list[int], valid_lane_ids: set[int]
+) -> None:
     """Infer undefined lane types from neighbors + fix reversed entry/exit refs (nuPlan bandage)."""
     for lane_id, lane in lanes.items():
         if lane_id in undefined_lane_ids:
@@ -349,12 +365,15 @@ def _fix_lane_topology(lanes, undefined_lane_ids, valid_lane_ids):
 
 
 def _get_object_xy_points(map_object: object) -> np.ndarray | None:
-    if hasattr(map_object, "centerline"):
-        return map_object.centerline.array[:, :2].astype(np.float64)
-    if hasattr(map_object, "polyline_3d"):
-        return map_object.polyline_3d.array[:, :2].astype(np.float64)
-    if hasattr(map_object, "outline_3d"):
-        return map_object.outline_3d.array[:, :2].astype(np.float64)
+    centerline = getattr(map_object, "centerline", None)
+    if centerline is not None:
+        return np.asarray(centerline.array[:, :2], dtype=np.float64)
+    polyline_3d = getattr(map_object, "polyline_3d", None)
+    if polyline_3d is not None:
+        return np.asarray(polyline_3d.array[:, :2], dtype=np.float64)
+    outline_3d = getattr(map_object, "outline_3d", None)
+    if outline_3d is not None:
+        return np.asarray(outline_3d.array[:, :2], dtype=np.float64)
     return None
 
 
