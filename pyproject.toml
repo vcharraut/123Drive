@@ -76,7 +76,7 @@ Repository = "https://github.com/vcharraut/123Drive"
 Issues = "https://github.com/vcharraut/123Drive/issues"
 
 [tool.uv.sources]
-py123d = { git = "https://github.com/autonomousvision/py123d", branch = "dev_v0.1.0" }
+py123d = { git = "https://github.com/autonomousvision/py123d", branch = "main" }
 
 [tool.ruff]
 line-length = 120
