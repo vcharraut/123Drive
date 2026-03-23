@@ -262,6 +262,10 @@ def _convert_map_object_to_static_element(map_object: Any, centroid: np.ndarray)
             speed_limit_mps = -1.0
         else:
             speed_limit_mps = float(map_object.speed_limit_mps)
+        left_id = getattr(map_object, "left_lane_id", None)
+        right_id = getattr(map_object, "right_lane_id", None)
+        left_neighbor = [left_id] if left_id is not None else []
+        right_neighbor = [right_id] if right_id is not None else []
         return {
             "type": puffer_type,
             "polyline": _centered_array(map_object.centerline.array, centroid),
@@ -270,6 +274,8 @@ def _convert_map_object_to_static_element(map_object: Any, centroid: np.ndarray)
             "exit_lanes": map_object.successor_ids,
             "left_boundary": _centered_array(map_object.left_boundary.array, centroid),
             "right_boundary": _centered_array(map_object.right_boundary.array, centroid),
+            "left_neighbor": left_neighbor,
+            "right_neighbor": right_neighbor,
         }
 
     if layer == map_objects.MapLayer.ROAD_LINE:

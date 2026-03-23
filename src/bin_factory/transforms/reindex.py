@@ -1,5 +1,4 @@
-_MAP_LIST_REF_KEYS = ("entry_lanes", "exit_lanes")
-_MAP_SINGLE_REF_KEYS = ("left_lane", "right_lane")
+_MAP_LIST_REF_KEYS = ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor")
 
 
 def reindex_scenario_and_extras(scenario, extras) -> None:
@@ -22,10 +21,6 @@ def _remap_map_element(element, map_id_map):
     for key in _MAP_LIST_REF_KEYS:
         if key in remapped:
             remapped[key] = [map_id_map[ref_id] for ref_id in remapped[key] if ref_id in map_id_map]
-    for key in _MAP_SINGLE_REF_KEYS:
-        ref_id = remapped.get(key)
-        if ref_id is not None:
-            remapped[key] = map_id_map.get(ref_id)
     return remapped
 
 

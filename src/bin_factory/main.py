@@ -58,6 +58,11 @@ def build_parser():
         help="Timestep at which agent must be valid for route computation",
     )
     parser.add_argument("--reindex_id", action="store_true", help="Reindex all element IDs to contiguous range(0, n)")
+    parser.add_argument(
+        "--impute_tl",
+        action="store_true",
+        help="Impute/correct traffic light states from vehicle trajectories (Yan et al. 2025)",
+    )
     return parser
 
 
@@ -75,6 +80,9 @@ def _convert_one(py123d_data, map_id, output, config) -> None:
             raise loader.ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
     # 3. Process scenario (geometry, routes, traffic controls, lane graph)
+    # Impute/correct traffic light states using raw lane geometry + vehicle trajectories.
+    if config["impute_tl"]:
+        transforms.impute_traffic_lights(scenario, extras)
     if config["reindex_id"]:
         # Reindexing all IDs to a contiguous range (0, n)
         transforms.reindex_scenario_and_extras(scenario, extras)
@@ -194,6 +202,7 @@ def main() -> int:
         "min_route_valid_points": args.min_route_valid_points,
         "route_check_timestep": args.route_check_timestep,
         "reindex_id": args.reindex_id,
+        "impute_tl": args.impute_tl,
         "validate_level": args.validate_level,
     }
 

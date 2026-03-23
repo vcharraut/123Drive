@@ -11,15 +11,16 @@ def process_traffic_controls(scenario, extras) -> None:
 
     elements = []
     covered_lanes = set()
-    next_id = 0
+    used_ids = set()
 
-    for traffic_light in extras["traffic_lights"].values():
+    for element_id, traffic_light in extras["traffic_lights"].items():
         heading = _compute_heading_from_incoming_lanes(traffic_light.controlled_lane, lanes_by_id)
         stop_line = _stop_line_from_position(heading, traffic_light.controlled_lane, lanes_by_id)
+        control_id = int(element_id)
 
         elements.append(
             {
-                "id": next_id,
+                "id": control_id,
                 "type": puffer_types.TCType.TRAFFIC_LIGHT,
                 "controlled_lanes": [traffic_light.controlled_lane],
                 "stop_line": stop_line,
@@ -27,8 +28,10 @@ def process_traffic_controls(scenario, extras) -> None:
                 "states": traffic_light.states,
             },
         )
+        used_ids.add(control_id)
         covered_lanes.add(traffic_light.controlled_lane)
-        next_id += 1
+
+    next_id = max(used_ids, default=-1) + 1
 
     for element_data in extras.get("stop_zones", []):
         stop_zone_type = element_data["type"]
@@ -64,10 +67,10 @@ def process_traffic_controls(scenario, extras) -> None:
 
 def _stop_line_from_position(heading, lane_id, lanes_by_id):
     lane = lanes_by_id.get(lane_id)
-    left_boundary = lane["left_boundary"][0]
-    right_boundary = lane["right_boundary"][0]
-    center = lane["polyline"][0]
-    width = np.linalg.norm(right_boundary - left_boundary)
+    center = np.asarray(lane["polyline"][0], dtype=np.float64)
+    left_boundary = np.asarray(lane.get("left_boundary", []), dtype=np.float64)
+    right_boundary = np.asarray(lane.get("right_boundary", []), dtype=np.float64)
+    width = _lane_width_from_boundaries(left_boundary, right_boundary)
     lane_vector = np.array([np.cos(heading), np.sin(heading), 0.0])
     return np.array(
         [
@@ -95,6 +98,17 @@ def _compute_heading_from_incoming_lanes(lane_id, lanes_by_id):
         return float(np.arctan2(dxy[1], dxy[0]))
 
     return float(np.arctan2(np.mean(np.sin(headings)), np.mean(np.cos(headings))))
+
+
+def _lane_width_from_boundaries(left_boundary, right_boundary):
+    if left_boundary.ndim != 2 or right_boundary.ndim != 2:
+        return 3.5
+    if len(left_boundary) == 0 or len(right_boundary) == 0:
+        return 3.5
+    width = float(np.linalg.norm(right_boundary[0] - left_boundary[0]))
+    if not np.isfinite(width) or width <= 0:
+        return 3.5
+    return width
 
 
 def _stop_line_from_polygon(polygon, heading):
