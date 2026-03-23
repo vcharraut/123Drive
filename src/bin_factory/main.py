@@ -113,7 +113,7 @@ def _convert_one_safe(py123d_data, map_id, output, config):
         _convert_one(py123d_data, map_id, output, config)
         return {"ok": True, "scenario_id": scenario_id, "map_id": map_id, "error": ""}
     except loader.ValidationError as ve:
-        logger.exception("[%s][%s][%s] Validation error: %s", dataset, scenario_id, map_id, ve)
+        logger.error("[%s][%s][%s] Validation error: %s", dataset, scenario_id, map_id, ve)
         return {"ok": False, "scenario_id": scenario_id, "map_id": map_id, "error": str(ve)}
     except Exception as e:
         logger.exception("[%s][%s][%s] Scenario failed", dataset, scenario_id, map_id)

@@ -2,7 +2,7 @@ import numpy as np
 from scipy import sparse as scipy_sparse
 from scipy.sparse import csgraph as scipy_csgraph
 
-from bin_factory import types as puffer_types
+from bin_factory import puffer_types
 
 
 GRAPH_LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}

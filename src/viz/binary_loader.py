@@ -5,8 +5,8 @@ from pathlib import Path
 
 import numpy as np
 
+from bin_factory.puffer_types import is_road_lane
 from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES
-from bin_factory.types import is_road_lane
 
 
 MAX_COUNT = 1_000_000

@@ -1,6 +1,6 @@
 """Helpers for Puffer web visualization."""
 
-from bin_factory.types import (
+from bin_factory.puffer_types import (
     AGENT_TYPE_NAMES,
     LANE_RANGE,
     OBJECT_TYPE_NAMES,

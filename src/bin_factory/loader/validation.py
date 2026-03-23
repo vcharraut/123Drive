@@ -6,7 +6,7 @@ Level 2 (semantic): NaN/Inf, cross-refs, physics.
 
 import numpy as np
 
-from bin_factory import types as puffer_types
+from bin_factory import puffer_types
 
 
 class ValidationError(Exception):
@@ -57,12 +57,14 @@ def validate_scenario(scenario, extras=None, level=1):
 
     # ── Semantic ──
     _validate_no_nan_inf(scenario, errors)
-    _validate_ego(scenario.agents, length, errors)
     lane_ids = {eid for eid, e in scenario.map.items() if puffer_types.is_road_lane(e["type"])}
     _validate_lane_topology(scenario.map, lane_ids, errors)
     _validate_tl_lane_refs(traffic_lights, lane_ids, errors)
-    _validate_agent_sizes(scenario.agents, "Agent", errors)
-    _validate_agent_sizes(scenario.objects, "Object", errors)
+    if scenario.agents:
+        _validate_ego(scenario.agents, length, errors)
+        _validate_agent_sizes(scenario.agents, "Agent", errors)
+    if scenario.objects:
+        _validate_agent_sizes(scenario.objects, "Object", errors)
 
     return errors
 
