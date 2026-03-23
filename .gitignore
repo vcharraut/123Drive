@@ -1,10 +1,18 @@
+# Python bytecode files
 *.pyc
 *.egg-info
+# Data files
 *.bin
+*.arrow
+# Log files
 *.png
 *.mp4
-*.arrow
 *.log
+# Documentation and other files
 *.json
+*.pdf
 
+# IDE and environment files
 .vscode/
+.venv/
+.ruff_cache/

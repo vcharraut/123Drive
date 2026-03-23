@@ -1,278 +1,216 @@
-"""
-Load Puffer binary files and convert to dict format for visualization.
+"""Load Puffer binary files for visualization."""
 
-Binary Format Structure (see binary_converter.py for full details):
-====================================================================
-
-Header (12 bytes):
-    - num_agents (int32)
-    - num_road_elements (int32)
-    - num_traffic_controls (int32)
-
-Followed by:
-    - DynamicAgents (variable size)
-    - RoadMapElements (variable size)
-    - TrafficControlElements (variable size)
-    - Metadata (variable length):
-        - scenario_id (char[128])
-        - map_id (int32)
-        - dataset_name (char[64])
-        - length (int32)
-        - sdc_index (int32)
-        - num_objects_of_interest (int32)
-        - objects_of_interest[num_objects_of_interest] (int32[])
-        - num_tracks_to_predict (int32)
-        - tracks_to_predict[num_tracks_to_predict] (int32[])
-"""
-
-import json
 import struct
 from pathlib import Path
 
 import numpy as np
 
+from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES
+from bin_factory.types import is_road_lane
 
-def load_scenario(path: str | Path) -> dict:
-    path = Path(path)
-    if path.suffix == ".bin":
-        return load_puffer_binary(path)
-    with open(path) as f:
-        scenario = json.load(f)
-    array_keys = ["xyz", "heading", "velocity", "length", "width", "height", "valid"]
-    for agent in scenario.get("agents", []):
-        states = agent.get("states", {})
-        for k in array_keys:
-            if k in states and isinstance(states[k], list):
-                states[k] = np.array(states[k])
-    for elem in scenario.get("road_map_elements", []) + scenario.get("traffic_control_elements", []):
-        for k in ("xyz", "dir_xyz", "states"):
-            if k in elem and isinstance(elem[k], list):
-                elem[k] = np.array(elem[k])
-    return scenario
+
+MAX_COUNT = 1_000_000
+MAX_GRAPH_LANES = 4096
+MAX_TRAJECTORY_LENGTH = 100_000
+
+
+class BinaryFormatError(ValueError):
+    pass
 
 
 def load_puffer_binary(binary_path: str | Path) -> dict:
-    """
-    Load Puffer binary file and convert to dict format for visualization.
+    try:
+        with Path(binary_path).open("rb") as f:
+            return _read_body(f)
+    except OSError as exc:
+        raise BinaryFormatError(f"Failed to read binary file: {binary_path}") from exc
 
-    Args:
-        binary_path: Path to binary file
 
-    Returns:
-        Dict with keys:
-            - scenario_id: str
-            - dynamic_agents: list of agent dicts
-            - road_map_elements: list of road dicts
-            - traffic_control_elements: list of traffic dicts
-            - metadata: dict
-    """
-    with open(binary_path, "rb") as f:
-        # Read header
-        num_agents = struct.unpack("i", f.read(4))[0]
-        num_roads = struct.unpack("i", f.read(4))[0]
-        num_traffic = struct.unpack("i", f.read(4))[0]
+def _read_body(f):
+    num_agents = _read_count(f, "agents")
+    num_roads = _read_count(f, "roads")
+    num_traffic = _read_count(f, "traffic controls")
+    num_objects = _read_count(f, "objects")
 
-        # Read agents
-        dynamic_agents = []
-        for _ in range(num_agents):
-            agent = _read_dynamic_agent(f)
-            dynamic_agents.append(agent)
+    dynamic_agents = [_read_dynamic_agent(f) for _ in range(num_agents)]
+    road_map_elements = [_read_road_map_element(f) for _ in range(num_roads)]
+    traffic_control_elements = [_read_traffic_control_element(f) for _ in range(num_traffic)]
+    objects = [_read_object(f) for _ in range(num_objects)]
+    lane_graph_distances = _read_lane_graph(f)
 
-        # Read roads
-        road_map_elements = []
-        for _ in range(num_roads):
-            road = _read_road_map_element(f)
-            road_map_elements.append(road)
+    scenario_id = _read_string(f, METADATA_ID_BYTES)
+    map_id = _read_int32(f)
+    dataset = _read_string(f, METADATA_DATASET_BYTES)
+    scenario_length = _read_int32(f)
+    timestep_seconds = _read_float32(f)
+    objects_of_interest = _read_int_list(f, "objects_of_interest")
+    tracks_to_predict = _read_int_list(f, "tracks_to_predict")
 
-        # Read traffic controls
-        traffic_control_elements = []
-        for _ in range(num_traffic):
-            traffic = _read_traffic_control_element(f)
-            traffic_control_elements.append(traffic)
-
-        # Read metadata
-        scenario_id_bytes = f.read(128)
-        scenario_id = scenario_id_bytes.rstrip(b"\0").decode("utf-8")
-
-        map_id = struct.unpack("i", f.read(4))[0]
-
-        dataset_name_bytes = f.read(64)
-        dataset_name = dataset_name_bytes.rstrip(b"\0").decode("utf-8")
-
-        length = struct.unpack("i", f.read(4))[0]
-        sdc_index = struct.unpack("i", f.read(4))[0]
-
-        # Read objects_of_interest
-        num_oi = struct.unpack("i", f.read(4))[0]
-        objects_of_interest = []
-        if num_oi > 0:
-            objects_of_interest = list(struct.unpack(f"{num_oi}i", f.read(4 * num_oi)))
-
-        # Read tracks_to_predict
-        num_ttp = struct.unpack("i", f.read(4))[0]
-        tracks_to_predict = []
-        if num_ttp > 0:
-            tracks_to_predict = list(struct.unpack(f"{num_ttp}i", f.read(4 * num_ttp)))
-
-    # Build scenario dict
     return {
-        "scenario_id": scenario_id,
         "agents": dynamic_agents,
         "road_map_elements": road_map_elements,
         "traffic_control_elements": traffic_control_elements,
+        "objects": objects,
         "metadata": {
+            "id": scenario_id,
             "num_agents": num_agents,
             "num_roads": num_roads,
             "num_traffic": num_traffic,
+            "num_objects": num_objects,
             "map_id": map_id,
-            "dataset_name": dataset_name,
-            "scenario_length": length,
-            "sdc_index": sdc_index,
+            "dataset": dataset,
+            "scenario_length": scenario_length,
+            "timestep_seconds": timestep_seconds,
             "objects_of_interest": objects_of_interest,
             "tracks_to_predict": tracks_to_predict,
+            "lane_graph_distances": lane_graph_distances,
         },
     }
 
 
-def _read_dynamic_agent(f) -> dict:
-    """Read a DynamicAgent from binary file."""
-    # Read ID and type
-    agent_id = struct.unpack("i", f.read(4))[0]
-    agent_type = struct.unpack("i", f.read(4))[0]
+def _read_dynamic_agent(f):
+    agent_id = _read_int32(f)
+    agent_type = _read_int32(f)
+    trajectory_length = _read_count(f, "trajectory", limit=MAX_TRAJECTORY_LENGTH)
+    states = _read_dynamic_states(f, trajectory_length)
+    route = _read_int_list(f, "route")
+    _read_exact(f, 16)
+    return {"id": agent_id, "type": agent_type, "states": states, "route": route}
 
-    # Read trajectory length
-    trajectory_length = struct.unpack("i", f.read(4))[0]
 
-    # Read trajectory data - TRANSPOSED format
-    traj_x = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    traj_y = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    traj_z = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
+def _read_object(f):
+    object_id = _read_int32(f)
+    object_type = _read_int32(f)
+    trajectory_length = _read_count(f, "trajectory", limit=MAX_TRAJECTORY_LENGTH)
+    return {"id": object_id, "type": object_type, "states": _read_dynamic_states(f, trajectory_length)}
 
-    # Combine into (N, 3) array
-    xyz = np.stack([traj_x, traj_y, traj_z], axis=1)
 
-    # Read heading
-    heading = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-
-    # Read velocity - TRANSPOSED
-    vel_x = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    vel_y = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-
-    # Combine into (N, 2) array
-    velocity = np.stack([vel_x, vel_y], axis=1)
-
-    # Read dimensions
-    length = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    width = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-    height = np.array(struct.unpack(f"{trajectory_length}f", f.read(4 * trajectory_length)))
-
-    # Read valid
-    valid = np.array(struct.unpack(f"{trajectory_length}i", f.read(4 * trajectory_length)))
-
-    # Read routes (only first route stored, no length prefix)
-    num_route_ints = struct.unpack("i", f.read(4))[0]
-    routes = []
-    if num_route_ints > 0:
-        route_data = list(struct.unpack(f"{num_route_ints}i", f.read(4 * num_route_ints)))
-        routes.append(route_data)  # Single route, no length prefix
-
-    # Read goal position (ignore for visualization)
-    _goal_x = struct.unpack("f", f.read(4))[0]
-    _goal_y = struct.unpack("f", f.read(4))[0]
-    _goal_z = struct.unpack("f", f.read(4))[0]
-
-    # Read mark_as_expert (ignore for visualization)
-    _mark_as_expert = struct.unpack("i", f.read(4))[0]
-
+def _read_dynamic_states(f, trajectory_length):
+    x = _read_float_array(f, trajectory_length)
+    y = _read_float_array(f, trajectory_length)
+    z = _read_float_array(f, trajectory_length)
+    heading = _read_float_array(f, trajectory_length)
+    vx = _read_float_array(f, trajectory_length)
+    vy = _read_float_array(f, trajectory_length)
+    length = _read_float_array(f, trajectory_length)
+    width = _read_float_array(f, trajectory_length)
+    height = _read_float_array(f, trajectory_length)
+    valid = _read_int_array(f, trajectory_length)
     return {
-        "id": agent_id,
-        "type": agent_type,
-        "states": {
-            "xyz": xyz,
-            "heading": heading,
-            "velocity": velocity,
-            "length": length,
-            "width": width,
-            "height": height,
-            "valid": valid,
-        },
-        "routes": routes,
+        "xyz": np.stack([x, y, z], axis=1),
+        "heading": heading,
+        "velocity": np.stack([vx, vy], axis=1),
+        "length": length,
+        "width": width,
+        "height": height,
+        "valid": valid,
     }
 
 
-def _read_road_map_element(f) -> dict:
-    """Read a RoadMapElement from binary file."""
-    # Read ID and type
-    road_id = struct.unpack("i", f.read(4))[0]
-    road_type = struct.unpack("i", f.read(4))[0]
-
-    # Read segment length
-    segment_length = struct.unpack("i", f.read(4))[0]
-
-    # Read geometry - TRANSPOSED
-    x = np.array(struct.unpack(f"{segment_length}f", f.read(4 * segment_length)))
-    y = np.array(struct.unpack(f"{segment_length}f", f.read(4 * segment_length)))
-    z = np.array(struct.unpack(f"{segment_length}f", f.read(4 * segment_length)))
-
-    # Combine into (N, 3) array
-    xyz = np.stack([x, y, z], axis=1)
-
-    # Lane types (0-9) have entry/exit lanes and speed limit
+def _read_road_map_element(f):
+    road_id = _read_int32(f)
+    road_type = _read_int32(f)
+    segment_length = _read_count(f, "road geometry", limit=MAX_COUNT)
+    xyz = np.stack(
+        [
+            _read_float_array(f, segment_length),
+            _read_float_array(f, segment_length),
+            _read_float_array(f, segment_length),
+        ],
+        axis=1,
+    )
+    heading = _read_float_array(f, segment_length)
     entry_lanes = []
     exit_lanes = []
     speed_limit = 0.0
-
-    if 0 <= road_type <= 9:
-        # Read entry lanes
-        num_entry = struct.unpack("i", f.read(4))[0]
-        if num_entry > 0:
-            entry_lanes = list(struct.unpack(f"{num_entry}i", f.read(4 * num_entry)))
-
-        # Read exit lanes
-        num_exit = struct.unpack("i", f.read(4))[0]
-        if num_exit > 0:
-            exit_lanes = list(struct.unpack(f"{num_exit}i", f.read(4 * num_exit)))
-
-        # Read speed limit
-        speed_limit = struct.unpack("f", f.read(4))[0]
-
+    if is_road_lane(road_type):
+        entry_lanes = _read_int_list(f, "entry lanes")
+        exit_lanes = _read_int_list(f, "exit lanes")
+        speed_limit = _read_float32(f)
     return {
         "id": road_id,
         "type": road_type,
         "xyz": xyz,
+        "heading": heading,
         "entry_lanes": entry_lanes,
         "exit_lanes": exit_lanes,
         "speed_limit": speed_limit,
     }
 
 
-def _read_traffic_control_element(f) -> dict:
-    """Read a TrafficControlElement from binary file."""
-    # Read ID and type
-    traffic_id = struct.unpack("i", f.read(4))[0]
-    traffic_type = struct.unpack("i", f.read(4))[0]
-
-    # Read position
-    x = struct.unpack("f", f.read(4))[0]
-    y = struct.unpack("f", f.read(4))[0]
-    z = struct.unpack("f", f.read(4))[0]
-
-    # Read state length
-    state_length = struct.unpack("i", f.read(4))[0]
-
-    # Read states
-    states = list(struct.unpack(f"{state_length}i", f.read(4 * state_length))) if state_length > 0 else []
-
-    # Read controlled lanes
-    num_controlled_lanes = struct.unpack("i", f.read(4))[0]
-    controlled_lanes = []
-    if num_controlled_lanes > 0:
-        controlled_lanes = list(struct.unpack(f"{num_controlled_lanes}i", f.read(4 * num_controlled_lanes)))
-
+def _read_traffic_control_element(f):
+    traffic_id = _read_int32(f)
+    traffic_type = _read_int32(f)
+    stop_line = np.array(
+        [
+            [_read_float32(f), _read_float32(f), _read_float32(f)],
+            [_read_float32(f), _read_float32(f), _read_float32(f)],
+        ],
+    )
+    heading = _read_float32(f)
+    states = _read_int_list(f, "traffic states")
+    controlled_lanes = _read_int_list(f, "controlled lanes")
     return {
         "id": traffic_id,
         "type": traffic_type,
-        "xyz": np.array([x, y, z]),
+        "stop_line": stop_line,
+        "heading": heading,
         "states": states,
         "controlled_lanes": controlled_lanes,
     }
+
+
+def _read_lane_graph(f):
+    n_graph = _read_count(f, "lane graph", limit=MAX_GRAPH_LANES)
+    if n_graph == 0:
+        return None
+    lane_ids = _read_int_list(f, "graph lane ids", expected=n_graph)
+    lane_lengths = _read_float_array(f, n_graph)
+    distances = _read_float_array(f, n_graph * n_graph).reshape(n_graph, n_graph)
+    return {"lane_ids": lane_ids, "lane_lengths": lane_lengths, "distances": distances}
+
+
+def _read_int_list(f, label, expected=None):
+    n = _read_count(f, label) if expected is None else expected
+    if n == 0:
+        return []
+    if expected is not None and n != expected:
+        raise BinaryFormatError(f"Unexpected {label} count: {n} != {expected}")
+    return _read_int_array(f, n).tolist()
+
+
+def _read_string(f, size):
+    try:
+        return _read_exact(f, size).split(b"\0", 1)[0].decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise BinaryFormatError("Invalid UTF-8 string in binary metadata") from exc
+
+
+def _read_count(f, label, limit=MAX_COUNT):
+    value = _read_int32(f)
+    if value < 0 or value > limit:
+        raise BinaryFormatError(f"Invalid {label} count: {value}")
+    return value
+
+
+def _read_float32(f):
+    return struct.unpack("<f", _read_exact(f, 4))[0]
+
+
+def _read_int32(f):
+    return struct.unpack("<i", _read_exact(f, 4))[0]
+
+
+def _read_float_array(f, n):
+    return np.frombuffer(_read_exact(f, 4 * n), dtype=np.float32).copy()
+
+
+def _read_int_array(f, n):
+    return np.frombuffer(_read_exact(f, 4 * n), dtype=np.int32).copy()
+
+
+def _read_exact(f, size):
+    data = f.read(size)
+    if len(data) != size:
+        raise BinaryFormatError("Unexpected end of file")
+    return data

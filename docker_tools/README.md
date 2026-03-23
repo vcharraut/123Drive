@@ -1,0 +1,96 @@
+# docker_tools
+
+Build-only CLI for 123Drive Docker images. Produce reusable images for both pipeline steps, then run them however you want.
+
+Install policy:
+
+- `build` requires `uv sync --extra docker` or `uv sync --extra all`
+- `123Drive` remains uv-only
+- the `123drive` image installs the repo with `uv sync --extra convert --frozen`
+- plain `pip install 123Drive` is not a supported public install path
+- Docker builds require BuildKit because the Dockerfiles use `RUN --mount=type=cache`
+
+## Images
+
+| Image              | Dockerfile                        | Purpose                         |
+| ------------------ | --------------------------------- | ------------------------------- |
+| `py123d-{dataset}` | `dockerfiles/py123d.Dockerfile`   | Raw dataset → 123D Arrow        |
+| `123drive:latest`  | `dockerfiles/123drive.Dockerfile` | 123D Arrow → PufferDrive `.bin` |
+
+## Build
+
+```bash
+uv sync --extra docker
+
+# List supported py123d datasets
+uv run build list
+
+# Build one py123d image per dataset
+uv run build py123d --dataset nuplan-mini
+uv run build py123d --dataset nuplan --ref my-branch
+
+# Build 123Drive runtime image from the current checkout
+uv run build 123drive
+
+# Print docker commands without executing
+uv run build py123d --dataset wod-motion --dry_run
+uv run build 123drive --dry_run
+```
+
+To build a specific `123Drive` version, check out that branch, tag, or commit locally first, then run `uv run build 123drive`.
+
+## Run
+
+The CLI only builds images. Run them directly with Docker. Both images use `/input` and `/output` as standard mount points - bind-mount your host folders there.
+
+### py123d image
+
+The py123d image is a BEV-oriented wrapper. It exposes only a few runtime knobs and bakes in:
+
+- no pinhole cameras
+- no lidars
+- no fisheye cameras
+
+Runtime arguments:
+
+- `--input`: raw dataset root (default: `/input`)
+- `--output`: py123d output root (default: `/output`)
+- `--splits`: optional split override
+- `--worker_type`: executor type (`ray`, `process_pool`, `thread_pool`; default: `ray`)
+- `--workers`: conversion workers
+
+Example:
+
+```bash
+docker run --rm \
+  -v /host/dataset:/input \
+  -v /host/py123d_data_root:/output \
+  -e CUDA_VISIBLE_DEVICES= \
+  -e TF_CPP_MIN_LOG_LEVEL=3 \
+  --shm-size=10g \
+  py123d-nuplan-mini \
+  --splits nuplan-mini_train nuplan-mini_val
+```
+
+Use `--ipc=host` instead of `--shm-size` only if you explicitly want to share the host's `/dev/shm`.
+
+For nuPlan datasets, mount the dataset root that contains both `maps/` and `nuplan-v1.1/`.
+
+### 123Drive image
+
+The 123Drive image is runtime only. Pass any `convert` argument supported by `src/bin_factory/main.py`. The image installs the current checkout with `uv sync --extra convert --frozen`, and the entrypoint auto-wires `--py123d_path /input --output /output`.
+
+Example:
+
+```bash
+docker run --rm \
+  -v /host/py123d_data_root:/input \
+  -v /host/bin_output:/output \
+  -e CUDA_VISIBLE_DEVICES= \
+  --shm-size=10g \
+  123drive:local \
+  --workers 8 \
+  --validate_level 1
+```
+
+Use `--ipc=host` instead of `--shm-size` only if you explicitly want to share the host's `/dev/shm`.

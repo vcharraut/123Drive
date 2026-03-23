@@ -1,4 +1,4 @@
-/* Puffer Viz — shared pure helpers */
+/* 123Drive Viz — shared pure helpers */
 'use strict';
 
 (function initVizHelpers(globalScope) {
@@ -16,7 +16,7 @@
   }
 
   function getObjectsOfInterest(metadata) {
-    return metadata.objects_of_interest || metadata.objects_of_interests || [];
+    return metadata.objects_of_interest || [];
   }
 
   function setAppStatus(message = '', level = 'info') {
