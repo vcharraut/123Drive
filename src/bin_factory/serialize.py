@@ -2,7 +2,7 @@ import struct
 
 import numpy as np
 
-from bin_factory import types as puffer_types
+from bin_factory import puffer_types
 
 
 METADATA_ID_BYTES = 128

@@ -6,8 +6,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from bin_factory import schema
-from bin_factory import types as puffer_types
+from bin_factory import puffer_types, schema
 
 
 logger = logging.getLogger(__name__)
@@ -89,7 +88,7 @@ class _LaneRecord:
 class _UnionFind:
     def __init__(self, items) -> None:
         self.parent = {item: item for item in items}
-        self.rank = {item: 1 for item in items}
+        self.rank = dict.fromkeys(items, 1)
 
     def find(self, item: int) -> int:
         parent = self.parent[item]
@@ -211,7 +210,8 @@ class _TrafficLightImputer:
         to_delete = [
             lane_id
             for lane_id, lane in self.lanes.items()
-            if (len(lane.entry_lanes) == 0 or len(lane.exit_lanes) == 0) and _polyline_length(lane.polyline) < _LANE_SHORT_THRESHOLD
+            if (len(lane.entry_lanes) == 0 or len(lane.exit_lanes) == 0)
+            and _polyline_length(lane.polyline) < _LANE_SHORT_THRESHOLD
         ]
         for lane_id in to_delete:
             del self.lanes[lane_id]
@@ -235,12 +235,8 @@ class _TrafficLightImputer:
             lane.right_neighbors = self._clean_neighbors(lane, lane.right_neighbors)
 
         for lane in self.lanes.values():
-            lane.left_neighbors = [
-                ref for ref in lane.left_neighbors if lane.id in self.lanes[ref].right_neighbors
-            ]
-            lane.right_neighbors = [
-                ref for ref in lane.right_neighbors if lane.id in self.lanes[ref].left_neighbors
-            ]
+            lane.left_neighbors = [ref for ref in lane.left_neighbors if lane.id in self.lanes[ref].right_neighbors]
+            lane.right_neighbors = [ref for ref in lane.right_neighbors if lane.id in self.lanes[ref].left_neighbors]
 
         for lane in self.lanes.values():
             for left in lane.entry_lanes:
@@ -276,7 +272,9 @@ class _TrafficLightImputer:
             return []
 
         def is_connection_group(group: list[int]) -> bool:
-            return len(group) > 1 and any(self.lanes[lane_id].diverge_lanes or self.lanes[lane_id].merge_lanes for lane_id in group)
+            return len(group) > 1 and any(
+                self.lanes[lane_id].diverge_lanes or self.lanes[lane_id].merge_lanes for lane_id in group
+            )
 
         union_find = _UnionFind(self.lanes)
         for lane in self.lanes.values():
@@ -429,7 +427,10 @@ class _TrafficLightImputer:
         entry_vector = entry_lane.polyline[-1, :2] - entry_lane.polyline[0, :2]
         if np.linalg.norm(lane_vector) < 1e-6 or np.linalg.norm(entry_vector) < 1e-6:
             return False
-        return _angle_of_headings(np.arctan2(lane_vector[1], lane_vector[0]), np.arctan2(entry_vector[1], entry_vector[0])) < _TAIL_ALIGNMENT_THRESHOLD
+        return (
+            _angle_of_headings(np.arctan2(lane_vector[1], lane_vector[0]), np.arctan2(entry_vector[1], entry_vector[0]))
+            < _TAIL_ALIGNMENT_THRESHOLD
+        )
 
 
 class _TLSGenerator:
@@ -483,7 +484,7 @@ class _TLSGenerator:
                 tl_state_buff[step] = _copy_state(tl_state_buff[step - 1])
         for step in range(last_step + 1, end_step):
             tl_state_buff[step] = _copy_state(tl_state_buff[last_step])
-        for step in range(0, start_step):
+        for step in range(start_step):
             tl_state_buff[step] = _copy_state(tl_state_buff[first_step])
         for step in range(end_step, self.horizon):
             tl_state_buff[step] = _copy_state(tl_state_buff[last_step])
@@ -529,7 +530,7 @@ class _TLSGenerator:
                 for group in union_find.groups()
                 if all(_Direction(direction) in movements for direction in group)
             ]
-            state_container[index] = {phase: None for phase in phases}
+            state_container[index] = dict.fromkeys(phases)
         return state_container
 
     def _derive_raw_state(
@@ -656,9 +657,7 @@ class _TLSGenerator:
                 candidate = _copy_state(self.container_template)
                 for index in range(4):
                     for phase in candidate[index]:
-                        if index not in green_group:
-                            candidate[index][phase] = _TLS.RED
-                        elif _Direction.L in phase:
+                        if index not in green_group or _Direction.L in phase:
                             candidate[index][phase] = _TLS.RED
                         else:
                             candidate[index][phase] = _TLS.GREEN
@@ -753,9 +752,7 @@ class _TLSGenerator:
         phase: tuple[_Direction, ...],
         curr_step: int,
     ) -> tuple[float, float, float, float, bool]:
-        selected_lanes = [
-            lane for lane in approach if any(conn.direction in phase for conn in lane.injunction_lanes)
-        ]
+        selected_lanes = [lane for lane in approach if any(conn.direction in phase for conn in lane.injunction_lanes)]
         trajectories: dict[int, list[tuple[int, float, float]]] = {}
 
         def append_record(veh_id: int, pos_idx: int, speed: float, acceleration: float) -> None:

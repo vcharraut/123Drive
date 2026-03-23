@@ -1,6 +1,6 @@
 from py123d.datatypes import detections, map_objects
 
-from bin_factory import types as puffer_types
+from bin_factory import puffer_types
 
 
 AGENT_TYPE_MAP = {

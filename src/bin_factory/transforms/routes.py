@@ -18,7 +18,7 @@ import numpy as np
 import shapely
 from shapely import geometry as shapely_geom
 
-from bin_factory import types as puffer_types
+from bin_factory import puffer_types
 
 
 logger = logging.getLogger(__name__)

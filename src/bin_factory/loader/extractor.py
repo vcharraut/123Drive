@@ -8,8 +8,7 @@ from py123d import api as py123d_api
 from py123d import geometry as py123d_geometry
 from py123d.datatypes import detections, map_objects
 
-from bin_factory import schema
-from bin_factory import types as puffer_types
+from bin_factory import puffer_types, schema
 from bin_factory.loader import mapping
 
 
