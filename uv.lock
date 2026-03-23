@@ -60,8 +60,8 @@ requires-dist = [
     { name = "joblib", marker = "extra == 'all'" },
     { name = "joblib", marker = "extra == 'convert'" },
     { name = "numpy" },
-    { name = "py123d", marker = "extra == 'all'", git = "https://github.com/autonomousvision/py123d?branch=dev_v0.1.0" },
-    { name = "py123d", marker = "extra == 'convert'", git = "https://github.com/autonomousvision/py123d?branch=dev_v0.1.0" },
+    { name = "py123d", marker = "extra == 'all'", git = "https://github.com/autonomousvision/py123d?branch=main" },
+    { name = "py123d", marker = "extra == 'convert'", git = "https://github.com/autonomousvision/py123d?branch=main" },
     { name = "pytest", marker = "extra == 'all'" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pyyaml", marker = "extra == 'all'" },
@@ -2643,7 +2643,7 @@ wheels = [
 [[package]]
 name = "py123d"
 version = "0.1.0"
-source = { git = "https://github.com/autonomousvision/py123d?branch=dev_v0.1.0#0166b01705d92e207de7538a6aaea375d2eb1ad6" }
+source = { git = "https://github.com/autonomousvision/py123d?branch=main#acef9014073053fefcdf3797b5637a2bcf1a5785" }
 dependencies = [
     { name = "cachetools" },
     { name = "dracopy" },
