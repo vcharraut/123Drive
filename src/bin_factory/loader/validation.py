@@ -43,8 +43,8 @@ def validate_scenario(scenario, extras=None, level=1):
     # ── Schema ──
     if length < 0:
         errors.append("metadata.scenario_length must be non-negative")
-    if length > 0 and meta.timestep_seconds <= 0:
-        errors.append("metadata.timestep_seconds must be > 0 when scenario_length > 0")
+    if length > 0 and meta.dt <= 0:
+        errors.append("metadata.dt must be > 0 when scenario_length > 0")
 
     _validate_dynamic_states(scenario.agents, "Agent", length, errors)
     _validate_dynamic_states(scenario.objects, "Object", length, errors)
