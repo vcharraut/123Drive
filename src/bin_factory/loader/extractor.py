@@ -43,7 +43,7 @@ def extract_scenario(
         id=scenario_id,
         dataset=py123_arrow.dataset,
         scenario_length=0,
-        timestep_seconds=0.0,
+        dt=0.0,
     )
 
     map_only = scene_api is None
@@ -55,7 +55,8 @@ def extract_scenario(
     map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, map_only)
 
     if scene_api is not None and ego_states is not None:
-        all_objects = _extract_objects(scene_api, centroid, ego_states)
+        dt = round(scene_api.scene_metadata.future_duration_s / scene_api.scene_metadata.num_future_iterations, 1)
+        all_objects = _extract_objects(scene_api, centroid, ego_states, dt)
         for oid, obj in all_objects.items():
             label = obj.type
             if label in mapping.AGENT_TYPE_MAP:
@@ -67,7 +68,7 @@ def extract_scenario(
 
         traffic_lights = _extract_traffic_lights(scene_api, map_api, centroid, map_lane_ids)
         metadata.scenario_length = scene_api.number_of_iterations
-        metadata.timestep_seconds = scene_api.log_metadata.timestep_seconds
+        metadata.dt = dt
 
     scenario = schema.PufferScenario(
         agents=agents,
@@ -83,6 +84,7 @@ def _extract_objects(
     scene_api: py123d_api.SceneAPI,
     centroid: np.ndarray,
     ego_states: list[Any],
+    dt: float,
 ) -> dict[int, schema.Track]:
     """Extract dynamic objects from 123D box detections and ego state."""
     episode_length = scene_api.number_of_iterations
@@ -91,7 +93,6 @@ def _extract_objects(
 
     # Ego agent is always object ID 0, built from cached ego states
     ego = objects[0]
-    timestep = scene_api.log_metadata.timestep_seconds
 
     for frame_idx, ego_state in enumerate(ego_states):
         if ego_state is None:
@@ -104,11 +105,11 @@ def _extract_objects(
             ego.velocity[frame_idx] = [float(vel.x), float(vel.y)]
             continue
 
-        if frame_idx == 0 or not ego.valid[frame_idx - 1] or timestep <= 0:
+        if frame_idx == 0 or not ego.valid[frame_idx - 1] or dt <= 0:
             continue
 
         delta_pos = ego.position[frame_idx, :2] - ego.position[frame_idx - 1, :2]
-        ego.velocity[frame_idx] = delta_pos / timestep
+        ego.velocity[frame_idx] = delta_pos / dt
 
     # Detections for all other agents
     next_object_id = 0
@@ -256,7 +257,9 @@ def _convert_map_object_to_static_element(map_object: Any, centroid: np.ndarray)
         return None
 
     if layer == map_objects.MapLayer.LANE:
-        puffer_type = mapping.LANE_TYPE_MAP.get(map_object.lane_type, -1)
+        puffer_type = mapping.LANE_TYPE_MAP.get(map_object.lane_type)
+        if puffer_type is None:
+            return None
         if not map_object.speed_limit_mps or np.isnan(map_object.speed_limit_mps):
             speed_limit_mps = -1.0
         else:
@@ -278,14 +281,18 @@ def _convert_map_object_to_static_element(map_object: Any, centroid: np.ndarray)
         }
 
     if layer == map_objects.MapLayer.ROAD_LINE:
-        puffer_type = mapping.ROAD_LINE_TYPE_MAP.get(map_object.road_line_type, -1)
+        puffer_type = mapping.ROAD_LINE_TYPE_MAP.get(map_object.road_line_type)
+        if puffer_type is None:
+            return None
         return {
             "type": puffer_type,
             "polyline": _centered_array(map_object.polyline_3d.array, centroid),
         }
 
     if layer == map_objects.MapLayer.ROAD_EDGE:
-        puffer_type = mapping.ROAD_EDGE_TYPE_MAP.get(map_object.road_edge_type, -1)
+        puffer_type = mapping.ROAD_EDGE_TYPE_MAP.get(map_object.road_edge_type)
+        if puffer_type is None:
+            return None
         return {
             "type": puffer_type,
             "polyline": _centered_array(map_object.polyline_3d.array, centroid),
@@ -299,7 +306,9 @@ def _convert_map_object_to_static_element(map_object: Any, centroid: np.ndarray)
         }
 
     if layer == map_objects.MapLayer.STOP_ZONE:
-        puffer_type = mapping.STOP_ZONE_TYPE_MAP.get(map_object.stop_zone_type, -1)
+        puffer_type = mapping.STOP_ZONE_TYPE_MAP.get(map_object.stop_zone_type)
+        if puffer_type is None:
+            return None
         return {
             "type": puffer_type,
             "polygon": _centered_array(map_object.outline_3d.array, centroid),

@@ -42,7 +42,7 @@ def _read_body(f):
     map_id = _read_int32(f)
     dataset = _read_string(f, METADATA_DATASET_BYTES)
     scenario_length = _read_int32(f)
-    timestep_seconds = _read_float32(f)
+    dt = _read_float32(f)
     objects_of_interest = _read_int_list(f, "objects_of_interest")
     tracks_to_predict = _read_int_list(f, "tracks_to_predict")
 
@@ -60,7 +60,7 @@ def _read_body(f):
             "map_id": map_id,
             "dataset": dataset,
             "scenario_length": scenario_length,
-            "timestep_seconds": timestep_seconds,
+            "dt": dt,
             "objects_of_interest": objects_of_interest,
             "tracks_to_predict": tracks_to_predict,
             "lane_graph_distances": lane_graph_distances,

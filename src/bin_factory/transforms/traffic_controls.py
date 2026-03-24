@@ -1,3 +1,5 @@
+import logging
+
 import numpy as np
 
 from bin_factory import puffer_types as puffer_types
@@ -14,8 +16,15 @@ def process_traffic_controls(scenario, extras) -> None:
     used_ids = set()
 
     for element_id, traffic_light in extras["traffic_lights"].items():
-        heading = _compute_heading_from_incoming_lanes(traffic_light.controlled_lane, lanes_by_id)
-        stop_line = _stop_line_from_position(heading, traffic_light.controlled_lane, lanes_by_id)
+        controlled_lane_id = traffic_light.controlled_lane
+        controlled_lane = lanes_by_id.get(controlled_lane_id)
+        if controlled_lane is None:
+            logging.warning(
+                f"Controlled lane {controlled_lane_id} for traffic light {element_id} not found in map data, skipping."
+            )
+            continue
+        heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
+        stop_line = _stop_line_from_position(heading, controlled_lane_id, lanes_by_id)
         control_id = int(element_id)
 
         elements.append(
@@ -42,7 +51,14 @@ def process_traffic_controls(scenario, extras) -> None:
         if not controlled_lanes:
             continue
 
-        heading = _compute_heading_from_incoming_lanes(controlled_lanes[0], lanes_by_id)
+        controlled_lane_id = controlled_lanes[0]
+        controlled_lane = lanes_by_id.get(controlled_lane_id)
+        if controlled_lane is None:
+            logging.warning(
+                f"Controlled lane {controlled_lane_id} for stop zone {stop_zone_type} not found in map data, skipping."
+            )
+            continue
+        heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
         stop_line = _stop_line_from_polygon(element_data["polygon"], heading)
 
         if stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT:
@@ -81,8 +97,7 @@ def _stop_line_from_position(heading, lane_id, lanes_by_id):
     )
 
 
-def _compute_heading_from_incoming_lanes(lane_id, lanes_by_id):
-    lane = lanes_by_id.get(lane_id)
+def _compute_heading_from_incoming_lanes(lane, lanes_by_id):
     headings = []
     for entry_id in lane.get("entry_lanes", []):
         entry_lane = lanes_by_id.get(entry_id)

@@ -115,7 +115,7 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
     buffer.extend(struct.pack("<i", int(map_id)))
     _pack_fixed_string(buffer, metadata["dataset"], METADATA_DATASET_BYTES)
     buffer.extend(struct.pack("<i", int(metadata["scenario_length"])))
-    buffer.extend(struct.pack("<f", float(metadata["timestep_seconds"])))
+    buffer.extend(struct.pack("<f", float(metadata["dt"])))
     _pack_int_list(buffer, metadata["objects_of_interest"])
     _pack_int_list(buffer, metadata["tracks_to_predict"])
 
@@ -138,7 +138,7 @@ def scenario_to_binary(scenario, map_id=0):
             "id": scenario.metadata.id,
             "dataset": scenario.metadata.dataset,
             "scenario_length": scenario.metadata.scenario_length,
-            "timestep_seconds": scenario.metadata.timestep_seconds,
+            "dt": scenario.metadata.dt,
             "objects_of_interest": [],
             "tracks_to_predict": [],
         },

@@ -20,7 +20,7 @@
  *   LaneGraph: n_lanes_graph(i32),
  *              [if n>0: lane_ids[n](i32), lane_lengths[n](f32), distances[n*n](f32)]
  *   Metadata:  id(char[128]), map_id(i32), dataset(char[32]),
- *              scenario_length(i32), timestep_seconds(f32),
+ *              scenario_length(i32), dt(f32),
  *              n_ooi(i32), ooi[](i32), n_ttp(i32), ttp[](i32)
  */
 'use strict';
@@ -175,7 +175,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     const map_id = i32();
     const dataset = str(32);
     const scenario_length = i32();
-    const timestep_seconds = f32();
+    const dt = f32();
     const objects_of_interest = intList();
     const tracks_to_predict = intList();
 
@@ -185,7 +185,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       traffic_control_elements,
       objects,
       lane_graph,
-      metadata: { id, map_id, dataset, scenario_length, timestep_seconds, num_objects: numObjects, objects_of_interest, tracks_to_predict },
+      metadata: { id, map_id, dataset, scenario_length, dt, num_objects: numObjects, objects_of_interest, tracks_to_predict },
     };
   } catch (error) {
     if (error instanceof RangeError) {

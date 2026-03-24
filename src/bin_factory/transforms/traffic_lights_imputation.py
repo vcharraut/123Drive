@@ -131,7 +131,7 @@ class _TrafficLightImputer:
         self.scenario = scenario
         self.extras = extras
         self.length = scenario.metadata.scenario_length
-        self.timestep_seconds = max(float(scenario.metadata.timestep_seconds), 1e-3)
+        self.dt = max(float(scenario.metadata.dt), 1e-3)
         self.lanes = self._build_lanes()
 
     def impute(self) -> None:
@@ -149,7 +149,7 @@ class _TrafficLightImputer:
             self.scenario.agents,
             lane_center_matrix,
             row_to_lane_id,
-            self.timestep_seconds,
+            self.dt,
             self.length,
         )
 
@@ -892,7 +892,7 @@ def _assign_vehicle_states_to_lanes(
     tracks,
     lane_center_matrix: np.ndarray,
     row_to_lane_id: dict[int, int],
-    timestep_seconds: float,
+    dt: float,
     horizon: int,
 ) -> dict[int, list[dict[int, _VehicleState]]]:
     assignments_by_row = [[{} for _ in range(horizon)] for _ in range(len(row_to_lane_id))]
@@ -933,7 +933,7 @@ def _assign_vehicle_states_to_lanes(
                 if prev_step < 0 or not valid[prev_step]:
                     continue
                 prev_speed = float(np.linalg.norm(velocities[prev_step, :2]))
-                delta_t = (timestep - prev_step) * timestep_seconds
+                delta_t = (timestep - prev_step) * dt
                 if delta_t > 0:
                     acceleration = (speed - prev_speed) / delta_t
                 break

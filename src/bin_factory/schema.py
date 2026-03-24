@@ -8,7 +8,7 @@ class ScenarioMetadata:
     id: str
     dataset: str
     scenario_length: int
-    timestep_seconds: float
+    dt: float
 
 
 @dataclasses.dataclass
