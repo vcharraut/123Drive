@@ -72,6 +72,7 @@ const OBJECT_COLORS = {
 const EGO_COLOR = [220, 38, 38]; // red-600
 const ROUTELESS_COLOR = [148, 163, 184]; // slate-400
 const ROUTE_COLOR = [116, 136, 160, 88];
+const BROWN = [139, 90, 43];
 const EGO_ROUTE_COLOR = [220, 38, 38, 96];
 
 // Type constants — loaded from /api/types, fallbacks until fetched
@@ -117,7 +118,7 @@ const state = {
   followEgo: false,
   layers: {
     lanes: true, road_lines: true, road_edges: true, crosswalks: true,
-    agents: true, objects: true, routes: true, trajectories: true, traffic_controls: true, agent_ids: true,
+    agents: true, objects: true, trajectories: true, traffic_controls: true, agent_ids: true,
     unknowns: false,
     scatter_roads: false,
   },
@@ -559,29 +560,6 @@ function getStaticLayers(scenario, layerFlags) {
     if (sb.length) layers.push(roadLayer('speed-bumps', sb, [219,39,119], 2));
   }
 
-  // Routes — render lane-by-lane to avoid artificial connector jumps.
-  if (layerFlags.routes) {
-    const egoId = getEgoAgentId(scenario);
-    const roadMap = buildRoadMap(roads);
-    const routeData = scenario.agents.flatMap(agent =>
-      getAgentRouteSegments(agent, roadMap).map(seg => ({
-        ...seg,
-        color: agent.id === egoId ? EGO_ROUTE_COLOR : ROUTE_COLOR,
-        width: agent.id === egoId ? 1.4 : 1,
-      }))
-    );
-
-    if (routeData.length) layers.push(new PathLayer({
-      id: 'routes', data: routeData,
-      getPath: d => d.path,
-      getColor: d => d.color,
-      getWidth: d => d.width, widthUnits: 'pixels',
-      getDashArray: [8, 5], dashJustified: true,
-      extensions: [new PathStyleExtension({ dash: true })],
-      jointRounded: true,
-      capRounded: true,
-    }));
-  }
 
   state.staticLayerCache = layers;
   state.staticLayerCacheKey = cacheKey;
@@ -886,16 +864,20 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
 
     } else if (selected.type === 'agent') {
       const a = selected.data;
+      const egoId = getEgoAgentId(scenario);
+      const agentColor = getAgentDisplayColor(a, egoId);
       const routeSegments = getAgentRouteSegments(a, roadMap);
-      const historySegments = buildValidSegments(a.xyz, a.valid, 0, Math.min(t + 1, a.xyz.length), [...BLUE, 255]);
-      const futureSegments = buildValidSegments(a.xyz, a.valid, t, a.xyz.length, [...BLUE, 180]);
+      const historySegments = buildValidSegments(a.xyz, a.valid, 0, Math.min(t + 1, a.xyz.length), [...agentColor, 255]);
+      const futureSegments = buildValidSegments(a.xyz, a.valid, t, a.xyz.length, [...agentColor, 180]);
 
       if (routeSegments.length) {
         layers.push(new PathLayer({
           id: 'sel-agent-route', data: routeSegments,
           getPath: d => d.path,
-          getColor: [...BLUE, 255],
-          getWidth: 3, widthUnits: 'pixels',
+          getColor: [...BROWN, 200],
+          getWidth: 2, widthUnits: 'pixels',
+          getDashArray: [8, 5], dashJustified: true,
+          extensions: [new PathStyleExtension({ dash: true })],
           jointRounded: true, capRounded: true,
         }));
       }
@@ -935,8 +917,8 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
           }],
           getPolygon: d => d.corners,
           getElevation: d => d.height,
-          getFillColor: [...BLUE, 55],
-          getLineColor: [...BLUE, 255],
+          getFillColor: [...agentColor, 55],
+          getLineColor: [...agentColor, 255],
           getLineWidth: 3, lineWidthUnits: 'pixels',
           stroked: true, filled: true,
           extruded: state.viewMode === '3d',
