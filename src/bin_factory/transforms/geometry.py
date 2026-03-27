@@ -87,18 +87,14 @@ def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1) -> N
 
 
 def _remove_duplicate_points(polyline, tol=1e-9):
-    if len(polyline) < 2:
-        return polyline
     diffs = np.diff(polyline, axis=0)
     distances = np.linalg.norm(diffs, axis=1)
     keep_mask = np.concatenate([[True], distances >= tol])
+
     return polyline[keep_mask]
 
 
 def _distance_based_interpolate(polyline, max_segment_length):
-    if len(polyline) < 2:
-        return polyline
-
     diffs = np.diff(polyline, axis=0)
     seg_lengths = np.linalg.norm(diffs, axis=1)
     subdivisions = np.maximum(np.ceil(seg_lengths / max_segment_length).astype(int), 1)
@@ -119,11 +115,11 @@ def _distance_based_interpolate(polyline, max_segment_length):
 
 
 def _simplify_polyline(polyline, tolerance):
-    if len(polyline) < 3:
-        return polyline
     simplified_2d = np.array(shapely_geom.LineString(polyline[:, :2]).simplify(tolerance).coords)
+
     # Re-interpolate z from original polyline at simplified 2D positions
     cum_orig = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1))])
     cum_simp = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(simplified_2d, axis=0), axis=1))])
     z_interp = np.interp(cum_simp, cum_orig, polyline[:, 2])
+
     return np.column_stack([simplified_2d, z_interp])
