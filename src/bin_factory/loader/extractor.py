@@ -188,10 +188,7 @@ def _extract_traffic_lights(
 
 
 def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) -> np.ndarray:
-    """Compute 3D scene centroid from ego trajectory, falling back to road geometry.
-
-    With ego: [mean_x, mean_y, mean_z]. Map-only: [mean_x, mean_y, min_z].
-    """
+    """Compute 3D scene centroid from ego trajectory, falling back to road geometry mean."""
     if ego_states is not None:
         positions = np.array(
             [[float(s.center_se3.x), float(s.center_se3.y), float(s.center_se3.z)] for s in ego_states if s is not None],
@@ -200,7 +197,7 @@ def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) 
         if len(positions) > 0:
             return positions.mean(axis=0)
 
-    # Fallback: road geometry centroid (XY mean, Z min)
+    # Fallback: road geometry centroid
     road_layers = [map_objects.MapLayer.LANE, map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE]
     points = [
         coords
@@ -208,8 +205,7 @@ def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) 
         if (coords := _get_object_xyz_points(obj)) is not None and len(coords) > 0
     ]
     if points:
-        all_points = np.vstack(points)
-        return np.array([all_points[:, 0].mean(), all_points[:, 1].mean(), all_points[:, 2].min()], dtype=np.float64)
+        return np.vstack(points).mean(axis=0)
     return np.zeros(3, dtype=np.float64)
 
 
