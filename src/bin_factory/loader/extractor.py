@@ -264,10 +264,8 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> dict[str, Any] |
             speed_limit_mps = -1.0
         else:
             speed_limit_mps = float(map_object.speed_limit_mps)
-        left_id = getattr(map_object, "left_lane_id", None)
-        right_id = getattr(map_object, "right_lane_id", None)
-        left_neighbor = [left_id] if left_id is not None else []
-        right_neighbor = [right_id] if right_id is not None else []
+        left_neighbor = [lid] if (lid := getattr(map_object, "left_lane_id", None)) is not None else []
+        right_neighbor = [rid] if (rid := getattr(map_object, "right_lane_id", None)) is not None else []
         return {
             "type": puffer_type,
             "polyline": _centered_array(map_object.centerline.array, centroid),

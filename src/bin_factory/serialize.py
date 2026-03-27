@@ -101,8 +101,7 @@ def puffer_dict_to_binary(puffer_dict, map_id=0):
         buffer.extend(struct.pack("<ii", int(obj["id"]), int(obj["type"])))
         _pack_dynamic_states(buffer, obj["states"])
 
-    lane_graph = puffer_dict.get("lane_graph_distances")
-    if lane_graph:
+    if (lane_graph := puffer_dict.get("lane_graph_distances")):
         n = len(lane_graph["lane_ids"])
         buffer.extend(struct.pack("<i", n))
         buffer.extend(struct.pack(f"<{n}i", *lane_graph["lane_ids"]))
@@ -169,12 +168,10 @@ def _flatten_road_map(static_map):
             or puffer_types.is_road_line(road_type)
             or puffer_types.is_road_edge(road_type)
         ):
-            xyz = elem.get("polyline")
-            if xyz is None or len(xyz) <= 1:
+            if (xyz := elem.get("polyline")) is None or len(xyz) <= 1:
                 continue
         else:
-            xyz = elem.get("polygon")
-            if xyz is None or len(xyz) <= 1:
+            if (xyz := elem.get("polygon")) is None or len(xyz) <= 1:
                 continue
 
         heading = _compute_road_heading(xyz)

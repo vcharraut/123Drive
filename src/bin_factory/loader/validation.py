@@ -101,8 +101,7 @@ def _validate_map_elements(map_data, errors) -> None:
     for eid, elem in map_data.items():
         t = elem["type"]
         if puffer_types.is_road_lane(t) or puffer_types.is_road_line(t) or puffer_types.is_road_edge(t):
-            poly = elem.get("polyline")
-            if poly is None:
+            if (poly := elem.get("polyline")) is None:
                 errors.append(f"Map {eid} missing polyline")
             elif not isinstance(poly, np.ndarray) or poly.ndim != 2 or poly.shape[1] < 2:
                 errors.append(f"Map {eid} polyline invalid shape {getattr(poly, 'shape', None)}")
@@ -148,8 +147,7 @@ def _validate_no_nan_inf(scenario, errors) -> None:
 
     for eid, elem in scenario.map.items():
         for key in ("polyline", "polygon"):
-            arr = elem.get(key)
-            if arr is not None and isinstance(arr, np.ndarray) and not np.all(np.isfinite(arr)):
+            if (arr := elem.get(key)) is not None and isinstance(arr, np.ndarray) and not np.all(np.isfinite(arr)):
                 errors.append(f"Map {eid} {key} contains NaN or Inf")
 
 

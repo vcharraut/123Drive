@@ -278,8 +278,7 @@ def _beam_rank(state):
 def _merge_route_centerlines(route, lane_id_to_idx, trimmed_polylines):
     parts = []
     for lane_id in route:
-        lane_idx = lane_id_to_idx.get(lane_id)
-        if lane_idx is None:
+        if (lane_idx := lane_id_to_idx.get(lane_id)) is None:
             continue
         polyline = trimmed_polylines[lane_idx]
         if len(polyline) == 0:

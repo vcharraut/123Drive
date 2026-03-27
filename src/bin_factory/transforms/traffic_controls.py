@@ -17,8 +17,7 @@ def process_traffic_controls(scenario, extras) -> None:
 
     for element_id, traffic_light in extras["traffic_lights"].items():
         controlled_lane_id = traffic_light.controlled_lane
-        controlled_lane = lanes_by_id.get(controlled_lane_id)
-        if controlled_lane is None:
+        if (controlled_lane := lanes_by_id.get(controlled_lane_id)) is None:
             logging.warning(
                 f"Controlled lane {controlled_lane_id} for traffic light {element_id} not found in map data, skipping."
             )
@@ -52,8 +51,7 @@ def process_traffic_controls(scenario, extras) -> None:
             continue
 
         controlled_lane_id = controlled_lanes[0]
-        controlled_lane = lanes_by_id.get(controlled_lane_id)
-        if controlled_lane is None:
+        if (controlled_lane := lanes_by_id.get(controlled_lane_id)) is None:
             logging.warning(
                 f"Controlled lane {controlled_lane_id} for stop zone {stop_zone_type} not found in map data, skipping."
             )

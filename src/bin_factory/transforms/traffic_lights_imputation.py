@@ -684,13 +684,17 @@ class _TLSGenerator:
             if not self._can_split_left(green_group):
                 continue
             # Left-only green for the group
-            candidates.append(self._make_candidate(
-                lambda i, p, g=gs: _TLS.GREEN if i in g and _Direction.L in p else _TLS.RED,
-            ))
+            candidates.append(
+                self._make_candidate(
+                    lambda i, p, g=gs: _TLS.GREEN if i in g and _Direction.L in p else _TLS.RED,
+                )
+            )
             # Straight-only green for the group (left gets red)
-            candidates.append(self._make_candidate(
-                lambda i, p, g=gs: _TLS.GREEN if i in g and _Direction.L not in p else _TLS.RED,
-            ))
+            candidates.append(
+                self._make_candidate(
+                    lambda i, p, g=gs: _TLS.GREEN if i in g and _Direction.L not in p else _TLS.RED,
+                )
+            )
 
         return candidates
 
@@ -702,12 +706,16 @@ class _TLSGenerator:
 
         # Left-turn split for ways 0+1
         if self._can_split_left((0, 1)):
-            candidates.append(self._make_candidate(
-                lambda i, p: _TLS.GREEN if i in (0, 1) and _Direction.L not in p else _TLS.RED,
-            ))
-            candidates.append(self._make_candidate(
-                lambda i, p: _TLS.GREEN if i in (0, 1) and _Direction.L in p else _TLS.RED,
-            ))
+            candidates.append(
+                self._make_candidate(
+                    lambda i, p: _TLS.GREEN if i in (0, 1) and _Direction.L not in p else _TLS.RED,
+                )
+            )
+            candidates.append(
+                self._make_candidate(
+                    lambda i, p: _TLS.GREEN if i in (0, 1) and _Direction.L in p else _TLS.RED,
+                )
+            )
 
         # Ways 0+1 both green, way 2 red
         candidates.append(self._make_candidate(lambda i, _p: _TLS.GREEN if i != 2 else _TLS.RED))

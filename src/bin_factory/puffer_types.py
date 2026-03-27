@@ -71,6 +71,7 @@ TL_STATE_NAMES = {t.value: t.name.lower() for t in TLState}
 TC_TYPE_NAMES = {t.value: t.name.lower() for t in TCType}
 OBJECT_TYPE_NAMES = {t.value: t.name.lower() for t in ObjectType}
 
+
 def is_road_lane(t):
     return 0 <= t <= 9
 
