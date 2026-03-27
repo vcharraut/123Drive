@@ -106,7 +106,6 @@ def _extract_objects(
 
         _write_detection_frame(ego, frame_idx, ego_state.center_se3, ego_state.bounding_box_se3, centroid)
 
-        # Retrieve velocity from ego state if available
         if ego_state.dynamic_state_se3:
             vel = ego_state.dynamic_state_se3.velocity_3d
             ego.velocity[frame_idx] = [float(vel.x), float(vel.y)]
@@ -175,9 +174,13 @@ def _extract_traffic_lights(
                 logger.debug("TL detection references unknown lane %d, skipping", lane_id)
                 continue
             if lane_id not in elements:
-                position = _get_lane_position(map_api, lane_id, centroid)
+                lane = map_api.get_map_object_in_layer(lane_id, map_objects.MapLayer.LANE)
+                if lane is None or not isinstance(lane, map_objects.Lane) or len(lane.centerline.array) == 0:
+                    logger.debug("TL lane %d has no centerline, skipping", lane_id)
+                    continue
+
                 elements[lane_id] = schema.TrafficLightTrack(
-                    position=np.array(position, dtype=np.float64),
+                    position=_centered_array(lane.centerline.array[0], centroid).flatten(),
                     states=[puffer_types.TLState.UNKNOWN] * scene_api.number_of_iterations,
                     controlled_lane=lane_id,
                 )
@@ -432,11 +435,7 @@ def _fix_lane_topology(
 
 
 def _centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
-    centered = array.astype(np.float64, copy=True)
-    centered[:, 0] -= center[0]
-    centered[:, 1] -= center[1]
-    centered[:, 2] -= center[2]
-    return centered
+    return array.astype(np.float64, copy=True) - center
 
 
 # ── Getter functions ───────────────────────
@@ -457,19 +456,3 @@ def _get_object_xyz_points(map_object: object) -> np.ndarray | None:
     if outline_3d is not None:
         return np.asarray(outline_3d.array[:, :3], dtype=np.float64)
     return None
-
-
-def _get_lane_position(map_api: py123d_api.MapAPI, lane_id: int, center: np.ndarray) -> list[float]:
-    lane = map_api.get_map_object_in_layer(lane_id, map_objects.MapLayer.LANE)
-    if lane is None or not isinstance(lane, map_objects.Lane):
-        raise ValueError(f"Lane {lane_id} not found or has no centerline")
-
-    if len(lane.centerline.array) == 0:
-        raise ValueError(f"Lane {lane_id} has empty centerline")
-
-    point = lane.centerline.array[0]
-    x = float(point[0]) - float(center[0])
-    y = float(point[1]) - float(center[1])
-    z = float(point[2]) - float(center[2])
-
-    return [x, y, z]
