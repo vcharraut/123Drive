@@ -32,7 +32,7 @@ STOP_ZONE_TYPE_MAP = {
     map_objects.StopZoneType.STOP_SIGN: int(puffer_types.TCType.STOP_SIGN),
     map_objects.StopZoneType.YIELD_SIGN: int(puffer_types.TCType.YIELD_SIGN),
     map_objects.StopZoneType.PEDESTRIAN_CROSSING: None,  # Not supported as a stop zone type, only as a crosswalk type
-    map_objects.StopZoneType.TURN_STOP: int(puffer_types.TCType.STOP_SIGN), # No specific turn stop type in puffer
+    map_objects.StopZoneType.TURN_STOP: int(puffer_types.TCType.STOP_SIGN),  # No specific turn stop type in puffer
 }
 
 ROAD_EDGE_TYPE_MAP = {
