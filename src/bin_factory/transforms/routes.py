@@ -86,6 +86,8 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
             route_check_timestep=route_check_timestep,
             min_route_valid_points=min_route_valid_points,
         )
+        if is_ego and not route:
+            raise ValueError(f"Route computation failed for ego vehicle (agent 0) in scenario {scenario.metadata.id}")
         agent_data.route = route
 
 
