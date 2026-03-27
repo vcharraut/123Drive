@@ -335,7 +335,13 @@ def _make_empty_track(episode_length: int, agent_type: object) -> schema.Track:
     )
 
 
-def _write_detection_frame(obj: schema.Track, frame_idx: int, center_se3: Any, bbox: Any, centroid: np.ndarray) -> None:
+def _write_detection_frame(
+    obj: schema.Track,
+    frame_idx: int,
+    center_se3: Any,
+    bbox: Any,
+    centroid: np.ndarray,
+) -> None:
     obj.position[frame_idx] = [
         float(center_se3.x) - float(centroid[0]),
         float(center_se3.y) - float(centroid[1]),

@@ -39,6 +39,17 @@ MOVEMENT_THRESHOLD = 0.5  # meters — total displacement below this = stationar
 
 
 @dataclass(frozen=True)
+class AgentRouteInput:
+    agent_id: int
+    positions: np.ndarray
+    headings: np.ndarray
+    valid: np.ndarray
+    lengths: np.ndarray
+    widths: np.ndarray
+    is_ego: bool
+
+
+@dataclass(frozen=True)
 class BeamState:
     route: tuple[int, ...]
     visited: frozenset[int]
@@ -62,14 +73,14 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
             continue
 
         route = compute_agent_route(
-            agent_data=(
-                agent_id,
-                agent_data.position,
-                agent_data.heading,
-                agent_data.valid,
-                agent_data.length,
-                agent_data.width,
-                is_ego,
+            agent_data=AgentRouteInput(
+                agent_id=agent_id,
+                positions=agent_data.position,
+                headings=agent_data.heading,
+                valid=agent_data.valid,
+                lengths=agent_data.length,
+                widths=agent_data.width,
+                is_ego=is_ego,
             ),
             route_cache=route_cache,
             route_check_timestep=route_check_timestep,
@@ -163,9 +174,9 @@ def compute_agent_route(
     min_route_valid_points=0,
 ):
     """Return the best lane sequence for one agent, or an empty list."""
-    agent_id, positions, headings, valid, lengths, widths, is_ego = agent_data
-    positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
-    valid = np.asarray(valid, dtype=bool)
+    positions_2d = agent_data.positions[:, :2] if agent_data.positions.shape[1] == 3 else agent_data.positions
+    headings = agent_data.headings
+    valid = np.asarray(agent_data.valid, dtype=bool)
     trajectory = positions_2d[valid]
     heading_valid = headings[valid]
 
@@ -176,20 +187,20 @@ def compute_agent_route(
         "positions_2d": positions_2d,
         "headings": headings,
         "valid": valid,
-        "lengths": lengths,
-        "widths": widths,
+        "lengths": agent_data.lengths,
+        "widths": agent_data.widths,
         "trajectory": trajectory,
         "heading_valid": heading_valid,
         "sample_positions": trajectory[sample_indices],
         "sample_agent_dirs": agent_dirs[sample_indices],
     }
 
-    agent_str = f"Agent {agent_id}" if agent_id is not None else "Agent"
+    agent_str = f"Agent {agent_data.agent_id}" if agent_data.agent_id is not None else "Agent"
 
     if not _can_compute_route(
         agent_context,
         route_cache,
-        is_ego,
+        agent_data.is_ego,
         route_check_timestep,
         min_route_valid_points,
     ):

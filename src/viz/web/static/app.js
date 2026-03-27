@@ -124,6 +124,7 @@ const state = {
   },
   selected: null,
   pathFinder: { active: false, source: null, dest: null, path: null, distance: null },
+  ruler: { active: false, p1: null, p2: null, distance: null },
   staticLayerCache: null,
   staticLayerCacheKey: null,
   playTimer: null,
@@ -146,12 +147,93 @@ const DRAG_THRESHOLD_PX = 4;
 
 // ── Geometry helpers ───────────────────────────────────────────────────────
 
-const toXY = d => d.xyz.map(p => [p[0], p[1]]);
+function hasFiniteZ(point) {
+  return point != null && point.length > 2 && Number.isFinite(point[2]);
+}
+
+function getPointZ(point, fallback = 0) {
+  return hasFiniteZ(point) ? point[2] : fallback;
+}
+
+function toViewPoint(point, zOffset = 0) {
+  if (state.viewMode === '3d') return [point[0], point[1], getPointZ(point) + zOffset];
+  return [point[0], point[1]];
+}
+
+function toViewPath(points, zOffset = 0) {
+  return points.map(point => toViewPoint(point, zOffset));
+}
+
+const toXY = d => toViewPath(d.xyz);
+const toPath = d => toViewPath(d.path);
+
+function getEntityPoint(entity, t, zOffset = 0) {
+  return toViewPoint(entity.xyz[t], zOffset);
+}
+
+function getEntityZ(entity, t) {
+  return getPointZ(entity.xyz[t]);
+}
+
+function getVehiclePolygon(x, y, heading, length, width, z = 0) {
+  return getVehicleCorners(x, y, heading, length, width, state.viewMode === '3d' ? z : null);
+}
+
+function getHeadingPath(x, y, heading, length, z = 0) {
+  return getHeadingArrow(x, y, heading, length, state.viewMode === '3d' ? z : null);
+}
+
+function getSceneMetrics(scenario) {
+  if (!scenario) return null;
+  if (!scenario.__sceneMetrics) scenario.__sceneMetrics = sceneBounds(scenario);
+  return scenario.__sceneMetrics;
+}
+
+function getSceneFocusTarget(scenario) {
+  const bounds = getSceneMetrics(scenario);
+  if (!bounds) return [0, 0, 0];
+  return [bounds.cx, bounds.cy, bounds.cz];
+}
+
+function niceStep(value) {
+  if (!Number.isFinite(value) || value <= 0) return 1;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  const normalized = value / magnitude;
+  if (normalized <= 1) return magnitude;
+  if (normalized <= 2) return 2 * magnitude;
+  if (normalized <= 5) return 5 * magnitude;
+  return 10 * magnitude;
+}
+
+function formatAxisLabel(value, step) {
+  if (step < 1) return value.toFixed(1);
+  return value.toFixed(0);
+}
+
+function getSceneAxisSpec(scenario) {
+  const bounds = getSceneMetrics(scenario);
+  if (!bounds) return null;
+  const xSpan = Math.max(bounds.xmax - bounds.xmin, 1);
+  const ySpan = Math.max(bounds.ymax - bounds.ymin, 1);
+  const zSpan = bounds.zmax - bounds.zmin;
+  const baseSpan = Math.max(xSpan, ySpan, 10);
+  const axisHeight = zSpan > 1e-3 ? zSpan : Math.max(10, baseSpan * 0.15);
+  const margin = baseSpan * 0.06;
+  const foot = Math.max(baseSpan * 0.04, 4);
+  const tickStep = niceStep(axisHeight / 4);
+  return {
+    origin: [bounds.xmin - margin, bounds.ymin - margin, bounds.zmin],
+    axisHeight,
+    foot,
+    tickStep,
+    topZ: bounds.zmin + axisHeight,
+  };
+}
 
 function getEgoState(scenario, t) {
   const agent = scenario.agents[0];
   if (!agent || !agent.valid[t]) return null;
-  return {x: agent.xyz[t][0], y: agent.xyz[t][1], heading: agent.heading[t]};
+  return {x: agent.xyz[t][0], y: agent.xyz[t][1], z: getEntityZ(agent, t), heading: agent.heading[t]};
 }
 
 function getEgoAgentId(scenario) {
@@ -178,7 +260,7 @@ function buildValidSegments(xyz, valid, start, end, color) {
   let cur = [];
   for (let i = start; i < end; i++) {
     if (valid[i]) {
-      cur.push([xyz[i][0], xyz[i][1]]);
+      cur.push([xyz[i][0], xyz[i][1], getPointZ(xyz[i])]);
       continue;
     }
     if (cur.length > 1) segs.push({path: cur, color});
@@ -249,7 +331,7 @@ function getAgentRouteSegments(agent, roadMap) {
     .map(laneId => roadMap.get(laneId))
     .filter(road => road && Array.isArray(road.xyz) && road.xyz.length > 1)
     .map((road, idx) => {
-      const path = road.xyz.map(([x, y]) => [x, y]);
+      const path = road.xyz.map(([x, y, z = 0]) => [x, y, z]);
       const croppedPath = idx === 0 ? cropPathToStart(path, startPos) : path;
       return {path: croppedPath, laneId: road.id, agentId: agent.id};
     })
@@ -350,7 +432,7 @@ function begin3DDrag(event) {
   dragState.mode = mode;
   dragState.startScreen = startScreen;
   dragState.startGround = mode === 'pan' && viewport
-    ? viewport.unproject(startScreen, {targetZ: 0})
+    ? viewport.unproject(startScreen, {targetZ: state.viewState.target?.[2] || 0})
     : null;
   dragState.startTarget = [...(state.viewState.target || [0, 0, 0])];
   dragState.startRotationX = state.viewState.rotationX || 0;
@@ -379,7 +461,7 @@ function update3DDrag(event) {
   if (dragState.mode === 'pan') {
     const viewport = getMainViewport();
     if (!viewport || !dragState.startGround || !dragState.startTarget) return;
-    const ground = viewport.unproject(pos, {targetZ: 0});
+    const ground = viewport.unproject(pos, {targetZ: dragState.startTarget[2] || 0});
     if (!ground) return;
 
     setViewState(instantViewState({
@@ -420,11 +502,88 @@ function handle3DWheel(event) {
   }));
 }
 
-function handleSelectableClick(event, cb) {
+function handleSelectableClick(event, cb, coordinate) {
   if (consumeSuppressedCanvasClick()) return true;
   if (!isPrimaryPointerEvent(event)) return true;
+  if (state.ruler.active && coordinate) {
+    handleRulerClick(coordinate);
+    return true;
+  }
   cb();
   return true;
+}
+
+function build3DAxisLayers(scenario) {
+  if (state.viewMode !== '3d') return [];
+  const spec = getSceneAxisSpec(scenario);
+  if (!spec) return [];
+
+  const [ox, oy, oz] = spec.origin;
+  const zColor = [245, 158, 11, 230];
+  const xColor = [96, 165, 250, 170];
+  const yColor = [74, 222, 128, 170];
+
+  const axisLines = [
+    {path: [[ox, oy, oz], [ox, oy, spec.topZ]], color: zColor},
+    {path: [[ox, oy, oz], [ox + spec.foot, oy, oz]], color: xColor},
+    {path: [[ox, oy, oz], [ox, oy + spec.foot, oz]], color: yColor},
+  ];
+
+  const tickLines = [];
+  const labels = [
+    {position: [ox, oy, spec.topZ + spec.foot * 0.25], text: 'Z', color: zColor},
+    {position: [ox + spec.foot * 1.15, oy, oz], text: 'X', color: xColor},
+    {position: [ox, oy + spec.foot * 1.15, oz], text: 'Y', color: yColor},
+  ];
+
+  for (let z = oz; z <= spec.topZ + spec.tickStep * 0.5; z += spec.tickStep) {
+    const tickZ = Math.min(z, spec.topZ);
+    tickLines.push({
+      path: [[ox, oy, tickZ], [ox + spec.foot * 0.45, oy, tickZ]],
+      color: zColor,
+    });
+    labels.push({
+      position: [ox + spec.foot * 0.65, oy, tickZ],
+      text: formatAxisLabel(tickZ, spec.tickStep),
+      color: zColor,
+    });
+    if (tickZ === spec.topZ) break;
+  }
+
+  return [
+    new PathLayer({
+      id: 'scene-axis-lines',
+      data: axisLines,
+      getPath: toPath,
+      getColor: d => d.color,
+      getWidth: 2,
+      widthUnits: 'pixels',
+      capRounded: true,
+    }),
+    new PathLayer({
+      id: 'scene-axis-ticks',
+      data: tickLines,
+      getPath: toPath,
+      getColor: d => d.color,
+      getWidth: 1.5,
+      widthUnits: 'pixels',
+      capRounded: true,
+    }),
+    new TextLayer({
+      id: 'scene-axis-labels',
+      data: labels,
+      getPosition: d => d.position,
+      getText: d => d.text,
+      getSize: d => (d.text.length === 1 ? 12 : 10),
+      sizeUnits: 'pixels',
+      getColor: d => d.color,
+      getTextAnchor: 'start',
+      getAlignmentBaseline: 'center',
+      fontFamily: 'JetBrains Mono, monospace',
+      fontWeight: 600,
+      billboard: true,
+    }),
+  ];
 }
 
 const deckgl = new DeckGL({
@@ -478,7 +637,7 @@ function getStaticLayers(scenario, layerFlags) {
   const layers = [];
   const onClick = (cb) => ({
     pickable: true,
-    onClick: ({object}, event) => object ? handleSelectableClick(event, () => cb(object)) : false,
+    onClick: (info, event) => info.object ? handleSelectableClick(event, () => cb(info.object), info.coordinate) : false,
   });
 
   // Helper: pixel-unit path layer
@@ -498,15 +657,15 @@ function getStaticLayers(scenario, layerFlags) {
 
   // Helper: scatter points — one dot per polyline vertex
   const scatterRoads = (id, data, color, radius = 2) => {
-    const pts = data.flatMap(road => road.xyz.map(p => ({pos: [p[0], p[1]], road})));
+    const pts = data.flatMap(road => road.xyz.map(p => ({pos: p, road})));
     return new ScatterplotLayer({
       id, data: pts,
-      getPosition: d => d.pos,
+      getPosition: d => toViewPoint(d.pos),
       getFillColor: color,
       getRadius: radius, radiusUnits: 'pixels',
       pickable: true,
-      onClick: ({object}, event) => object
-        ? handleSelectableClick(event, () => selectElement('road', object.road))
+      onClick: (info, event) => info.object
+        ? handleSelectableClick(event, () => selectElement('road', info.object.road), info.coordinate)
         : false,
     });
   };
@@ -582,7 +741,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
 
       if (objectHistData.length) layers.push(new PathLayer({
         id: 'object-traj-history', data: objectHistData,
-        getPath: d => d.path, getColor: d => d.color,
+        getPath: toPath, getColor: d => d.color,
         getWidth: 1.25, widthUnits: 'pixels',
         jointRounded: true, capRounded: true,
       }));
@@ -595,7 +754,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
 
       if (objectFutureData.length) layers.push(new PathLayer({
         id: 'object-traj-future', data: objectFutureData,
-        getPath: d => d.path, getColor: d => d.color,
+        getPath: toPath, getColor: d => d.color,
         getWidth: 1, widthUnits: 'pixels',
         jointRounded: true, capRounded: true,
         getDashArray: [4, 4], dashJustified: true,
@@ -607,7 +766,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
 
     if (state.viewMode === '2d') {
       const boxData = validObjects.map(o => ({
-        corners: getVehicleCorners(o.xyz[t][0], o.xyz[t][1], o.heading[t], o.length[t] || 1.0, o.width[t] || 1.0),
+        corners: getVehiclePolygon(o.xyz[t][0], o.xyz[t][1], o.heading[t], o.length[t] || 1.0, o.width[t] || 1.0),
         color: getObjectDisplayColor(o),
       }));
       if (boxData.length) layers.push(new PolygonLayer({
@@ -617,13 +776,20 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         getLineColor: d => [...d.color, 255],
         getLineWidth: 1, lineWidthUnits: 'pixels',
         stroked: true, filled: true, extruded: false,
-        pickable: true, onClick: ({object, index}, event) => object
-          ? handleSelectableClick(event, () => selectElement('object', validObjects[index]))
+        pickable: true, onClick: (info, event) => info.object
+          ? handleSelectableClick(event, () => selectElement('object', validObjects[info.index]), info.coordinate)
           : false,
       }));
     } else {
       const boxData3d = validObjects.map(o => ({
-        corners: getVehicleCorners(o.xyz[t][0], o.xyz[t][1], o.heading[t], o.length[t] || 1.0, o.width[t] || 1.0),
+        corners: getVehiclePolygon(
+          o.xyz[t][0],
+          o.xyz[t][1],
+          o.heading[t],
+          o.length[t] || 1.0,
+          o.width[t] || 1.0,
+          getEntityZ(o, t),
+        ),
         height: o.height[t] || 1.0,
         color: getObjectDisplayColor(o),
       }));
@@ -634,19 +800,25 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         getLineColor: d => [...d.color, 255],
         getElevation: d => d.height,
         stroked: true, filled: true, extruded: true,
-        pickable: true, onClick: ({object, index}, event) => object
-          ? handleSelectableClick(event, () => selectElement('object', validObjects[index]))
+        pickable: true, onClick: (info, event) => info.object
+          ? handleSelectableClick(event, () => selectElement('object', validObjects[info.index]), info.coordinate)
           : false,
       }));
     }
 
     const arrowData = validObjects.map(o => ({
-      path: getHeadingArrow(o.xyz[t][0], o.xyz[t][1], o.heading[t], Math.max(o.length[t] || 1.0, 0.8)),
+      path: getHeadingPath(
+        o.xyz[t][0],
+        o.xyz[t][1],
+        o.heading[t],
+        Math.max(o.length[t] || 1.0, 0.8),
+        getEntityZ(o, t),
+      ),
       color: [...getObjectDisplayColor(o), 220],
     }));
     if (arrowData.length) layers.push(new PathLayer({
       id: 'object-arrows', data: arrowData,
-      getPath: d => d.path, getColor: d => d.color,
+      getPath: toPath, getColor: d => d.color,
       getWidth: 1, widthUnits: 'pixels',
       capRounded: true,
     }));
@@ -666,7 +838,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
 
       if (histData.length) layers.push(new PathLayer({
         id: 'traj-history', data: histData,
-        getPath: d => d.path, getColor: d => d.color,
+        getPath: toPath, getColor: d => d.color,
         getWidth: 1.5, widthUnits: 'pixels',
         jointRounded: true, capRounded: true,
       }));
@@ -679,7 +851,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
 
       if (futData.length) layers.push(new PathLayer({
         id: 'traj-future', data: futData,
-        getPath: d => d.path, getColor: d => d.color,
+        getPath: toPath, getColor: d => d.color,
         getWidth: 1, widthUnits: 'pixels',
         jointRounded: true, capRounded: true,
         getDashArray: [6, 4], dashJustified: true,
@@ -695,7 +867,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         const color = getAgentDisplayColor(a, egoId);
         const x = a.xyz[t][0], y = a.xyz[t][1];
         const h = a.heading[t], l = a.length[t] || 4.5, w = a.width[t] || 2;
-        return {corners: getVehicleCorners(x, y, h, l, w), color, id: a.id};
+        return {corners: getVehiclePolygon(x, y, h, l, w), color, id: a.id};
       });
       if (boxData.length) layers.push(new PolygonLayer({
         id: 'agents-2d', data: boxData,
@@ -704,8 +876,8 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         getLineColor: [255,255,255,230],
         getLineWidth: 1, lineWidthUnits: 'pixels',
         stroked: true, filled: true, extruded: false,
-        pickable: true, onClick: ({object, index}, event) => object
-          ? handleSelectableClick(event, () => selectElement('agent', validAgents[index]))
+        pickable: true, onClick: (info, event) => info.object
+          ? handleSelectableClick(event, () => selectElement('agent', validAgents[info.index]), info.coordinate)
           : false,
       }));
     } else {
@@ -714,7 +886,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         const color = getAgentDisplayColor(a, egoId);
         const x = a.xyz[t][0], y = a.xyz[t][1], z = a.xyz[t][2] || 0;
         const h = a.heading[t], l = a.length[t] || 4.5, w = a.width[t] || 2, ht = a.height[t] || 1.5;
-        return {corners: getVehicleCorners(x, y, h, l, w), height: ht, z, color, id: a.id, _agent: a};
+        return {corners: getVehiclePolygon(x, y, h, l, w, z), height: ht, z, color, id: a.id, _agent: a};
       });
       if (boxData3d.length) layers.push(new PolygonLayer({
         id: 'agents-3d', data: boxData3d,
@@ -723,8 +895,8 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         getLineColor: [0,0,0,200],
         getElevation: d => d.height,
         stroked: true, filled: true, extruded: true,
-        pickable: true, onClick: ({object, index}, event) => object
-          ? handleSelectableClick(event, () => selectElement('agent', validAgents[index]))
+        pickable: true, onClick: (info, event) => info.object
+          ? handleSelectableClick(event, () => selectElement('agent', validAgents[info.index]), info.coordinate)
           : false,
       }));
     }
@@ -733,13 +905,13 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     const arrowData = validAgents.map(a => {
       const x = a.xyz[t][0], y = a.xyz[t][1];
       return {
-        path: getHeadingArrow(x, y, a.heading[t], a.length[t] || 4.5),
+        path: getHeadingPath(x, y, a.heading[t], a.length[t] || 4.5, getEntityZ(a, t)),
         color: [...getAgentDisplayColor(a, egoId), 230],
       };
     });
     if (arrowData.length) layers.push(new PathLayer({
       id: 'agent-arrows', data: arrowData,
-      getPath: d => d.path, getColor: d => d.color,
+      getPath: toPath, getColor: d => d.color,
       getWidth: 1, widthUnits: 'pixels',
       capRounded: true,
     }));
@@ -747,7 +919,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     // Agent IDs
     if (layerFlags.agent_ids) {
       const labelData = validAgents.map(a => ({
-        pos: [a.xyz[t][0], a.xyz[t][1]],
+        pos: getEntityPoint(a, t, Math.max((a.height[t] || 1.5) * 0.7, 0.8)),
         text: String(a.id),
         color: a.id === egoId ? [255,255,255] : (agentHasRoute(a) ? [240,240,240] : [148,163,184]),
       }));
@@ -764,7 +936,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     const ttpAgents = validAgents.filter(a => ttp.has(a.id));
     if (ttpAgents.length) layers.push(new ScatterplotLayer({
       id: 'ttp-markers', data: ttpAgents,
-      getPosition: a => [a.xyz[t][0], a.xyz[t][1]],
+      getPosition: a => getEntityPoint(a, t),
       getRadius: a => (a.width[t] || 2) * 0.6,
       getFillColor: [0,0,0,0],
       getLineColor: [124,58,237,255],
@@ -782,16 +954,24 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     if (tlElems.length) {
       const tlData = tlElems.map(tl => {
         const s = tl.states.length && t < tl.states.length ? tl.states[t] : 4;
-        return {path: [tl.stop_line[0].slice(0,2), tl.stop_line[1].slice(0,2)], color: getTlStateColorRgb(s), state: s, tl};
+        return {
+          path: [
+            [tl.stop_line[0][0], tl.stop_line[0][1], getPointZ(tl.stop_line[0])],
+            [tl.stop_line[1][0], tl.stop_line[1][1], getPointZ(tl.stop_line[1])],
+          ],
+          color: getTlStateColorRgb(s),
+          state: s,
+          tl,
+        };
       });
       layers.push(new PathLayer({
         id: 'traffic-lights', data: tlData,
-        getPath: d => d.path,
+        getPath: toPath,
         getColor: d => [...d.color, 230],
         getWidth: 3, widthUnits: 'pixels',
         capRounded: true,
-        pickable: true, onClick: ({object}, event) => object
-          ? handleSelectableClick(event, () => selectElement('traffic_control', object.tl))
+        pickable: true, onClick: (info, event) => info.object
+          ? handleSelectableClick(event, () => selectElement('traffic_control', info.object.tl), info.coordinate)
           : false,
       }));
     }
@@ -801,22 +981,31 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       const SIGN_COLORS = {2: [[220,38,38], [30,30,30]], 3: [[234,160,8], [30,30,30]]};
       const NUM_STRIPES = 8;
       const stripeSegments = signElems.flatMap(tc => {
-        const [a, b] = [tc.stop_line[0].slice(0,2), tc.stop_line[1].slice(0,2)];
+        const a = [tc.stop_line[0][0], tc.stop_line[0][1], getPointZ(tc.stop_line[0])];
+        const b = [tc.stop_line[1][0], tc.stop_line[1][1], getPointZ(tc.stop_line[1])];
         const colors = SIGN_COLORS[tc.type] || [[128,128,128],[30,30,30]];
         return Array.from({length: NUM_STRIPES}, (_, i) => {
           const t0 = i / NUM_STRIPES, t1 = (i + 1) / NUM_STRIPES;
-          const p0 = [a[0] + (b[0]-a[0])*t0, a[1] + (b[1]-a[1])*t0];
-          const p1 = [a[0] + (b[0]-a[0])*t1, a[1] + (b[1]-a[1])*t1];
+          const p0 = [
+            a[0] + (b[0] - a[0]) * t0,
+            a[1] + (b[1] - a[1]) * t0,
+            a[2] + (b[2] - a[2]) * t0,
+          ];
+          const p1 = [
+            a[0] + (b[0] - a[0]) * t1,
+            a[1] + (b[1] - a[1]) * t1,
+            a[2] + (b[2] - a[2]) * t1,
+          ];
           return {path: [p0, p1], color: [...colors[i % 2], 230], tc};
         });
       });
       layers.push(new PathLayer({
         id: 'traffic-signs', data: stripeSegments,
-        getPath: d => d.path,
+        getPath: toPath,
         getColor: d => d.color,
         getWidth: 3, widthUnits: 'pixels',
-        pickable: true, onClick: ({object}, event) => object
-          ? handleSelectableClick(event, () => selectElement('traffic_control', object.tc))
+        pickable: true, onClick: (info, event) => info.object
+          ? handleSelectableClick(event, () => selectElement('traffic_control', info.object.tc), info.coordinate)
           : false,
       }));
     }
@@ -857,7 +1046,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         .flatMap(e => getRoadChevrons(e.xyz));
       if (chevronData.length) layers.push(new PathLayer({
         id: 'sel-chevrons', data: chevronData,
-        getPath: d => d.path, getColor: [...BLUE, 220],
+        getPath: toPath, getColor: [...BLUE, 220],
         getWidth: 1.5, widthUnits: 'pixels',
         jointRounded: true, capRounded: true,
       }));
@@ -873,7 +1062,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       if (routeSegments.length) {
         layers.push(new PathLayer({
           id: 'sel-agent-route', data: routeSegments,
-          getPath: d => d.path,
+          getPath: toPath,
           getColor: [...BROWN, 200],
           getWidth: 2, widthUnits: 'pixels',
           getDashArray: [8, 5], dashJustified: true,
@@ -885,7 +1074,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       if (historySegments.length) {
         layers.push(new PathLayer({
           id: 'sel-agent-history', data: historySegments,
-          getPath: d => d.path,
+          getPath: toPath,
           getColor: d => d.color,
           getWidth: 2.5, widthUnits: 'pixels',
           jointRounded: true, capRounded: true,
@@ -895,7 +1084,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       if (futureSegments.length) {
         layers.push(new PathLayer({
           id: 'sel-agent-future', data: futureSegments,
-          getPath: d => d.path,
+          getPath: toPath,
           getColor: d => d.color,
           getWidth: 2.5, widthUnits: 'pixels',
           getDashArray: [6, 4], dashJustified: true,
@@ -905,9 +1094,10 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       }
 
       if (t < a.xyz.length && a.valid[t]) {
-        const corners = getVehicleCorners(
+        const corners = getVehiclePolygon(
           a.xyz[t][0], a.xyz[t][1], a.heading[t],
-          a.length[t] || 4.5, a.width[t] || 2
+          a.length[t] || 4.5, a.width[t] || 2,
+          getEntityZ(a, t),
         );
         layers.push(new PolygonLayer({
           id: 'sel-agent',
@@ -933,7 +1123,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       if (historySegments.length) {
         layers.push(new PathLayer({
           id: 'sel-object-history', data: historySegments,
-          getPath: d => d.path,
+          getPath: toPath,
           getColor: d => d.color,
           getWidth: 2.5, widthUnits: 'pixels',
           jointRounded: true, capRounded: true,
@@ -943,7 +1133,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       if (futureSegments.length) {
         layers.push(new PathLayer({
           id: 'sel-object-future', data: futureSegments,
-          getPath: d => d.path,
+          getPath: toPath,
           getColor: d => d.color,
           getWidth: 2.5, widthUnits: 'pixels',
           getDashArray: [6, 4], dashJustified: true,
@@ -953,9 +1143,10 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       }
 
       if (t < o.xyz.length && o.valid[t]) {
-        const corners = getVehicleCorners(
+        const corners = getVehiclePolygon(
           o.xyz[t][0], o.xyz[t][1], o.heading[t],
-          o.length[t] || 1.0, o.width[t] || 1.0
+          o.length[t] || 1.0, o.width[t] || 1.0,
+          getEntityZ(o, t),
         );
         layers.push(new PolygonLayer({
           id: 'sel-object',
@@ -976,7 +1167,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       // Stop line highlight
       layers.push(new PathLayer({
         id: 'sel-tl', data: [tl],
-        getPath: d => [d.stop_line[0].slice(0,2), d.stop_line[1].slice(0,2)],
+        getPath: d => toViewPath(d.stop_line),
         getColor: [...BLUE, 255],
         getWidth: 5, widthUnits: 'pixels',
         capRounded: true,
@@ -990,7 +1181,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         const chevronData = ctrlElems.flatMap(e => getRoadChevrons(e.xyz));
         if (chevronData.length) layers.push(new PathLayer({
           id: 'sel-tl-chevrons', data: chevronData,
-          getPath: d => d.path, getColor: [...BLUE, 200],
+          getPath: toPath, getColor: [...BLUE, 200],
           getWidth: 1.5, widthUnits: 'pixels',
           jointRounded: true, capRounded: true,
         }));
@@ -1045,15 +1236,64 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         if (cur && nxt && cur.xyz.length && nxt.xyz.length) {
           const lastPt = cur.xyz[cur.xyz.length - 1];
           const firstPt = nxt.xyz[0];
-          connectors.push({ path: [[lastPt[0], lastPt[1]], [firstPt[0], firstPt[1]]] });
+          connectors.push({
+            path: [
+              [lastPt[0], lastPt[1], getPointZ(lastPt)],
+              [firstPt[0], firstPt[1], getPointZ(firstPt)],
+            ],
+          });
         }
       }
       if (connectors.length) layers.push(new PathLayer({
         id: 'pf-connectors', data: connectors,
-        getPath: d => d.path,
+        getPath: toPath,
         getColor: [...PATH_COLOR, 150], getWidth: 1.5, widthUnits: 'pixels',
         getDashArray: [4, 3], dashJustified: true,
         extensions: [new PathStyleExtension({ dash: true })],
+      }));
+    }
+  }
+
+  // ── Ruler highlights ──────────────────────────────────────────────────────
+  const rl = state.ruler;
+  if (rl.active || rl.p1) {
+    const P1_COLOR = [16, 185, 129];   // green
+    const P2_COLOR = [239, 68, 68];    // red
+    const LINE_COLOR = [245, 158, 11]; // amber
+
+    const dots = [];
+    if (rl.p1) dots.push({ position: rl.p1, color: [...P1_COLOR, 255] });
+    if (rl.p2) dots.push({ position: rl.p2, color: [...P2_COLOR, 255] });
+
+    if (dots.length) layers.push(new ScatterplotLayer({
+      id: 'ruler-dots', data: dots,
+      getPosition: d => d.position,
+      getFillColor: d => d.color,
+      getRadius: 4, radiusUnits: 'pixels',
+    }));
+
+    if (rl.p1 && rl.p2) {
+      layers.push(new PathLayer({
+        id: 'ruler-line', data: [{ path: [rl.p1, rl.p2] }],
+        getPath: toPath,
+        getColor: [...LINE_COLOR, 220], getWidth: 2, widthUnits: 'pixels',
+        getDashArray: [6, 4], dashJustified: true,
+        extensions: [new PathStyleExtension({ dash: true })],
+      }));
+
+      const mid = [(rl.p1[0] + rl.p2[0]) / 2, (rl.p1[1] + rl.p2[1]) / 2];
+      if (state.viewMode === '3d') mid.push((getPointZ(rl.p1) + getPointZ(rl.p2)) / 2);
+      layers.push(new TextLayer({
+        id: 'ruler-label', data: [{ position: mid, text: `${rl.distance.toFixed(2)} m` }],
+        getPosition: d => d.position,
+        getText: d => d.text,
+        getSize: 14, sizeUnits: 'pixels',
+        getColor: [255, 255, 255, 255],
+        getBackgroundColor: [0, 0, 0, 180],
+        background: true, backgroundPadding: [4, 2],
+        fontFamily: 'monospace',
+        getTextAnchor: 'middle', getAlignmentBaseline: 'center',
+        getPixelOffset: [0, -16],
       }));
     }
   }
@@ -1069,8 +1309,9 @@ function render() {
   const t = state.timestep;
   const staticL = getStaticLayers(s, state.layers);
   const dynL = getDynamicLayers(s, t, state.layers, state.selected);
+  const axisL = build3DAxisLayers(s);
   const mm = state.viewMode === '2d' ? FLIP_Y : IDENTITY;
-  const allLayers = [...staticL, ...dynL].map(
+  const allLayers = [...staticL, ...axisL, ...dynL].map(
     l => l.clone({modelMatrix: mm})
   );
   deckgl.setProps({layers: allLayers});
@@ -1084,7 +1325,7 @@ function render() {
       } else {
         vs = {
           ...state.viewState,
-          target: [ego.x, ego.y, 0],
+          target: [ego.x, ego.y, ego.z],
           transitionDuration: 60,
         };
       }
@@ -1172,9 +1413,45 @@ function selectElement(type, data) {
   render();
 }
 
+function handleRulerClick(coordinate) {
+  const r = state.ruler;
+  const el = document.getElementById('element-detail');
+  // Convert view-space coordinate to data-space (un-flip Y in 2D)
+  const pt = state.viewMode === '2d'
+    ? [coordinate[0], -coordinate[1]]
+    : [coordinate[0], coordinate[1], coordinate[2] || 0];
+
+  if (!r.p1) {
+    r.p1 = pt;
+    r.p2 = null;
+    r.distance = null;
+    el.innerHTML = `<div class="info-row"><span class="info-label">Ruler</span><span class="info-val">P1: (${pt[0].toFixed(1)}, ${pt[1].toFixed(1)})</span></div>
+      <div class="info-row"><span class="info-label">Status</span><span class="info-val">Click second point</span></div>`;
+    setAppStatus('Ruler: click second point', 'info');
+  } else if (!r.p2) {
+    r.p2 = pt;
+    r.distance = Math.hypot(r.p2[0] - r.p1[0], r.p2[1] - r.p1[1]);
+    el.innerHTML = `<div class="info-row"><span class="info-label">Ruler</span><span class="info-val">P1 → P2</span></div>
+      <div class="info-row"><span class="info-label">Distance</span><span class="info-val">${r.distance.toFixed(2)} m</span></div>`;
+    setAppStatus(`Ruler: ${r.distance.toFixed(2)} m`, 'ok');
+  } else {
+    r.p1 = pt;
+    r.p2 = null;
+    r.distance = null;
+    el.innerHTML = `<div class="info-row"><span class="info-label">Ruler</span><span class="info-val">P1: (${pt[0].toFixed(1)}, ${pt[1].toFixed(1)})</span></div>
+      <div class="info-row"><span class="info-label">Status</span><span class="info-val">Click second point</span></div>`;
+    setAppStatus('Ruler: click second point', 'info');
+  }
+  render();
+}
+
 function handleCanvasClick({coordinate, layer, object}, event) {
   if (consumeSuppressedCanvasClick()) return;
   if (!isPrimaryPointerEvent(event)) return;
+  if (state.ruler.active && coordinate) {
+    handleRulerClick(coordinate);
+    return;
+  }
   if (!object && !layer) {
     state.selected = null;
     document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
@@ -1216,7 +1493,9 @@ async function loadScenario(filename) {
     state.timestep = 0;
     state.selected = null;
     state.pathFinder = { active: false, source: null, dest: null, path: null, distance: null };
+    state.ruler = { active: false, p1: null, p2: null, distance: null };
     document.getElementById('btn-pathfinder').classList.remove('active');
+    document.getElementById('btn-ruler').classList.remove('active');
     state.staticLayerCacheKey = null;
     setFollowEgo(false);
 
@@ -1232,7 +1511,7 @@ async function loadScenario(filename) {
     const ego = getEgoState(data, 0);
     if (ego) setViewState({
       ...state.viewState,
-      target: state.viewMode === '3d' ? [ego.x, ego.y, 0] : [ego.x, -ego.y, 0],
+      target: state.viewMode === '3d' ? [ego.x, ego.y, ego.z] : [ego.x, -ego.y, 0],
     });
     render();
   } catch (err) {
@@ -1277,15 +1556,22 @@ function setViewState(vs) {
 
 function fitView() {
   if (!state.scenario) return;
-  const b = sceneBounds(state.scenario);
-  const w = b.xmax - b.xmin, h = b.ymax - b.ymin;
-  const cw = deckContainer.clientWidth, ch = deckContainer.clientHeight;
-  const zoom = Math.log2(Math.min(cw / (w * FIT_VIEW_PADDING), ch / (h * FIT_VIEW_PADDING)));
+  const b = getSceneMetrics(state.scenario);
+  const w = Math.max(b.xmax - b.xmin, 1);
+  const h = Math.max(b.ymax - b.ymin, 1);
+  const z = Math.max(b.zmax - b.zmin, 0);
+  const cw = Math.max(deckContainer.clientWidth, 1);
+  const ch = Math.max(deckContainer.clientHeight, 1);
+  const rotationX = state.viewMode === '3d' ? (state.viewState.rotationX || DEFAULT_3D_ROTATION_X) : 0;
+  const projectedZ = state.viewMode === '3d' ? z * Math.sin(rotationX * Math.PI / 180) : 0;
+  const fitWidth = w;
+  const fitHeight = Math.max(h + projectedZ, 1);
+  const zoom = Math.log2(Math.min(cw / (fitWidth * FIT_VIEW_PADDING), ch / (fitHeight * FIT_VIEW_PADDING)));
   const rotation = state.viewMode === '3d'
-    ? {rotationX: state.viewState.rotationX || DEFAULT_3D_ROTATION_X, rotationOrbit: state.viewState.rotationOrbit || 0}
+    ? {rotationX, rotationOrbit: state.viewState.rotationOrbit || 0}
     : {};
   setViewState({
-    target: [b.cx, state.viewMode === '2d' ? -b.cy : b.cy, 0], zoom, ...rotation,
+    target: [b.cx, state.viewMode === '2d' ? -b.cy : b.cy, state.viewMode === '3d' ? b.cz : 0], zoom, ...rotation,
     transitionDuration: 600,
     transitionInterpolator: LinearInterpolator && new LinearInterpolator(['target', 'zoom']),
   });
@@ -1400,6 +1686,9 @@ document.getElementById('btn-pathfinder').addEventListener('click', () => {
   const btn = document.getElementById('btn-pathfinder');
   btn.classList.toggle('active', pf.active);
   if (pf.active) {
+    // Deactivate ruler
+    state.ruler = { active: false, p1: null, p2: null, distance: null };
+    document.getElementById('btn-ruler').classList.remove('active');
     pf.source = null;
     pf.dest = null;
     pf.path = null;
@@ -1412,6 +1701,31 @@ document.getElementById('btn-pathfinder').addEventListener('click', () => {
     pf.dest = null;
     pf.path = null;
     pf.distance = null;
+    setAppStatus('', 'ok');
+    document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
+  }
+  render();
+});
+
+document.getElementById('btn-ruler').addEventListener('click', () => {
+  const r = state.ruler;
+  r.active = !r.active;
+  const btn = document.getElementById('btn-ruler');
+  btn.classList.toggle('active', r.active);
+  if (r.active) {
+    // Deactivate pathfinder
+    state.pathFinder = { active: false, source: null, dest: null, path: null, distance: null };
+    document.getElementById('btn-pathfinder').classList.remove('active');
+    r.p1 = null;
+    r.p2 = null;
+    r.distance = null;
+    setAppStatus('Ruler: click first point', 'info');
+    document.getElementById('element-detail').innerHTML =
+      '<div class="info-row"><span class="info-label">Ruler</span><span class="info-val">Click anywhere to set first point</span></div>';
+  } else {
+    r.p1 = null;
+    r.p2 = null;
+    r.distance = null;
     setAppStatus('', 'ok');
     document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
   }
@@ -1438,14 +1752,16 @@ document.getElementById('btn-3d').addEventListener('click', () => {
       const headingDeg = ego.heading * 180 / Math.PI;
       state.viewState = {
         ...instantViewState(state.viewState),
-        target: [ego.x, ego.y, 0],
+        target: [ego.x, ego.y, ego.z],
         rotationOrbit: -headingDeg + 90,
         rotationX: DEFAULT_3D_PITCH,
       };
     } else {
+      const convertedTarget = convertTargetForViewMode(state.viewState.target, prevMode, state.viewMode);
+      const sceneTarget = state.scenario ? getSceneFocusTarget(state.scenario) : convertedTarget;
       state.viewState = {
         ...instantViewState(state.viewState),
-        target: convertTargetForViewMode(state.viewState.target, prevMode, state.viewMode),
+        target: [convertedTarget[0], convertedTarget[1], sceneTarget[2] || 0],
         rotationX: DEFAULT_3D_ROTATION_X,
         rotationOrbit: 0,
       };
@@ -1556,8 +1872,10 @@ document.addEventListener('keydown', e => {
     case 'f': case 'F': fitView(); break;
     case ' ': e.preventDefault(); togglePlay(); break;
     case 'p': case 'P': document.getElementById('btn-pathfinder').click(); break;
+    case 'r': case 'R': document.getElementById('btn-ruler').click(); break;
     case 'Escape':
       if (state.pathFinder.active) { document.getElementById('btn-pathfinder').click(); }
+      else if (state.ruler.active) { document.getElementById('btn-ruler').click(); }
       break;
   }
 });

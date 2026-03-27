@@ -1,3 +1,18 @@
+"""Traffic light state imputation from vehicle trajectories (Yan et al. 2025).
+
+Algorithm overview:
+1. Build lane graph and assign observed TL states to lanes.
+2. Identify signalized intersections via lane connectivity (diverge/merge groups).
+3. Assign vehicle states to lanes at each timestep (position, speed, acceleration).
+4. For each intersection and timestep:
+   a. raw_state: directly observed TL detections (from dataset).
+   b. estimated_state: inferred from vehicle kinematics (speed/acceleration near stop line).
+   c. imputed_state: merge raw + estimated with confidence weighting.
+   d. Select closest feasible phase pattern (physically valid signal combination).
+5. Smooth short spurious phase flips, insert yellow transitions.
+6. Write imputed states back to traffic_lights extras dict.
+"""
+
 from __future__ import annotations
 
 import enum
@@ -207,6 +222,14 @@ class _TrafficLightImputer:
         return lanes
 
     def _clean_lanes(self) -> None:
+        self._prune_short_dead_ends()
+        self._validate_connectivity()
+        self._classify_neighbors()
+        self._symmetrize_neighbors()
+        self._compute_diverge_merge()
+        self._symmetrize_diverge_merge()
+
+    def _prune_short_dead_ends(self) -> None:
         to_delete = [
             lane_id
             for lane_id, lane in self.lanes.items()
@@ -216,6 +239,7 @@ class _TrafficLightImputer:
         for lane_id in to_delete:
             del self.lanes[lane_id]
 
+    def _validate_connectivity(self) -> None:
         for lane in self.lanes.values():
             lane.entry_lanes = [
                 ref
@@ -230,14 +254,17 @@ class _TrafficLightImputer:
                 and _distance(lane.polyline[-1], self.lanes[ref].polyline[0]) < _POINT_CLOSE_THRESHOLD
             ]
 
+    def _classify_neighbors(self) -> None:
         for lane in self.lanes.values():
             lane.left_neighbors = self._clean_neighbors(lane, lane.left_neighbors)
             lane.right_neighbors = self._clean_neighbors(lane, lane.right_neighbors)
 
+    def _symmetrize_neighbors(self) -> None:
         for lane in self.lanes.values():
             lane.left_neighbors = [ref for ref in lane.left_neighbors if lane.id in self.lanes[ref].right_neighbors]
             lane.right_neighbors = [ref for ref in lane.right_neighbors if lane.id in self.lanes[ref].left_neighbors]
 
+    def _compute_diverge_merge(self) -> None:
         for lane in self.lanes.values():
             for left in lane.entry_lanes:
                 for right in lane.entry_lanes:
@@ -248,6 +275,7 @@ class _TrafficLightImputer:
                     if left != right and left in self.lanes and right in self.lanes:
                         self.lanes[left].diverge_lanes.add(right)
 
+    def _symmetrize_diverge_merge(self) -> None:
         for lane in self.lanes.values():
             lane.diverge_lanes = {ref for ref in lane.diverge_lanes if lane.id in self.lanes[ref].diverge_lanes}
             lane.merge_lanes = {ref for ref in lane.merge_lanes if lane.id in self.lanes[ref].merge_lanes}
@@ -436,16 +464,16 @@ class _TrafficLightImputer:
 class _TLSGenerator:
     def __init__(self, horizon: int, delta_t: int = 10, smoothing_width: int = 30, yellow_duration: int = 20) -> None:
         self.horizon = horizon
-        self.v_green = 3.0
-        self.v_red = 1.0
-        self.a_green = 0.5
-        self.a_red = -1.0
-        self.delta_t = delta_t
-        self.theta = 0.8
-        self.w_big = 100.0
-        self.w_small = 0.1
-        self.smoothing_width = smoothing_width
-        self.yellow_duration = yellow_duration
+        self.v_green = 3.0  # m/s — speed above which vehicle likely sees green
+        self.v_red = 1.0  # m/s — speed below which vehicle likely sees red
+        self.a_green = 0.5  # m/s² — acceleration suggesting green
+        self.a_red = -1.0  # m/s² — deceleration suggesting red
+        self.delta_t = delta_t  # timestep window for trajectory observation
+        self.theta = 0.8  # confidence threshold for estimated state
+        self.w_big = 100.0  # high-confidence weight (raw + estimated agree)
+        self.w_small = 0.1  # low-confidence weight (raw-only, no estimation)
+        self.smoothing_width = smoothing_width  # max span of spurious phase flips to smooth out
+        self.yellow_duration = yellow_duration  # timesteps of yellow before red
         self.container_template: list[dict[tuple[_Direction, ...], _TLS | None]] = []
 
     def gen_period(
@@ -620,85 +648,71 @@ class _TLSGenerator:
         return imputed_state, weight
 
     def _get_feasible_states(self) -> list[list[dict[tuple[_Direction, ...], _TLS]]]:
-        candidate_states = []
-        if len(self.container_template) == 4:
-            for green_way in range(4):
-                candidate = _copy_state(self.container_template)
-                for index in range(4):
-                    for phase in candidate[index]:
-                        candidate[index][phase] = _TLS.GREEN if index == green_way else _TLS.RED
-                candidate_states.append(candidate)
+        n = len(self.container_template)
+        if n == 4:
+            return self._feasible_states_4way()
+        if n == 3:
+            return self._feasible_states_3way()
+        return []
 
-            for green_group in ([0, 2], [1, 3]):
-                candidate = _copy_state(self.container_template)
-                for index in range(4):
-                    for phase in candidate[index]:
-                        candidate[index][phase] = _TLS.GREEN if index in green_group else _TLS.RED
-                candidate_states.append(candidate)
+    def _make_candidate(self, state_fn) -> list[dict[tuple[_Direction, ...], _TLS]]:
+        """Build a candidate state by applying state_fn(way_index, phase) -> _TLS to each phase."""
+        candidate = _copy_state(self.container_template)
+        for index in range(len(candidate)):
+            for phase in candidate[index]:
+                candidate[index][phase] = state_fn(index, phase)
+        return candidate
 
-                split_left = not any(
-                    any(_Direction.L in phase and _Direction.S in phase for phase in self.container_template[index])
-                    for index in green_group
-                )
-                if not split_left:
-                    continue
+    def _can_split_left(self, way_indices) -> bool:
+        """Check if left-turn phases are separate from straight phases for the given ways."""
+        return not any(
+            any(_Direction.L in phase and _Direction.S in phase for phase in self.container_template[index])
+            for index in way_indices
+        )
 
-                candidate = _copy_state(self.container_template)
-                for index in range(4):
-                    for phase in candidate[index]:
-                        if index not in green_group:
-                            candidate[index][phase] = _TLS.RED
-                        elif _Direction.L in phase:
-                            candidate[index][phase] = _TLS.GREEN
-                        else:
-                            candidate[index][phase] = _TLS.RED
-                candidate_states.append(candidate)
+    def _feasible_states_4way(self) -> list[list[dict[tuple[_Direction, ...], _TLS]]]:
+        candidates = []
+        # Single-way green
+        for green_way in range(4):
+            candidates.append(self._make_candidate(lambda i, _p, g=green_way: _TLS.GREEN if i == g else _TLS.RED))
 
-                candidate = _copy_state(self.container_template)
-                for index in range(4):
-                    for phase in candidate[index]:
-                        if index not in green_group or _Direction.L in phase:
-                            candidate[index][phase] = _TLS.RED
-                        else:
-                            candidate[index][phase] = _TLS.GREEN
-                candidate_states.append(candidate)
+        # Opposing-way green (0+2, 1+3) with optional left-turn split phases
+        for green_group in ([0, 2], [1, 3]):
+            gs = frozenset(green_group)
+            candidates.append(self._make_candidate(lambda i, _p, g=gs: _TLS.GREEN if i in g else _TLS.RED))
 
-        elif len(self.container_template) == 3:
-            for green_way in range(3):
-                candidate = _copy_state(self.container_template)
-                for index in range(3):
-                    for phase in candidate[index]:
-                        candidate[index][phase] = _TLS.GREEN if index == green_way else _TLS.RED
-                candidate_states.append(candidate)
+            if not self._can_split_left(green_group):
+                continue
+            # Left-only green for the group
+            candidates.append(self._make_candidate(
+                lambda i, p, g=gs: _TLS.GREEN if i in g and _Direction.L in p else _TLS.RED,
+            ))
+            # Straight-only green for the group (left gets red)
+            candidates.append(self._make_candidate(
+                lambda i, p, g=gs: _TLS.GREEN if i in g and _Direction.L not in p else _TLS.RED,
+            ))
 
-            split_left = not any(
-                any(_Direction.S in phase and _Direction.L in phase for phase in self.container_template[index])
-                for index in (0, 1)
-            )
-            if split_left:
-                candidate = _copy_state(self.container_template)
-                for phase in candidate[2]:
-                    candidate[2][phase] = _TLS.RED
-                for index in (0, 1):
-                    for phase in candidate[index]:
-                        candidate[index][phase] = _TLS.RED if _Direction.L in phase else _TLS.GREEN
-                candidate_states.append(candidate)
+        return candidates
 
-                candidate = _copy_state(self.container_template)
-                for phase in candidate[2]:
-                    candidate[2][phase] = _TLS.RED
-                for index in (0, 1):
-                    for phase in candidate[index]:
-                        candidate[index][phase] = _TLS.GREEN if _Direction.L in phase else _TLS.RED
-                candidate_states.append(candidate)
+    def _feasible_states_3way(self) -> list[list[dict[tuple[_Direction, ...], _TLS]]]:
+        candidates = []
+        # Single-way green
+        for green_way in range(3):
+            candidates.append(self._make_candidate(lambda i, _p, g=green_way: _TLS.GREEN if i == g else _TLS.RED))
 
-            candidate = _copy_state(self.container_template)
-            for index in range(3):
-                for phase in candidate[index]:
-                    candidate[index][phase] = _TLS.RED if index == 2 else _TLS.GREEN
-            candidate_states.append(candidate)
+        # Left-turn split for ways 0+1
+        if self._can_split_left((0, 1)):
+            candidates.append(self._make_candidate(
+                lambda i, p: _TLS.GREEN if i in (0, 1) and _Direction.L not in p else _TLS.RED,
+            ))
+            candidates.append(self._make_candidate(
+                lambda i, p: _TLS.GREEN if i in (0, 1) and _Direction.L in p else _TLS.RED,
+            ))
 
-        return candidate_states
+        # Ways 0+1 both green, way 2 red
+        candidates.append(self._make_candidate(lambda i, _p: _TLS.GREEN if i != 2 else _TLS.RED))
+
+        return candidates
 
     def _score_candidate_states(
         self,
@@ -804,6 +818,7 @@ class _TLSGenerator:
 
     @staticmethod
     def _f(index: int, acceleration: float) -> float:
+        """Acceleration relevance weight: how much a vehicle's acceleration at this distance from the stop line informs TL state."""
         distance = index * 0.5
         if distance < -8 or (acceleration < 0 and distance < 0):
             return 0.0
@@ -815,6 +830,7 @@ class _TLSGenerator:
 
     @staticmethod
     def _g(index: int, speed: float) -> float:
+        """Speed relevance weight: how much a vehicle's speed at this distance from the stop line informs TL state."""
         distance = index * 0.5
         if distance < -12:
             return 0.0

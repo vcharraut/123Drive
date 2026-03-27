@@ -34,7 +34,7 @@ def _remap_traffic_light(traffic_light, map_id_map):
         traffic_light.controlled_lane = [
             map_id_map[ref_id] for ref_id in traffic_light.controlled_lane if ref_id in map_id_map
         ]
-    else:
+    elif traffic_light.controlled_lane in map_id_map:
         traffic_light.controlled_lane = map_id_map[traffic_light.controlled_lane]
     return traffic_light
 

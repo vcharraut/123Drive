@@ -13,6 +13,9 @@ class ValidationError(Exception):
     pass
 
 
+MAX_AGENT_SPEED_MPS = 60.0  # ~216 km/h — sanity check for AV track data
+
+
 _DYNAMIC_STATE_SPECS = {
     "position": (2, 3),
     "velocity": (2, 2),
@@ -205,5 +208,5 @@ def _validate_agent_sizes(items, prefix, errors) -> None:
                 errors.append(f"{prefix} {eid} has non-positive {key}")
 
         speeds = np.linalg.norm(ds.velocity[valid, :2], axis=1)
-        if np.any(speeds > 60.0):
-            errors.append(f"{prefix} {eid} speed exceeds 60 m/s")
+        if np.any(speeds > MAX_AGENT_SPEED_MPS):
+            errors.append(f"{prefix} {eid} speed exceeds {MAX_AGENT_SPEED_MPS} m/s")

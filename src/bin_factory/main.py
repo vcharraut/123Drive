@@ -3,11 +3,22 @@ import logging
 import os
 import pathlib
 import warnings
+from typing import NamedTuple
 
 import joblib
 import tqdm
 
 from bin_factory import loader, serialize, transforms
+
+
+class ConvertConfig(NamedTuple):
+    max_segment_length: float
+    area_threshold: float
+    min_route_valid_points: int
+    route_check_timestep: int
+    reindex_id: bool
+    impute_tl: bool
+    validate_level: int
 
 
 logger = logging.getLogger(__name__)
@@ -71,8 +82,8 @@ def _convert_one(py123d_data, map_id, output, config) -> None:
     scenario, extras = loader.extract_scenario(py123d_data)
 
     # 2. Validate scenario
-    if config["validate_level"] > 0:
-        errors = loader.validate_scenario(scenario, extras=extras, level=config["validate_level"])
+    if config.validate_level > 0:
+        errors = loader.validate_scenario(scenario, extras=extras, level=config.validate_level)
         scenario_id = scenario.metadata.id
         for error in errors:
             logger.error(f"{scenario_id}: {error}")
@@ -81,13 +92,13 @@ def _convert_one(py123d_data, map_id, output, config) -> None:
 
     # 3. Process scenario (geometry, routes, traffic controls, lane graph)
     # Impute/correct traffic light states using raw lane geometry + vehicle trajectories.
-    if config["impute_tl"]:
+    if config.impute_tl:
         transforms.impute_traffic_lights(scenario, extras)
-    if config["reindex_id"]:
+    if config.reindex_id:
         # Reindexing all IDs to a contiguous range (0, n)
         transforms.reindex_scenario_and_extras(scenario, extras)
     # Clean polylines and apply Douglas-Peucker simplification
-    transforms.process_polylines(scenario, config["max_segment_length"], config["area_threshold"])
+    transforms.process_polylines(scenario, config.max_segment_length, config.area_threshold)
     # Interpolate polygons to ensure they are properly closed and have enough points
     transforms.interpolate_all_polygons(scenario)
     # Reverse road edges for certain datasets to ensure consistent directionality
@@ -95,7 +106,7 @@ def _convert_one(py123d_data, map_id, output, config) -> None:
     # Create traffic controls (traffic lights, stop zones) and associate them with map elements
     transforms.process_traffic_controls(scenario, extras)
     # Process agent routes based on their trajectories and the lane graph
-    transforms.process_agent_routes(scenario, config["min_route_valid_points"], config["route_check_timestep"])
+    transforms.process_agent_routes(scenario, config.min_route_valid_points, config.route_check_timestep)
     # Build lane graph distance matrix for Dijkstra's algorithm
     scenario.lane_graph = transforms.build_lane_distance_matrix(scenario.map)
 
@@ -196,15 +207,15 @@ def main() -> int:
         logger.info("No scenarios to process.")
         return 0
 
-    config = {
-        "max_segment_length": args.max_segment_length,
-        "area_threshold": args.area_threshold,
-        "min_route_valid_points": args.min_route_valid_points,
-        "route_check_timestep": args.route_check_timestep,
-        "reindex_id": args.reindex_id,
-        "impute_tl": args.impute_tl,
-        "validate_level": args.validate_level,
-    }
+    config = ConvertConfig(
+        max_segment_length=args.max_segment_length,
+        area_threshold=args.area_threshold,
+        min_route_valid_points=args.min_route_valid_points,
+        route_check_timestep=args.route_check_timestep,
+        reindex_id=args.reindex_id,
+        impute_tl=args.impute_tl,
+        validate_level=args.validate_level,
+    )
 
     logger.info(
         "Loaded %d scenarios after filtering. Starting conversion with %d workers",

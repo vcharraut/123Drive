@@ -45,16 +45,7 @@ dev = [
   "ruff",
 ]
 all = [
-  "tqdm",
-  "joblib",
-  "scipy",
-  "shapely",
-  "py123d",
-  "fastapi",
-  "uvicorn[standard]",
-  "PyYAML",
-  "pytest",
-  "ruff",
+  "123Drive[convert,viz,docker,dev]",
 ]
 
 [project.scripts]

@@ -99,25 +99,23 @@ def _distance_based_interpolate(polyline, max_segment_length):
     if len(polyline) < 2:
         return polyline
 
-    interpolated_points = [polyline[0]]
+    diffs = np.diff(polyline, axis=0)
+    seg_lengths = np.linalg.norm(diffs, axis=1)
+    subdivisions = np.maximum(np.ceil(seg_lengths / max_segment_length).astype(int), 1)
 
-    for i in range(len(polyline) - 1):
-        current_point = polyline[i]
-        next_point = polyline[i + 1]
+    # Pre-allocate: each segment contributes `subdivisions[i]` points, plus the final endpoint
+    total_points = subdivisions.sum() + 1
+    result = np.empty((total_points, polyline.shape[1]), dtype=polyline.dtype)
 
-        segment_vector = next_point - current_point
-        segment_length = np.linalg.norm(segment_vector)
+    idx = 0
+    for i in range(len(diffs)):
+        n = subdivisions[i]
+        t = np.arange(n).reshape(-1, 1) / n
+        result[idx : idx + n] = polyline[i] + t * diffs[i]
+        idx += n
+    result[idx] = polyline[-1]
 
-        if segment_length > max_segment_length:
-            num_subdivisions = int(np.ceil(segment_length / max_segment_length))
-            for j in range(1, num_subdivisions):
-                t = j / num_subdivisions
-                intermediate_point = current_point + t * segment_vector
-                interpolated_points.append(intermediate_point)
-
-        interpolated_points.append(next_point)
-
-    return np.array(interpolated_points, dtype=polyline.dtype)
+    return result
 
 
 def _simplify_polyline(polyline, tolerance):
