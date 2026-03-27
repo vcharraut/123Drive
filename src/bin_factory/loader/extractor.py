@@ -14,6 +14,8 @@ from bin_factory.loader import mapping
 
 logger = logging.getLogger(__name__)
 
+SCENE_MAP_RADIUS = 250.0  # Max distance from ego to map elements for non-map-only scenarios
+
 
 def extract_scenario(
     py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI,
@@ -206,11 +208,11 @@ def _extract_map(
     all_map_layers = map_api.get_available_map_layers()
 
     if map_only or map_api.map_is_per_log:
-        map_objs = _get_map_objects(map_api, all_map_layers)
+        map_objs = map_api.get_all_map_objects_in_layers(all_map_layers)
     else:
         map_objects_by_layer = map_api.get_map_objects_in_radius(
-            py123d_geometry.Point2D(centroid[0], centroid[1]),
-            radius=250.0,
+            py123d_geometry.Point3D(centroid[0], centroid[1], centroid[2]),
+            radius=SCENE_MAP_RADIUS,
             layers=all_map_layers,
         )
         map_objs = [obj for layer in all_map_layers for obj in map_objects_by_layer.get(layer, [])]
@@ -363,11 +365,10 @@ def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) 
             return positions.mean(axis=0)
 
     # Fallback: road geometry centroid
-    road_layers = [map_objects.MapLayer.LANE, map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE]
     points = [
         coords
-        for obj in _get_map_objects(map_api, road_layers)
-        if (coords := _get_object_xyz_points(obj)) is not None and len(coords) > 0
+        for obj in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE)
+        if (coords := obj.centerline.array) is not None and len(coords) > 0
     ]
     if points:
         return np.vstack(points).mean(axis=0)
@@ -436,23 +437,3 @@ def _fix_lane_topology(
 
 def _centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
     return array.astype(np.float64, copy=True) - center
-
-
-# ── Getter functions ───────────────────────
-
-
-def _get_map_objects(map_api: py123d_api.MapAPI, layers: list[map_objects.MapLayer]) -> list:
-    return [obj for layer in layers for obj in map_api.get_all_map_objects_in_layer(layer)]
-
-
-def _get_object_xyz_points(map_object: object) -> np.ndarray | None:
-    centerline = getattr(map_object, "centerline", None)
-    if centerline is not None:
-        return np.asarray(centerline.array[:, :3], dtype=np.float64)
-    polyline_3d = getattr(map_object, "polyline_3d", None)
-    if polyline_3d is not None:
-        return np.asarray(polyline_3d.array[:, :3], dtype=np.float64)
-    outline_3d = getattr(map_object, "outline_3d", None)
-    if outline_3d is not None:
-        return np.asarray(outline_3d.array[:, :3], dtype=np.float64)
-    return None
