@@ -39,23 +39,23 @@ def extract_scenario(
     agents: dict[int, schema.Track] = {}
     traffic_lights: dict[int, schema.TrafficLightTrack] = {}
     objects: dict[int, schema.Track] = {}
-    metadata = schema.ScenarioMetadata(
-        id=scenario_id,
-        dataset=py123_arrow.dataset,
-        scenario_length=0,
-        dt=0.0,
-    )
+    metadata = schema.ScenarioMetadata(id=scenario_id, dataset=py123_arrow.dataset, scenario_length=0, dt=0.0)
 
     map_only = scene_api is None
-    ego_states: list[Any] | None = None
-    if scene_api is not None:
-        ego_states = [scene_api.get_ego_state_se3_at_iteration(i) for i in range(scene_api.number_of_iterations)]
+    ego_states = (
+        [scene_api.get_ego_state_se3_at_iteration(i) for i in range(scene_api.number_of_iterations)]
+        if scene_api is not None
+        else None
+    )
 
     centroid = _compute_centroid(ego_states, map_api)
     map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, map_only)
 
     if scene_api is not None and ego_states is not None:
-        dt = round(scene_api.scene_metadata.future_duration_s / scene_api.scene_metadata.num_future_iterations, 1)
+        dt = round(scene_api.scene_metadata.iteration_duration_s, 3)
+        if dt <= 0:
+            raise ValueError(f"Invalid time step dt={dt} computed from scene metadata")
+
         all_objects = _extract_objects(scene_api, centroid, ego_states, dt)
         for oid, obj in all_objects.items():
             label = obj.type
@@ -83,6 +83,9 @@ def extract_scenario(
     return scenario, extras
 
 
+# ── Main Extraction Functions ───────────────────────
+
+
 def _extract_objects(
     scene_api: py123d_api.SceneAPI,
     centroid: np.ndarray,
@@ -103,16 +106,16 @@ def _extract_objects(
 
         _write_detection_frame(ego, frame_idx, ego_state.center_se3, ego_state.bounding_box_se3, centroid)
 
-        if ego_state.dynamic_state_se3 is not None:
+        # Retrieve velocity from ego state if available
+        if ego_state.dynamic_state_se3:
             vel = ego_state.dynamic_state_se3.velocity_3d
             ego.velocity[frame_idx] = [float(vel.x), float(vel.y)]
+        # Fallback to finite difference
+        elif frame_idx > 0 and ego.valid[frame_idx - 1]:
+            delta_pos = ego.position[frame_idx, :2] - ego.position[frame_idx - 1, :2]
+            ego.velocity[frame_idx] = delta_pos / dt
+        else:
             continue
-
-        if frame_idx == 0 or not ego.valid[frame_idx - 1] or dt <= 0:
-            continue
-
-        delta_pos = ego.position[frame_idx, :2] - ego.position[frame_idx - 1, :2]
-        ego.velocity[frame_idx] = delta_pos / dt
 
     # Detections for all other agents
     next_object_id = 0
@@ -145,7 +148,7 @@ def _extract_objects(
     for obj in objects.values():
         first_valid = np.argmax(obj.valid)
         if obj.valid[first_valid] and np.all(obj.velocity[first_valid] == 0) and first_valid + 1 < episode_length:
-            next_valid = first_valid + 1 + np.argmax(obj.valid[first_valid + 1:])
+            next_valid = first_valid + 1 + np.argmax(obj.valid[first_valid + 1 :])
             if obj.valid[next_valid] and np.any(obj.velocity[next_valid] != 0):
                 obj.velocity[first_valid] = obj.velocity[next_valid]
 
@@ -187,28 +190,6 @@ def _extract_traffic_lights(
     return elements
 
 
-def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) -> np.ndarray:
-    """Compute 3D scene centroid from ego trajectory, falling back to road geometry mean."""
-    if ego_states is not None:
-        positions = np.array(
-            [[float(s.center_se3.x), float(s.center_se3.y), float(s.center_se3.z)] for s in ego_states if s is not None],
-            dtype=np.float64,
-        )
-        if len(positions) > 0:
-            return positions.mean(axis=0)
-
-    # Fallback: road geometry centroid
-    road_layers = [map_objects.MapLayer.LANE, map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE]
-    points = [
-        coords
-        for obj in _get_map_objects(map_api, road_layers)
-        if (coords := _get_object_xyz_points(obj)) is not None and len(coords) > 0
-    ]
-    if points:
-        return np.vstack(points).mean(axis=0)
-    return np.zeros(3, dtype=np.float64)
-
-
 def _extract_map(
     map_api: py123d_api.MapAPI,
     centroid: np.ndarray,
@@ -234,7 +215,7 @@ def _extract_map(
     # Lanes first — other elements reference lane IDs
     for obj in map_objs:
         if obj.layer == map_objects.MapLayer.LANE:
-            element = _convert_map_object_to_static_element(obj, centroid)
+            element = _write_map_object(obj, centroid)
             if element is None:
                 continue
             result[obj.object_id] = element
@@ -249,7 +230,7 @@ def _extract_map(
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
     next_id = max(result.keys(), default=-1) + 1
     for obj in non_lane_objects:
-        element = _convert_map_object_to_static_element(obj, centroid)
+        element = _write_map_object(obj, centroid)
         if element is None:
             continue
         if obj.layer == map_objects.MapLayer.STOP_ZONE:
@@ -261,7 +242,10 @@ def _extract_map(
     return result, stop_zones, lane_ids
 
 
-def _convert_map_object_to_static_element(map_object: Any, centroid: np.ndarray) -> dict[str, Any] | None:
+# ── Writer functions ───────────────────────
+
+
+def _write_map_object(map_object: Any, centroid: np.ndarray) -> dict[str, Any] | None:
     """Convert 123D map object to unified static element dict with puffer types."""
     layer = map_object.layer
     if mapping.MAP_TYPE_MAP.get(layer) is None:
@@ -329,23 +313,6 @@ def _convert_map_object_to_static_element(map_object: Any, centroid: np.ndarray)
     raise ValueError(f"Unsupported map layer {layer} for object ID {map_object.object_id}")
 
 
-def _get_map_objects(map_api: py123d_api.MapAPI, layers: list[map_objects.MapLayer]) -> list:
-    return [obj for layer in layers for obj in map_api.get_all_map_objects_in_layer(layer)]
-
-
-def _make_empty_track(episode_length: int, agent_type: object) -> schema.Track:
-    return schema.Track(
-        type=agent_type,
-        position=np.zeros((episode_length, 3), dtype=np.float64),
-        heading=np.zeros((episode_length,), dtype=np.float64),
-        velocity=np.zeros((episode_length, 2), dtype=np.float64),
-        valid=np.zeros((episode_length,), dtype=np.int32),
-        length=np.zeros((episode_length,), dtype=np.float64),
-        width=np.zeros((episode_length,), dtype=np.float64),
-        height=np.zeros((episode_length,), dtype=np.float64),
-    )
-
-
 def _write_detection_frame(
     obj: schema.Track,
     frame_idx: int,
@@ -363,6 +330,48 @@ def _write_detection_frame(
     obj.length[frame_idx] = float(bbox.length)
     obj.width[frame_idx] = float(bbox.width)
     obj.height[frame_idx] = float(bbox.height)
+
+
+def _make_empty_track(episode_length: int, agent_type: object) -> schema.Track:
+    return schema.Track(
+        type=agent_type,
+        position=np.zeros((episode_length, 3), dtype=np.float64),
+        heading=np.zeros((episode_length,), dtype=np.float64),
+        velocity=np.zeros((episode_length, 2), dtype=np.float64),
+        valid=np.zeros((episode_length,), dtype=np.int32),
+        length=np.zeros((episode_length,), dtype=np.float64),
+        width=np.zeros((episode_length,), dtype=np.float64),
+        height=np.zeros((episode_length,), dtype=np.float64),
+    )
+
+
+def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) -> np.ndarray:
+    """Compute 3D scene centroid from ego trajectory, falling back to road geometry mean."""
+    if ego_states is not None:
+        positions = np.array(
+            [
+                [float(s.center_se3.x), float(s.center_se3.y), float(s.center_se3.z)]
+                for s in ego_states
+                if s is not None
+            ],
+            dtype=np.float64,
+        )
+        if len(positions) > 0:
+            return positions.mean(axis=0)
+
+    # Fallback: road geometry centroid
+    road_layers = [map_objects.MapLayer.LANE, map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE]
+    points = [
+        coords
+        for obj in _get_map_objects(map_api, road_layers)
+        if (coords := _get_object_xyz_points(obj)) is not None and len(coords) > 0
+    ]
+    if points:
+        return np.vstack(points).mean(axis=0)
+    return np.zeros(3, dtype=np.float64)
+
+
+# ── Corrective functions ───────────────────────
 
 
 def _zero_all_z(agents, objects, traffic_lights, map_elements, stop_zones):
@@ -422,6 +431,21 @@ def _fix_lane_topology(
         element["exit_lanes"] = [lid for lid in element["exit_lanes"] if lid in valid_lane_ids]
 
 
+def _centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
+    centered = array.astype(np.float64, copy=True)
+    centered[:, 0] -= center[0]
+    centered[:, 1] -= center[1]
+    centered[:, 2] -= center[2]
+    return centered
+
+
+# ── Getter functions ───────────────────────
+
+
+def _get_map_objects(map_api: py123d_api.MapAPI, layers: list[map_objects.MapLayer]) -> list:
+    return [obj for layer in layers for obj in map_api.get_all_map_objects_in_layer(layer)]
+
+
 def _get_object_xyz_points(map_object: object) -> np.ndarray | None:
     centerline = getattr(map_object, "centerline", None)
     if centerline is not None:
@@ -435,14 +459,6 @@ def _get_object_xyz_points(map_object: object) -> np.ndarray | None:
     return None
 
 
-def _centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
-    centered = array.astype(np.float64, copy=True)
-    centered[:, 0] -= center[0]
-    centered[:, 1] -= center[1]
-    centered[:, 2] -= center[2]
-    return centered
-
-
 def _get_lane_position(map_api: py123d_api.MapAPI, lane_id: int, center: np.ndarray) -> list[float]:
     lane = map_api.get_map_object_in_layer(lane_id, map_objects.MapLayer.LANE)
     if lane is None or not isinstance(lane, map_objects.Lane):
@@ -454,6 +470,6 @@ def _get_lane_position(map_api: py123d_api.MapAPI, lane_id: int, center: np.ndar
     point = lane.centerline.array[0]
     x = float(point[0]) - float(center[0])
     y = float(point[1]) - float(center[1])
-    z = (float(point[2]) - float(center[2]))
+    z = float(point[2]) - float(center[2])
 
     return [x, y, z]
