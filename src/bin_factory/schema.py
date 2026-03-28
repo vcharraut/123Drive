@@ -9,6 +9,7 @@ class ScenarioMetadata:
     dataset: str
     scenario_length: int
     dt: float
+    location: str = ""
 
 
 @dataclasses.dataclass

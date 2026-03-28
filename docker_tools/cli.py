@@ -52,7 +52,8 @@ def cmd_list(_args: argparse.Namespace) -> None:
     """Print available datasets and build targets."""
     print("Available py123d datasets:")
     for name, cfg in py123d_config.DATASET_CONFIGS.items():
-        splits = ", ".join(py123d_config.get_default_splits(name)) or "none"
+        default_splits = py123d_config.get_default_splits(name)
+        splits = "unknown" if default_splits is None else ", ".join(default_splits) or "none"
         print(f"  {name:<30} extras={cfg['extras']}  splits=[{splits}]")
 
 

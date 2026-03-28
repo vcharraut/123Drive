@@ -41,7 +41,13 @@ def extract_scenario(
     agents: dict[int, schema.Track] = {}
     traffic_lights: dict[int, schema.TrafficLightTrack] = {}
     objects: dict[int, schema.Track] = {}
-    metadata = schema.ScenarioMetadata(id=scenario_id, dataset=py123_arrow.dataset, scenario_length=0, dt=0.0)
+    metadata = schema.ScenarioMetadata(
+        id=scenario_id,
+        dataset=py123_arrow.dataset,
+        scenario_length=0,
+        dt=0.0,
+        location=map_api.location or "",
+    )
 
     map_only = scene_api is None
     ego_states = (
@@ -140,10 +146,10 @@ def _extract_objects(
             obj = objects[object_id]
             _write_detection_frame(obj, frame_idx, bbox.center_se3, bbox, centroid)
 
-            if detection.velocity_2d is None:
+            if detection.velocity_3d is None:
                 continue
 
-            obj.velocity[frame_idx] = [float(detection.velocity_2d.x), float(detection.velocity_2d.y)]
+            obj.velocity[frame_idx] = [float(detection.velocity_3d.x), float(detection.velocity_3d.y)]
 
     # Backfill first valid frame velocity from next valid frame (no delta available at frame 0)
     for obj in objects.values():
@@ -205,17 +211,17 @@ def _extract_map(
     stop_zones: list[dict[str, Any]] = []
     non_lane_objects: list[Any] = []
     undefined_lane: list[int] = []
-    all_map_layers = map_api.get_available_map_layers()
+    layers = [layer for layer in map_api.available_map_layers if layer in mapping.SUPPORTED_MAP_LAYERS]
 
     if map_only or map_api.map_is_per_log:
-        map_objs = map_api.get_all_map_objects_in_layers(all_map_layers)
+        map_objs = map_api.get_all_map_objects_in_layers(layers)
     else:
         map_objects_by_layer = map_api.get_map_objects_in_radius(
             py123d_geometry.Point3D(centroid[0], centroid[1], centroid[2]),
             radius=SCENE_MAP_RADIUS,
-            layers=all_map_layers,
+            layers=layers,
         )
-        map_objs = [obj for layer in all_map_layers for obj in map_objects_by_layer.get(layer, [])]
+        map_objs = [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])]
 
     # Lanes first — other elements reference lane IDs
     for obj in map_objs:

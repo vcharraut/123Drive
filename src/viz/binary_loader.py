@@ -36,7 +36,7 @@ def _read_body(f):
     road_map_elements = [_read_road_map_element(f) for _ in range(num_roads)]
     traffic_control_elements = [_read_traffic_control_element(f) for _ in range(num_traffic)]
     objects = [_read_object(f) for _ in range(num_objects)]
-    lane_graph_distances = _read_lane_graph(f)
+    lane_graph = _read_lane_graph(f)
 
     scenario_id = _read_string(f, METADATA_ID_BYTES)
     map_id = _read_int32(f)
@@ -51,6 +51,7 @@ def _read_body(f):
         "road_map_elements": road_map_elements,
         "traffic_control_elements": traffic_control_elements,
         "objects": objects,
+        "lane_graph": lane_graph,
         "metadata": {
             "id": scenario_id,
             "num_agents": num_agents,
@@ -63,7 +64,6 @@ def _read_body(f):
             "dt": dt,
             "objects_of_interest": objects_of_interest,
             "tracks_to_predict": tracks_to_predict,
-            "lane_graph_distances": lane_graph_distances,
         },
     }
 

@@ -59,7 +59,9 @@ class BeamState:
 def process_agent_routes(scenario, min_route_valid_points=0, route_check_timestep=0) -> None:
     scenario_length = scenario.metadata.scenario_length
     if scenario_length > 0 and route_check_timestep >= scenario_length:
-        return
+        raise ValueError(
+            f"route_check_timestep={route_check_timestep} is out of range for scenario length {scenario_length}",
+        )
 
     lane_data = _extract_lane_centers(scenario.map)
     route_cache = build_route_cache(scenario.map, lane_data)
