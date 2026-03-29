@@ -27,18 +27,19 @@ Per-scenario cache → Per-agent offroad check → GT candidates → DP sequence
 `_build_point_observations()` builds a small lane set per GT point:
 1. Prefilter lanes by the GT trajectory bounding box
 2. Compute point-to-lane distance and local lane tangent alignment
-3. Keep only candidates with distance `<= 6m` and heading alignment `> 0.0`
-4. Keep up to 5 candidates per point, ranked by distance, alignment, and lane ID
+3. Keep only candidates with distance `<= 7m` and heading alignment `> 0.3`
+4. Keep up to 7 candidates per point, ranked by distance, alignment, and lane ID
 5. Compute projected arc-length on each candidate lane
 
 ### 4. DP Sequence Search
 
 `_select_candidate_path()` solves the route jointly across GT:
-1. Use lexicographic path cost: unmatched points, transition hops, lane changes, total distance
-2. Allow same-lane transitions only if projected progress stays forward within a 2m tolerance
-3. Allow lane changes only if the exit-graph shortest path needs at most 3 hops
-4. Backtrack the best candidate path
-5. Expand connector lanes between consecutive GT-supported lanes
+1. Use a weighted path score: `50 * skipped_points + 1 * hops + 6 * lane_changes + point_distance`
+2. Break ties by skipped points, hops, lane changes, then total distance
+3. Allow same-lane transitions only if projected progress stays forward within a 2m tolerance
+4. Allow lane changes only if the exit-graph shortest path needs at most 3 hops
+5. Backtrack the best candidate path
+6. Expand connector lanes between consecutive GT-supported lanes
 
 ### 5. Extension Beyond GT
 

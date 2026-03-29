@@ -22,15 +22,18 @@ from bin_factory import puffer_types
 logger = logging.getLogger(__name__)
 
 
-LANE_WIDTH_THRESHOLD = 6.0  # meters — reject point-to-lane matches farther than this
-ALIGNMENT_THRESHOLD = 0.5  # cos(heading) — minimum dot product for "same direction"
+LANE_WIDTH_THRESHOLD = 7.0  # meters — reject point-to-lane matches farther than this
+ALIGNMENT_THRESHOLD = 0.3  # cos(heading) — minimum dot product for "same direction"
 ROUTE_CANDIDATE_BBOX_MARGIN = 12.0  # meters — bbox expansion when filtering nearby lanes
-MAX_CANDIDATES_PER_POINT = 5
+MAX_CANDIDATES_PER_POINT = 7
 MAX_TRANSITION_HOPS = 3
 BACKWARD_PROGRESS_TOLERANCE = 2.0  # meters — allow small projection noise on same lane
 OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters — max lane distance for moving agents
 STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0  # meters — max lane distance for stationary agents
 MOVEMENT_THRESHOLD = 0.5  # meters — total displacement below this = stationary
+SKIPPED_POINT_COST = 50.0
+HOP_COST = 1.0
+LANE_CHANGE_COST = 6.0
 
 
 @dataclass(frozen=True)
@@ -362,7 +365,7 @@ def _select_candidate_path(observations, total_points, route_cache):
         obs_backrefs = [None] * len(observation["candidates"])
 
         for cand_idx, candidate in enumerate(observation["candidates"]):
-            start_cost = (candidate.point_idx, 0, 0, candidate.distance)
+            start_cost = _make_path_cost(candidate.point_idx, 0, 0, candidate.distance)
             best_cost = start_cost
             best_backref = None
 
@@ -380,7 +383,7 @@ def _select_candidate_path(observations, total_points, route_cache):
                     if transition is None:
                         continue
 
-                    total_cost = _add_costs(prev_cost, transition, (0, 0, 0, candidate.distance))
+                    total_cost = _add_costs(prev_cost, transition, _make_path_cost(0, 0, 0, candidate.distance))
                     if total_cost < best_cost:
                         best_cost = total_cost
                         best_backref = (prev_idx, prev_cand_idx)
@@ -396,7 +399,7 @@ def _select_candidate_path(observations, total_points, route_cache):
     for obs_idx, observation in enumerate(observations):
         trailing_unmatched = total_points - observation["point_idx"] - 1
         for cand_idx, cost in enumerate(costs[obs_idx]):
-            final_cost = _add_costs(cost, (trailing_unmatched, 0, 0, 0))
+            final_cost = _add_costs(cost, _make_path_cost(trailing_unmatched, 0, 0, 0))
             if best_final is None or final_cost < best_final:
                 best_final = final_cost
                 best_state = (obs_idx, cand_idx)
@@ -407,18 +410,31 @@ def _select_candidate_path(observations, total_points, route_cache):
 def _transition_cost(prev_candidate, next_candidate, skipped_points, route_cache):
     if prev_candidate.lane_id == next_candidate.lane_id:
         is_forward = next_candidate.s + BACKWARD_PROGRESS_TOLERANCE >= prev_candidate.s
-        return (skipped_points, 0, 0, 0) if is_forward else None
+        return _make_path_cost(skipped_points, 0, 0, 0) if is_forward else None
 
     path = _find_shortest_lane_path(prev_candidate.lane_id, next_candidate.lane_id, route_cache)
     if not path:
         return None
 
     hop_count = len(path) - 1
-    return (skipped_points, hop_count, 1, 0)
+    return _make_path_cost(skipped_points, hop_count, 1, 0)
 
 
 def _add_costs(*costs):
     return tuple(sum(parts) for parts in zip(*costs, strict=False))
+
+
+def _make_path_cost(skipped_points, hop_count, lane_changes, total_distance):
+    return (
+        skipped_points * SKIPPED_POINT_COST
+        + hop_count * HOP_COST
+        + lane_changes * LANE_CHANGE_COST
+        + total_distance,
+        skipped_points,
+        hop_count,
+        lane_changes,
+        total_distance,
+    )
 
 
 def _backtrack_candidate_path(best_state, observations, backrefs):
