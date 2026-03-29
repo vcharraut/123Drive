@@ -5,6 +5,9 @@ import numpy as np
 from bin_factory import puffer_types as puffer_types
 
 
+logger = logging.getLogger(__name__)
+
+
 def process_traffic_controls(scenario, extras) -> None:
     map_data = scenario.map
     scenario_length = scenario.metadata.scenario_length
@@ -15,15 +18,19 @@ def process_traffic_controls(scenario, extras) -> None:
     covered_lanes = set()
     used_ids = set()
 
-    for element_id, traffic_light in extras["traffic_lights"].items():
+    for element_id, traffic_light in extras.get("traffic_lights", {}).items():
         controlled_lane_id = traffic_light.controlled_lane
         if (controlled_lane := lanes_by_id.get(controlled_lane_id)) is None:
-            logging.warning(
+            logger.warning(
                 f"Controlled lane {controlled_lane_id} for traffic light {element_id} not found in map data, skipping."
             )
             continue
-        heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
-        stop_line = _stop_line_from_position(heading, controlled_lane_id, lanes_by_id)
+        try:
+            heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
+            stop_line = _stop_line_from_position(heading, controlled_lane_id, lanes_by_id)
+        except ValueError as exc:
+            logger.warning("Skipping malformed traffic light %s on lane %s: %s", element_id, controlled_lane_id, exc)
+            continue
         control_id = int(element_id)
 
         elements.append(
@@ -52,12 +59,16 @@ def process_traffic_controls(scenario, extras) -> None:
 
         controlled_lane_id = controlled_lanes[0]
         if (controlled_lane := lanes_by_id.get(controlled_lane_id)) is None:
-            logging.warning(
+            logger.warning(
                 f"Controlled lane {controlled_lane_id} for stop zone {stop_zone_type} not found in map data, skipping."
             )
             continue
-        heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
-        stop_line = _stop_line_from_polygon(element_data["polygon"], heading)
+        try:
+            heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
+            stop_line = _stop_line_from_polygon(element_data["polygon"], heading)
+        except ValueError as exc:
+            logger.warning("Skipping malformed stop zone on lane %s: %s", controlled_lane_id, exc)
+            continue
 
         if stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT:
             states = [puffer_types.TLState.UNKNOWN] * scenario_length
@@ -81,7 +92,12 @@ def process_traffic_controls(scenario, extras) -> None:
 
 def _stop_line_from_position(heading, lane_id, lanes_by_id):
     lane = lanes_by_id.get(lane_id)
-    center = np.asarray(lane["polyline"][0], dtype=np.float64)
+    if lane is None:
+        raise ValueError("controlled lane is missing")
+    polyline = np.asarray(lane.get("polyline"), dtype=np.float64)
+    if polyline.ndim != 2 or len(polyline) == 0:
+        raise ValueError("controlled lane polyline is empty")
+    center = polyline[0]
     left_boundary = np.asarray(lane.get("left_boundary", []), dtype=np.float64)
     right_boundary = np.asarray(lane.get("right_boundary", []), dtype=np.float64)
     width = _lane_width_from_boundaries(left_boundary, right_boundary)
@@ -101,12 +117,16 @@ def _compute_heading_from_incoming_lanes(lane, lanes_by_id):
         entry_lane = lanes_by_id.get(entry_id)
         if entry_lane is None:
             continue
-        polyline = entry_lane["polyline"]
+        polyline = np.asarray(entry_lane.get("polyline"), dtype=np.float64)
+        if polyline.ndim != 2 or len(polyline) < 2:
+            continue
         dxy = polyline[-1] - polyline[-2]
         headings.append(np.arctan2(dxy[1], dxy[0]))
 
     if not headings:
-        polyline = lane["polyline"]
+        polyline = np.asarray(lane.get("polyline"), dtype=np.float64)
+        if polyline.ndim != 2 or len(polyline) < 2:
+            raise ValueError("lane polyline needs at least two points")
         dxy = polyline[1] - polyline[0]
         return float(np.arctan2(dxy[1], dxy[0]))
 
@@ -126,8 +146,12 @@ def _lane_width_from_boundaries(left_boundary, right_boundary):
 
 def _stop_line_from_polygon(polygon, heading):
     polygon = np.asarray(polygon, dtype=np.float64)
+    if polygon.ndim != 2 or len(polygon) < 2:
+        raise ValueError("stop zone polygon needs at least two points")
     if len(polygon) > 1 and np.allclose(polygon[0], polygon[-1]):
         polygon = polygon[:-1]
+    if len(polygon) < 2:
+        raise ValueError("stop zone polygon collapses to fewer than two points")
 
     center = polygon.mean(axis=0)
     perp_xy = np.array([-np.sin(heading), np.cos(heading)], dtype=np.float64)
