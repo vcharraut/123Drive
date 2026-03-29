@@ -43,7 +43,6 @@ Binary layout (all little-endian):
 
   METADATA
     char[128]         — scenario_id (utf-8, null-padded)
-    int32             — map_id
     char[32]          — dataset name (utf-8, null-padded)
     int32             — scenario_length (number of timesteps)
     float32           — dt (seconds per timestep)
@@ -76,7 +75,7 @@ METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
 
 
-def scenario_to_binary(scenario, map_id=0):
+def scenario_to_binary(scenario):
     """Serialize a PufferScenario into the PufferDrive .bin format. See module docstring for layout."""
     buf = bytearray()
     agents, road_map, tcs, objects = scenario.agents, scenario.map, scenario.traffic_controls, scenario.objects
@@ -195,9 +194,8 @@ def scenario_to_binary(scenario, map_id=0):
     else:
         buf.extend(struct.pack("<i", 0))
 
-    # Metadata: scenario id, map id, dataset, timing, prediction targets
+    # Metadata: scenario id, dataset, timing, prediction targets
     buf.extend(str(scenario.metadata.id).encode("utf-8")[:METADATA_ID_BYTES].ljust(METADATA_ID_BYTES, b"\0"))
-    buf.extend(struct.pack("<i", int(map_id)))
     buf.extend(
         str(scenario.metadata.dataset).encode("utf-8")[:METADATA_DATASET_BYTES].ljust(METADATA_DATASET_BYTES, b"\0")
     )

@@ -58,6 +58,8 @@ Basic use:
 uv run convert --py123d_path /path/to/123d --output ./output
 ```
 
+Output files are named from dataset + scenario identity (for example `nuplan__<scenario>.bin`). Existing files are not overwritten unless you pass `--overwrite`.
+
 Mental model:
 
 ```text
@@ -88,6 +90,7 @@ Core flags:
 |------|---------|-------------|
 | `--py123d_path` | `PY123D_DATA_ROOT` or required | Path to 123D dataset with `logs/` and `maps/` |
 | `--output` | `./output` | Directory for `.bin` files |
+| `--overwrite` | off | Replace existing output files |
 | `--workers` | `1` | Parallel workers |
 | `--validate_level` | `1` | Validation strictness |
 | `--fail_fast` | off | Stop on first error |

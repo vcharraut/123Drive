@@ -117,7 +117,6 @@ All-pairs shortest lane-to-lane distances precomputed via Dijkstra on FREEWAY an
 | Type | Field | Notes |
 |------|-------|-------|
 | char[128] | `id` | UTF-8, null-padded |
-| int32 | `map_id` | |
 | char[32] | `dataset` | UTF-8, null-padded |
 | int32 | `scenario_length` | Number of timesteps |
 | float32 | `dt` | Seconds between timesteps |

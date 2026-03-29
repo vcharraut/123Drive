@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import pathlib
+import re
 import warnings
 from typing import NamedTuple
 
@@ -19,7 +20,6 @@ class ConvertConfig(NamedTuple):
     reindex_id: bool
     impute_tl: bool
     validate_level: int
-    overwrite: bool
 
 
 logger = logging.getLogger(__name__)
@@ -78,7 +78,42 @@ def build_parser():
     return parser
 
 
-def _convert_one(py123d_data, map_id, output, config) -> None:
+def _build_output_path(py123d_data, output_dir):
+    """Derive output path for a given scenario based on its metadata attributes.
+
+    Arguments:
+        py123d_data: py123d scenaio data object
+        output_dir: Base directory to save the output file
+
+    Returns:
+        A pathlib.Path object representing the output file path, e.g. <dataset>__<source_id>.bin"
+    """
+
+    def sanitize(v):
+        return re.sub(r"[^A-Za-z0-9._-]+", "_", v.strip()).strip("._-") or "scenario"
+
+    attrs = ("scene_uuid", "scenario_id", "log_name", "location", "map_id")
+
+    source_id = ""
+    for attr in attrs:
+        if value := getattr(py123d_data, attr, None):
+            source_id = str(value)
+            break
+
+    if not source_id:
+        raise ValueError("Cannot derive scenario identity from py123d_data attributes: " + ", ".join(attrs))
+
+    dataset = getattr(py123d_data, "dataset", "") or ""
+
+    if not dataset:
+        raise ValueError("py123d_data is missing 'dataset' attribute, which is required for output filename")
+
+    stem = f"{sanitize(dataset)}__{sanitize(source_id)}" if dataset else sanitize(source_id)
+
+    return output_dir / f"{stem}.bin"
+
+
+def _convert_one(py123d_data, output_dir, config) -> None:
     # 1. Load and convert 123D scenario to PufferDrive format
     scenario, extras = loader.extract_scenario(py123d_data)
 
@@ -112,24 +147,24 @@ def _convert_one(py123d_data, map_id, output, config) -> None:
     scenario.lane_graph = transforms.build_lane_distance_matrix(scenario.map)
 
     # 4. Serialize to binary and save
-    binary_data = serialize.scenario_to_binary(scenario, map_id=map_id)
-    output_path = pathlib.Path(output) / f"map_{map_id:03d}.bin"
+    binary_data = serialize.scenario_to_binary(scenario)
+    output_path = _build_output_path(py123d_data, output_dir)
     with output_path.open("wb") as f:
         f.write(binary_data)
 
 
-def _convert_one_safe(py123d_data, map_id, output, config):
+def _convert_one_safe(py123d_data, output_dir, config):
     scenario_id = getattr(py123d_data, "scenario_id", None) or getattr(py123d_data, "log_name", "unknown")
     dataset = getattr(py123d_data, "dataset", "unknown")
     try:
-        _convert_one(py123d_data, map_id, output, config)
-        return {"ok": True, "scenario_id": scenario_id, "map_id": map_id, "error": ""}
+        _convert_one(py123d_data, output_dir, config)
+        return {"ok": True, "scenario_id": scenario_id, "error": ""}
     except loader.ValidationError as ve:
-        logger.error("[%s][%s][%s] Validation error: %s", dataset, scenario_id, map_id, ve)
-        return {"ok": False, "scenario_id": scenario_id, "map_id": map_id, "error": str(ve)}
+        logger.error("[%s][%s] Validation error: %s", dataset, scenario_id, ve)
+        return {"ok": False, "scenario_id": scenario_id, "error": str(ve)}
     except Exception as e:
-        logger.exception("[%s][%s][%s] Scenario failed", dataset, scenario_id, map_id)
-        return {"ok": False, "scenario_id": scenario_id, "map_id": map_id, "error": str(e)}
+        logger.exception("[%s][%s] Scenario failed", dataset, scenario_id)
+        return {"ok": False, "scenario_id": scenario_id, "error": str(e)}
 
 
 def _validate_args(args, parser):
@@ -205,6 +240,8 @@ def main() -> int:
         logger.info("No scenarios to process.")
         return 0
 
+    output_dir = pathlib.Path(args.output)
+
     config = ConvertConfig(
         max_segment_length=args.max_segment_length,
         area_threshold=args.area_threshold,
@@ -226,8 +263,8 @@ def main() -> int:
     with joblib.Parallel(n_jobs=args.workers) as parallel:
         results = list(
             parallel(
-                joblib.delayed(worker)(data, map_id=i, output=args.output, config=config)
-                for i, data in tqdm.tqdm(enumerate(py123d_data), total=len(py123d_data))
+                joblib.delayed(worker)(data, output_dir=output_dir, config=config)
+                for data in tqdm.tqdm(py123d_data, total=len(py123d_data))
             ),
         )
 

@@ -39,7 +39,6 @@ def _read_body(f):
     lane_graph = _read_lane_graph(f)
 
     scenario_id = _read_string(f, METADATA_ID_BYTES)
-    map_id = _read_int32(f)
     dataset = _read_string(f, METADATA_DATASET_BYTES)
     scenario_length = _read_int32(f)
     dt = _read_float32(f)
@@ -58,7 +57,6 @@ def _read_body(f):
             "num_roads": num_roads,
             "num_traffic": num_traffic,
             "num_objects": num_objects,
-            "map_id": map_id,
             "dataset": dataset,
             "scenario_length": scenario_length,
             "dt": dt,
