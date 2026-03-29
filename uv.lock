@@ -18,35 +18,24 @@ name = "123drive"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "joblib" },
     { name = "numpy" },
+    { name = "py123d" },
+    { name = "scipy" },
+    { name = "shapely" },
+    { name = "tqdm" },
 ]
 
 [package.optional-dependencies]
 all = [
     { name = "fastapi" },
-    { name = "joblib" },
-    { name = "py123d" },
     { name = "pytest" },
-    { name = "pyyaml" },
     { name = "ruff" },
-    { name = "scipy" },
-    { name = "shapely" },
-    { name = "tqdm" },
     { name = "uvicorn", extra = ["standard"] },
-]
-convert = [
-    { name = "joblib" },
-    { name = "py123d" },
-    { name = "scipy" },
-    { name = "shapely" },
-    { name = "tqdm" },
 ]
 dev = [
     { name = "pytest" },
     { name = "ruff" },
-]
-docker = [
-    { name = "pyyaml" },
 ]
 viz = [
     { name = "fastapi" },
@@ -55,29 +44,19 @@ viz = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fastapi", marker = "extra == 'all'" },
+    { name = "123drive", extras = ["viz", "dev"], marker = "extra == 'all'" },
     { name = "fastapi", marker = "extra == 'viz'" },
-    { name = "joblib", marker = "extra == 'all'" },
-    { name = "joblib", marker = "extra == 'convert'" },
+    { name = "joblib" },
     { name = "numpy" },
-    { name = "py123d", marker = "extra == 'all'", git = "https://github.com/autonomousvision/py123d?branch=main" },
-    { name = "py123d", marker = "extra == 'convert'", git = "https://github.com/autonomousvision/py123d?branch=main" },
-    { name = "pytest", marker = "extra == 'all'" },
+    { name = "py123d", git = "https://github.com/autonomousvision/py123d?branch=main" },
     { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pyyaml", marker = "extra == 'all'" },
-    { name = "pyyaml", marker = "extra == 'docker'" },
-    { name = "ruff", marker = "extra == 'all'" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "scipy", marker = "extra == 'all'" },
-    { name = "scipy", marker = "extra == 'convert'" },
-    { name = "shapely", marker = "extra == 'all'" },
-    { name = "shapely", marker = "extra == 'convert'" },
-    { name = "tqdm", marker = "extra == 'all'" },
-    { name = "tqdm", marker = "extra == 'convert'" },
-    { name = "uvicorn", extras = ["standard"], marker = "extra == 'all'" },
+    { name = "scipy" },
+    { name = "shapely" },
+    { name = "tqdm" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'viz'" },
 ]
-provides-extras = ["convert", "viz", "docker", "dev", "all"]
+provides-extras = ["viz", "dev", "all"]
 
 [[package]]
 name = "aiohappyeyeballs"
