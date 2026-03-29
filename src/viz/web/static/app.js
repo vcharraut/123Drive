@@ -1509,7 +1509,7 @@ async function loadScenario(filename) {
   setAppStatus(`Loading ${filename}…`, 'info');
   try {
     reset3DDrag();
-    const resp = await fetch(`/api/scenario/${encodeURIComponent(filename)}`);
+    const resp = await fetch(`/api/scenario/${filename.split('/').map(encodeURIComponent).join('/')}`);
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}`);
     }
