@@ -6,7 +6,7 @@
  *              x[T](f32), y[T](f32), z[T](f32),
  *              heading[T](f32), vx[T](f32), vy[T](f32),
  *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32),
- *              n_route(i32), route[n_route](i32),
+ *              n_route(i32), route[n_route](i32), route_gt_len(i32),
  *              goal_x(f32), goal_y(f32), goal_z(f32), mark_as_expert(i32)
  *   Roads[]:   id(i32), type(i32), S(i32),
  *              x[S](f32), y[S](f32), z[S](f32), heading[S](f32),
@@ -103,6 +103,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       const T = i32();
       const states = readDynamicStateArrays(T);
       const route = intList();
+      const route_gt_len = i32();
       f32();
       f32();
       f32();
@@ -112,6 +113,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
         id, type,
         ...states,
         route,
+        route_gt_len,
       };
     }
 

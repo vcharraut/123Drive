@@ -9,6 +9,7 @@ Binary layout (all little-endian):
     int32 x2          — agent_id, agent_type (AgentType enum)
     DYNAMIC_STATES    — trajectory block (see below)
     int_list          — lane route (ordered lane IDs the agent follows)
+    int32             — route_gt_len (number of leading route lanes supported by GT)
     float32 x3        — goal position (x, y, z) from last valid frame
     int32             — off_road flag (1 if no route assigned, else 0)
 
@@ -83,7 +84,7 @@ def scenario_to_binary(scenario):
     # Header — road_count placeholder at offset 4, patched after filtering
     buf.extend(struct.pack("<iiii", len(agents), 0, len(tcs), len(objects)))
 
-    # Agents: id, type, trajectory, route, goal, off_road flag
+    # Agents: id, type, trajectory, route, route_gt_len, goal, off_road flag
     for eid, track in agents.items():
         buf.extend(struct.pack("<ii", int(eid), int(track.type)))
 
@@ -108,6 +109,7 @@ def scenario_to_binary(scenario):
         buf.extend(struct.pack("<i", len(track.route)))
         if track.route:
             buf.extend(struct.pack(f"<{len(track.route)}i", *map(int, track.route)))
+        buf.extend(struct.pack("<i", int(track.route_gt_len)))
 
         # Goal position from last valid frame
         valid_idx = np.where(np.asarray(track.valid) > 0)[0]

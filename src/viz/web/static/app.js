@@ -330,15 +330,21 @@ function cropPathToStart(path, startPos) {
 
 function getAgentRouteSegments(agent, roadMap) {
   const startPos = getAgentRouteStart(agent);
-  return (agent.route || [])
+  const route = Array.isArray(agent.route) ? agent.route : [];
+  const routeGtLen = Math.max(0, Math.min(agent.route_gt_len ?? route.length, route.length));
+  const toSegments = (laneIds, cropFirst) => laneIds
     .map(laneId => roadMap.get(laneId))
     .filter(road => road && Array.isArray(road.xyz) && road.xyz.length > 1)
     .map((road, idx) => {
       const path = road.xyz.map(([x, y, z = 0]) => [x, y, z]);
-      const croppedPath = idx === 0 ? cropPathToStart(path, startPos) : path;
+      const croppedPath = cropFirst && idx === 0 ? cropPathToStart(path, startPos) : path;
       return {path: croppedPath, laneId: road.id, agentId: agent.id};
     })
     .filter(seg => seg.path.length > 1);
+  return {
+    observed: toSegments(route.slice(0, routeGtLen), true),
+    extension: toSegments(route.slice(routeGtLen), false),
+  };
 }
 
 // ── deck.gl setup ──────────────────────────────────────────────────────────
@@ -1077,11 +1083,23 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       const historySegments = buildValidSegments(a.xyz, a.valid, 0, Math.min(t + 1, a.xyz.length), [...agentColor, 255]);
       const futureSegments = buildValidSegments(a.xyz, a.valid, t, a.xyz.length, [...agentColor, 180]);
 
-      if (routeSegments.length) {
+      if (routeSegments.observed.length) {
         layers.push(new PathLayer({
-          id: 'sel-agent-route', data: routeSegments,
+          id: 'sel-agent-route-observed', data: routeSegments.observed,
           getPath: toPath,
           getColor: [...BROWN, 200],
+          getWidth: 2, widthUnits: 'pixels',
+          getDashArray: [1, 0], dashJustified: false,
+          extensions: [],
+          jointRounded: true, capRounded: true,
+        }));
+      }
+
+      if (routeSegments.extension.length) {
+        layers.push(new PathLayer({
+          id: 'sel-agent-route-extension', data: routeSegments.extension,
+          getPath: toPath,
+          getColor: [...BROWN, 120],
           getWidth: 2, widthUnits: 'pixels',
           getDashArray: [8, 5], dashJustified: true,
           extensions: [new PathStyleExtension({ dash: true })],

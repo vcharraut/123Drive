@@ -26,6 +26,7 @@ def _remap_map_element(element, map_id_map):
 
 def _remap_track(track, map_id_map):
     track.route = [map_id_map[ref_id] for ref_id in track.route if ref_id in map_id_map]
+    track.route_gt_len = min(track.route_gt_len, len(track.route))
     return track
 
 

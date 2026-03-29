@@ -1,17 +1,15 @@
 """Compute per-agent lane routes from observed trajectories.
 
-The pipeline is intentionally split into a few stages:
+The route pipeline is graph-constrained:
 1. Build a per-scenario lane cache once.
-2. Normalize a single agent into valid trajectory samples.
-3. Find plausible root lanes near the early trajectory.
-4. Expand those roots with a small beam search over lane exits.
-5. Score each candidate route with geometric coverage + heading alignment.
-
-The score favors routes whose concatenated centerline stays close to the
-trajectory while preserving the original directional consistency check.
+2. Keep current agent eligibility and offroad filtering.
+3. Build per-point lane candidates from GT geometry.
+4. Solve a best lane sequence with dynamic programming.
+5. Extend beyond GT to the map dead-end.
 """
 
 import logging
+from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
@@ -25,14 +23,11 @@ logger = logging.getLogger(__name__)
 
 
 LANE_WIDTH_THRESHOLD = 6.0  # meters — reject point-to-lane matches farther than this
-ALIGNMENT_THRESHOLD = 0.3  # cos(heading) — minimum dot product for "same direction"
-MAX_PATH_LENGTH = 10  # max lanes in a route sequence
-MAX_ROOT_CANDIDATES = 3  # top-k starting lanes to seed beam search
-ROOT_LANE_MIN_SCORE = 0.3  # minimum aggregate score to consider a root lane
-BEAM_WIDTH = 3  # parallel candidates kept at each beam expansion step
-ROOT_CANDIDATE_BBOX_MARGIN = 12.0  # meters — bbox expansion when filtering candidate lanes
-ALIGNMENT_WEIGHT = 0.7  # weight of heading alignment in combined lane score
-DISTANCE_WEIGHT = 0.3  # weight of proximity in combined lane score
+ALIGNMENT_THRESHOLD = 0.5  # cos(heading) — minimum dot product for "same direction"
+ROUTE_CANDIDATE_BBOX_MARGIN = 12.0  # meters — bbox expansion when filtering nearby lanes
+MAX_CANDIDATES_PER_POINT = 5
+MAX_TRANSITION_HOPS = 3
+BACKWARD_PROGRESS_TOLERANCE = 2.0  # meters — allow small projection noise on same lane
 OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters — max lane distance for moving agents
 STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0  # meters — max lane distance for stationary agents
 MOVEMENT_THRESHOLD = 0.5  # meters — total displacement below this = stationary
@@ -50,10 +45,11 @@ class AgentRouteInput:
 
 
 @dataclass(frozen=True)
-class BeamState:
-    route: tuple[int, ...]
-    visited: frozenset[int]
-    score: float
+class PointLaneCandidate:
+    point_idx: int
+    lane_id: int
+    distance: float
+    s: float
 
 
 def process_agent_routes(scenario, min_route_valid_points=0, route_check_timestep=0) -> None:
@@ -72,9 +68,10 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
 
         if not is_vehicle:
             agent_data.route = []
+            agent_data.route_gt_len = 0
             continue
 
-        route = compute_agent_route(
+        route, route_gt_len = compute_agent_route(
             agent_data=AgentRouteInput(
                 agent_id=agent_id,
                 positions=agent_data.position,
@@ -91,6 +88,7 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
         if is_ego and not route:
             raise ValueError(f"Route computation failed for ego vehicle (agent 0) in scenario {scenario.metadata.id}")
         agent_data.route = route
+        agent_data.route_gt_len = route_gt_len
 
 
 def _extract_lane_centers(static_map_elements):
@@ -102,22 +100,22 @@ def _extract_lane_centers(static_map_elements):
 
     for element_id, element_data in static_map_elements.items():
         element_type = element_data["type"]
+        if element_type not in (puffer_types.LaneType.SURFACE_STREET, puffer_types.LaneType.FREEWAY):
+            continue
 
-        if element_type in (puffer_types.LaneType.SURFACE_STREET, puffer_types.LaneType.FREEWAY):
-            polyline = element_data["polyline"]
+        polyline = element_data["polyline"]
+        if len(polyline) == 0:
+            continue
 
-            if len(polyline) > 0:
-                polyline_2d = polyline[:, :2] if polyline.shape[1] == 3 else polyline
-
-                lane_ids.append(element_id)
-                lane_polylines_list.append(polyline_2d)
-                lane_lengths_list.append(len(polyline_2d))
-                max_points = max(max_points, len(polyline_2d))
-
-                lane_metadata[element_id] = {
-                    "entry_lanes": element_data["entry_lanes"],
-                    "exit_lanes": element_data["exit_lanes"],
-                }
+        polyline_2d = polyline[:, :2] if polyline.shape[1] == 3 else polyline
+        lane_ids.append(element_id)
+        lane_polylines_list.append(polyline_2d)
+        lane_lengths_list.append(len(polyline_2d))
+        max_points = max(max_points, len(polyline_2d))
+        lane_metadata[element_id] = {
+            "entry_lanes": element_data["entry_lanes"],
+            "exit_lanes": element_data["exit_lanes"],
+        }
 
     if not lane_ids:
         return [], np.array([]), {}, np.array([])
@@ -126,8 +124,8 @@ def _extract_lane_centers(static_map_elements):
     lane_polylines = np.zeros((n_lanes, max_points, 2), dtype=np.float64)
     lane_lengths = np.array(lane_lengths_list, dtype=np.int64)
 
-    for i, polyline_2d in enumerate(lane_polylines_list):
-        lane_polylines[i, : len(polyline_2d), :] = polyline_2d
+    for idx, polyline_2d in enumerate(lane_polylines_list):
+        lane_polylines[idx, : len(polyline_2d), :] = polyline_2d
 
     return lane_ids, lane_polylines, lane_metadata, lane_lengths
 
@@ -136,6 +134,7 @@ def build_route_cache(static_map_elements, lane_data):
     """Precompute lane geometry and connectivity shared by all agents."""
     lane_ids, lane_polylines, lane_metadata, lane_lengths = lane_data
     lane_ids = list(lane_ids)
+    lane_id_array = np.asarray(lane_ids, dtype=np.int64)
     lane_lengths = np.asarray(lane_lengths, dtype=np.int64)
     lane_id_to_idx = {lane_id: idx for idx, lane_id in enumerate(lane_ids)}
     trimmed_polylines = tuple(lane_polylines[idx, : lane_lengths[idx], :].copy() for idx in range(len(lane_ids)))
@@ -143,9 +142,20 @@ def build_route_cache(static_map_elements, lane_data):
     if trimmed_polylines:
         lane_bbox_mins = np.stack([polyline.min(axis=0) for polyline in trimmed_polylines])
         lane_bbox_maxs = np.stack([polyline.max(axis=0) for polyline in trimmed_polylines])
+        lane_head_dirs = np.stack(
+            [_get_lane_endpoint_direction(polyline, from_start=True) for polyline in trimmed_polylines],
+        )
+        lane_tail_dirs = np.stack(
+            [_get_lane_endpoint_direction(polyline, from_start=False) for polyline in trimmed_polylines],
+        )
+        lane_segment_lengths, lane_cum_lengths = _compute_lane_length_tables(trimmed_polylines, lane_lengths.max())
     else:
         lane_bbox_mins = np.zeros((0, 2), dtype=np.float64)
         lane_bbox_maxs = np.zeros((0, 2), dtype=np.float64)
+        lane_head_dirs = np.zeros((0, 2), dtype=np.float64)
+        lane_tail_dirs = np.zeros((0, 2), dtype=np.float64)
+        lane_segment_lengths = np.zeros((0, 0), dtype=np.float64)
+        lane_cum_lengths = np.zeros((0, 0), dtype=np.float64)
 
     lane_graph = {
         lane_id: tuple(
@@ -160,6 +170,7 @@ def build_route_cache(static_map_elements, lane_data):
 
     return {
         "lane_ids": lane_ids,
+        "lane_id_array": lane_id_array,
         "lane_polylines": lane_polylines,
         "lane_lengths": lane_lengths,
         "lane_id_to_idx": lane_id_to_idx,
@@ -167,6 +178,11 @@ def build_route_cache(static_map_elements, lane_data):
         "lane_graph": lane_graph,
         "lane_bbox_mins": lane_bbox_mins,
         "lane_bbox_maxs": lane_bbox_maxs,
+        "lane_head_dirs": lane_head_dirs,
+        "lane_tail_dirs": lane_tail_dirs,
+        "lane_segment_lengths": lane_segment_lengths,
+        "lane_cum_lengths": lane_cum_lengths,
+        "path_cache": {},
         "road_edges": road_edges,
     }
 
@@ -184,9 +200,6 @@ def compute_agent_route(
     trajectory = positions_2d[valid]
     heading_valid = headings[valid]
 
-    agent_dirs = np.stack([np.cos(heading_valid), np.sin(heading_valid)], axis=1)
-    sample_indices = np.linspace(0, len(trajectory) - 1, min(10, len(trajectory)), dtype=int)
-
     agent_context = {
         "positions_2d": positions_2d,
         "headings": headings,
@@ -195,8 +208,6 @@ def compute_agent_route(
         "widths": agent_data.widths,
         "trajectory": trajectory,
         "heading_valid": heading_valid,
-        "sample_positions": trajectory[sample_indices],
-        "sample_agent_dirs": agent_dirs[sample_indices],
     }
 
     agent_str = f"Agent {agent_data.agent_id}" if agent_data.agent_id is not None else "Agent"
@@ -209,19 +220,26 @@ def compute_agent_route(
         min_route_valid_points,
     ):
         logger.debug(f"{agent_str}: Skipping route computation due to insufficient valid data or offroad start")
-        return []
+        return [], 0
 
-    root_candidates = _select_root_lane_candidates(agent_context, route_cache)
-    if not root_candidates:
-        logger.debug(f"{agent_str}: No current lane found")
-        return []
+    observations = _build_point_observations(agent_context, route_cache)
+    if not observations:
+        logger.debug(f"{agent_str}: No GT-supported lane candidates found")
+        return [], 0
 
-    best_route, best_score = _search_route_beam(root_candidates, route_cache, agent_context)
-    if not best_route or best_score <= 0:
-        logger.debug(f"{agent_str}: No valid route found from candidates")
-        return []
+    candidate_path = _select_candidate_path(observations, len(trajectory), route_cache)
+    if not candidate_path:
+        logger.debug(f"{agent_str}: No topologically valid lane path found")
+        return [], 0
 
-    return best_route
+    gt_route = _expand_candidate_path(candidate_path, route_cache)
+    if not gt_route:
+        logger.debug(f"{agent_str}: Failed to reconstruct GT-supported route")
+        return [], 0
+
+    route_gt_len = len(gt_route)
+    route = _extend_route_to_dead_end(gt_route.copy(), route_cache)
+    return route, route_gt_len
 
 
 def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=0, min_route_valid_points=0) -> bool:
@@ -240,230 +258,298 @@ def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=
     return not _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep)
 
 
-def _search_route_beam(root_candidates, route_cache, agent_context, max_length=MAX_PATH_LENGTH, beam_width=BEAM_WIDTH):
-    lane_id_to_idx = route_cache["lane_id_to_idx"]
-    trimmed_polylines = route_cache["trimmed_polylines"]
-
-    initial_sequences = [(lane_id,) for lane_id, _ in root_candidates]
-    beam = _select_top_beam(
-        _score_lane_sequences(initial_sequences, lane_id_to_idx, trimmed_polylines, agent_context),
-        beam_width,
-    )
-    if not beam:
-        return [], 0.0
-
-    best_beam_state = max(beam, key=_beam_rank)
-
-    for _ in range(max_length - 1):
-        candidate_sequences = _expand_beam(beam, route_cache["lane_graph"])
-        if not candidate_sequences:
-            break
-
-        beam = _select_top_beam(
-            _score_lane_sequences(candidate_sequences, lane_id_to_idx, trimmed_polylines, agent_context),
-            beam_width,
-        )
-        if not beam:
-            break
-
-        candidate_best = max(beam, key=_beam_rank)
-        if _beam_rank(candidate_best) > _beam_rank(best_beam_state):
-            best_beam_state = candidate_best
-
-    return list(best_beam_state.route), best_beam_state.score
-
-
-def _beam_rank(state):
-    return (state.score, len(state.route))
-
-
-def _merge_route_centerlines(route, lane_id_to_idx, trimmed_polylines):
-    parts = []
-    for lane_id in route:
-        if (lane_idx := lane_id_to_idx.get(lane_id)) is None:
-            continue
-        polyline = trimmed_polylines[lane_idx]
-        if len(polyline) == 0:
-            continue
-        if parts and np.allclose(parts[-1][-1], polyline[0]):
-            parts.append(polyline[1:])
-        else:
-            parts.append(polyline)
-
-    if not parts:
-        return np.zeros((0, 2), dtype=np.float64)
-    return np.concatenate(parts) if len(parts) > 1 else parts[0].copy()
-
-
-def _score_lane_sequences(lane_sequences, lane_id_to_idx, trimmed_polylines, agent_context):
-    if not lane_sequences:
-        return []
-
-    polylines = [_merge_route_centerlines(sequence, lane_id_to_idx, trimmed_polylines) for sequence in lane_sequences]
-    scores = _score_route_polylines_batch(polylines, agent_context)
-    return [
-        BeamState(route=sequence, visited=frozenset(sequence), score=float(score))
-        for sequence, score in zip(lane_sequences, scores, strict=False)
-        if score > 0
-    ]
-
-
-def _select_top_beam(states, beam_width):
-    selected = []
-    seen = set()
-    for state in sorted(states, key=_beam_rank, reverse=True):
-        if state.route in seen:
-            continue
-        selected.append(state)
-        seen.add(state.route)
-        if len(selected) == beam_width:
-            break
-    return selected
-
-
-def _expand_beam(beam, lane_graph):
-    candidates = []
-    for state in beam:
-        exit_lanes = lane_graph.get(state.route[-1], ())
-        candidates.extend((*state.route, exit_id) for exit_id in exit_lanes if exit_id not in state.visited)
-    return candidates
-
-
-def _select_root_lane_candidates(
-    agent_context,
-    route_cache,
-    max_candidates=MAX_ROOT_CANDIDATES,
-    min_score=ROOT_LANE_MIN_SCORE,
-):
+def _build_point_observations(agent_context, route_cache):
     trajectory = agent_context["trajectory"]
-    heading = agent_context["heading_valid"]
-    lane_ids = route_cache["lane_ids"]
-    lane_polylines = route_cache["lane_polylines"]
-    lane_lengths = route_cache["lane_lengths"]
-
-    traj_len = len(trajectory)
-    if traj_len == 0:
-        return []
-    window = min(traj_len, 8)
-    sample_count = min(window, 5)
-    sample_indices = np.unique(np.linspace(0, window - 1, sample_count, dtype=int))
-    if len(sample_indices) == 0:
+    if len(trajectory) == 0:
         return []
 
-    sample_points = trajectory[sample_indices]
-    sample_headings = heading[sample_indices]
-
-    if len(sample_points) > 1:
-        diffs = np.linalg.norm(np.diff(sample_points, axis=0), axis=1)
-        keep_mask = np.concatenate(([True], diffs >= 1e-3))
-        sample_points = sample_points[keep_mask]
-        sample_headings = sample_headings[keep_mask]
-    if len(sample_points) == 0:
-        return []
-
-    lane_bbox_mins = route_cache["lane_bbox_mins"]
-    if len(lane_bbox_mins) == 0:
-        return []
-    clipped = np.clip(
-        sample_points[:, np.newaxis, :],
-        lane_bbox_mins[np.newaxis, :, :],
-        route_cache["lane_bbox_maxs"][np.newaxis, :, :],
-    )
-    diff = sample_points[:, np.newaxis, :] - clipped
-    bbox_distances = np.sqrt(np.einsum("ijk,ijk->ij", diff, diff))
-    candidate_lane_indices = np.where(np.any(bbox_distances <= ROOT_CANDIDATE_BBOX_MARGIN, axis=0))[0]
+    candidate_lane_indices = _select_nearby_lane_indices(trajectory, route_cache)
     if len(candidate_lane_indices) == 0:
         return []
 
-    candidate_polylines = lane_polylines[candidate_lane_indices]
-    candidate_lengths = lane_lengths[candidate_lane_indices]
+    candidate_polylines = route_cache["lane_polylines"][candidate_lane_indices]
+    candidate_lengths = route_cache["lane_lengths"][candidate_lane_indices]
+    candidate_lane_ids = route_cache["lane_id_array"][candidate_lane_indices]
 
-    min_distances_all, closest_indices_all = _points_to_polylines_distance(
-        sample_points,
+    min_distances_all, closest_indices_all, closest_t_all = _points_to_polylines_distance(
+        trajectory,
         candidate_polylines,
         polyline_lengths=candidate_lengths,
+        return_t=True,
     )
     lane_directions_all = _get_lane_directions_at_indices_batch(candidate_polylines, closest_indices_all)
-    agent_dirs = np.stack([np.cos(sample_headings), np.sin(sample_headings)], axis=1)
+    agent_dirs = np.stack([np.cos(agent_context["heading_valid"]), np.sin(agent_context["heading_valid"])], axis=1)
     alignments_all = np.sum(lane_directions_all * agent_dirs[:, np.newaxis, :], axis=2)
+    valid_mask = (min_distances_all <= LANE_WIDTH_THRESHOLD) & (alignments_all > ALIGNMENT_THRESHOLD)
+    projected_s_all = _project_arc_lengths(closest_indices_all, closest_t_all, candidate_lane_indices, route_cache)
 
-    valid_mask = (min_distances_all < LANE_WIDTH_THRESHOLD) & (alignments_all > ALIGNMENT_THRESHOLD)
-    distance_scores_all = 1.0 / (1.0 + min_distances_all)
-    scores_all = ALIGNMENT_WEIGHT * alignments_all + DISTANCE_WEIGHT * distance_scores_all
-    lane_total_scores = np.sum(np.where(valid_mask, scores_all, 0.0), axis=0)
+    observations = [
+        {
+            "point_idx": point_idx,
+            "candidates": _select_point_candidates(
+                point_idx,
+                point_distances,
+                point_alignments,
+                point_s,
+                point_mask,
+                candidate_lane_ids,
+            ),
+        }
+        for point_idx, (point_distances, point_alignments, point_s, point_mask) in enumerate(
+            zip(min_distances_all, alignments_all, projected_s_all, valid_mask, strict=False),
+        )
+    ]
+    return [observation for observation in observations if observation["candidates"]]
 
-    valid_lane_indices = np.where(lane_total_scores >= min_score)[0]
-    if len(valid_lane_indices) == 0:
+
+def _select_nearby_lane_indices(trajectory, route_cache):
+    if len(route_cache["lane_bbox_mins"]) == 0:
+        return np.array([], dtype=np.int64)
+
+    traj_min = trajectory.min(axis=0) - ROUTE_CANDIDATE_BBOX_MARGIN
+    traj_max = trajectory.max(axis=0) + ROUTE_CANDIDATE_BBOX_MARGIN
+    overlaps = (
+        (route_cache["lane_bbox_maxs"][:, 0] >= traj_min[0])
+        & (route_cache["lane_bbox_mins"][:, 0] <= traj_max[0])
+        & (route_cache["lane_bbox_maxs"][:, 1] >= traj_min[1])
+        & (route_cache["lane_bbox_mins"][:, 1] <= traj_max[1])
+    )
+    return np.where(overlaps)[0]
+
+
+def _select_point_candidates(point_idx, point_distances, point_alignments, point_s, point_mask, candidate_lane_ids):
+    valid_indices = np.where(point_mask)[0]
+    ranked = sorted(
+        valid_indices,
+        key=lambda idx: (
+            point_distances[idx],
+            -point_alignments[idx],
+            int(candidate_lane_ids[idx]),
+        ),
+    )[:MAX_CANDIDATES_PER_POINT]
+    return [
+        PointLaneCandidate(
+            point_idx=point_idx,
+            lane_id=int(candidate_lane_ids[idx]),
+            distance=float(point_distances[idx]),
+            s=float(point_s[idx]),
+        )
+        for idx in ranked
+    ]
+
+
+def _project_arc_lengths(closest_indices_all, closest_t_all, candidate_lane_indices, route_cache):
+    if len(candidate_lane_indices) == 0:
+        return np.zeros((len(closest_indices_all), 0), dtype=np.float64)
+
+    candidate_axis = np.arange(len(candidate_lane_indices))[np.newaxis, :]
+    cum_lengths = route_cache["lane_cum_lengths"][candidate_lane_indices]
+    seg_lengths = route_cache["lane_segment_lengths"][candidate_lane_indices]
+    base_lengths = cum_lengths[candidate_axis, closest_indices_all]
+    segment_lengths = seg_lengths[candidate_axis, closest_indices_all]
+    return base_lengths + closest_t_all * segment_lengths
+
+
+def _select_candidate_path(observations, total_points, route_cache):
+    if not observations:
         return []
 
-    ranked = valid_lane_indices[np.argsort(lane_total_scores[valid_lane_indices])[::-1][:max_candidates]]
-    return [(lane_ids[candidate_lane_indices[idx]], lane_total_scores[idx]) for idx in ranked]
+    costs = []
+    backrefs = []
+
+    for obs_idx, observation in enumerate(observations):
+        obs_costs = [None] * len(observation["candidates"])
+        obs_backrefs = [None] * len(observation["candidates"])
+
+        for cand_idx, candidate in enumerate(observation["candidates"]):
+            start_cost = (candidate.point_idx, 0, 0, candidate.distance)
+            best_cost = start_cost
+            best_backref = None
+
+            for prev_idx in range(obs_idx):
+                skipped_points = candidate.point_idx - observations[prev_idx]["point_idx"] - 1
+                if skipped_points < 0:
+                    continue
+
+                for prev_cand_idx, prev_candidate in enumerate(observations[prev_idx]["candidates"]):
+                    prev_cost = costs[prev_idx][prev_cand_idx]
+                    if prev_cost is None:
+                        continue
+
+                    transition = _transition_cost(prev_candidate, candidate, skipped_points, route_cache)
+                    if transition is None:
+                        continue
+
+                    total_cost = _add_costs(prev_cost, transition, (0, 0, 0, candidate.distance))
+                    if total_cost < best_cost:
+                        best_cost = total_cost
+                        best_backref = (prev_idx, prev_cand_idx)
+
+            obs_costs[cand_idx] = best_cost
+            obs_backrefs[cand_idx] = best_backref
+
+        costs.append(obs_costs)
+        backrefs.append(obs_backrefs)
+
+    best_final = None
+    best_state = None
+    for obs_idx, observation in enumerate(observations):
+        trailing_unmatched = total_points - observation["point_idx"] - 1
+        for cand_idx, cost in enumerate(costs[obs_idx]):
+            final_cost = _add_costs(cost, (trailing_unmatched, 0, 0, 0))
+            if best_final is None or final_cost < best_final:
+                best_final = final_cost
+                best_state = (obs_idx, cand_idx)
+
+    return _backtrack_candidate_path(best_state, observations, backrefs)
 
 
-def _score_route_polylines_batch(route_polylines, agent_context):
-    scores = np.zeros(len(route_polylines), dtype=np.float64)
-    if not route_polylines:
-        return scores
+def _transition_cost(prev_candidate, next_candidate, skipped_points, route_cache):
+    if prev_candidate.lane_id == next_candidate.lane_id:
+        is_forward = next_candidate.s + BACKWARD_PROGRESS_TOLERANCE >= prev_candidate.s
+        return (skipped_points, 0, 0, 0) if is_forward else None
 
-    lengths = np.array([len(polyline) for polyline in route_polylines], dtype=np.int64)
-    valid_mask = lengths > 1
-    if not np.any(valid_mask):
-        return scores
+    path = _find_shortest_lane_path(prev_candidate.lane_id, next_candidate.lane_id, route_cache)
+    if not path:
+        return None
 
-    valid_indices = np.where(valid_mask)[0]
-    valid_polylines = [route_polylines[idx] for idx in valid_indices]
-    valid_lengths = lengths[valid_indices]
+    hop_count = len(path) - 1
+    return (skipped_points, hop_count, 1, 0)
 
-    max_points = max(len(p) for p in valid_polylines)
-    padded_polylines = np.zeros((len(valid_polylines), max_points, 2), dtype=np.float64)
-    for idx, polyline in enumerate(valid_polylines):
-        padded_polylines[idx, : len(polyline), :] = polyline
 
-    sample_positions = agent_context["sample_positions"]
-    sample_agent_dirs = agent_context["sample_agent_dirs"]
-    if len(padded_polylines) == 0 or len(sample_positions) == 0:
-        alignment_mask = np.zeros(len(padded_polylines), dtype=bool)
-    else:
-        _, closest_indices = _points_to_polylines_distance(
-            sample_positions,
-            padded_polylines,
-            polyline_lengths=valid_lengths,
-        )
-        route_directions = _get_lane_directions_at_indices_batch(padded_polylines, closest_indices)
-        alignments = np.sum(route_directions * sample_agent_dirs[:, np.newaxis, :], axis=2)
-        alignment_ratio = np.mean(alignments > ALIGNMENT_THRESHOLD, axis=0)
-        alignment_mask = alignment_ratio >= 0.7
+def _add_costs(*costs):
+    return tuple(sum(parts) for parts in zip(*costs, strict=False))
 
-    if not np.any(alignment_mask):
-        return scores
 
-    aligned_indices = valid_indices[alignment_mask]
-    aligned_polylines = padded_polylines[alignment_mask]
-    aligned_lengths = valid_lengths[alignment_mask]
-    min_distances = _points_to_polylines_distance(
-        agent_context["trajectory"],
-        aligned_polylines,
-        polyline_lengths=aligned_lengths,
-        return_indices=False,
+def _backtrack_candidate_path(best_state, observations, backrefs):
+    if best_state is None:
+        return []
+
+    obs_idx, cand_idx = best_state
+    path = []
+
+    while obs_idx is not None:
+        path.append(observations[obs_idx]["candidates"][cand_idx])
+        backref = backrefs[obs_idx][cand_idx]
+        if backref is None:
+            break
+        obs_idx, cand_idx = backref
+
+    return list(reversed(path))
+
+
+def _expand_candidate_path(candidate_path, route_cache):
+    if not candidate_path:
+        return []
+
+    route = [candidate_path[0].lane_id]
+    for prev_candidate, next_candidate in zip(candidate_path, candidate_path[1:], strict=False):
+        path = _find_shortest_lane_path(prev_candidate.lane_id, next_candidate.lane_id, route_cache)
+        if not path:
+            return _collapse_lane_ids(route)
+        route.extend(path[1:])
+
+    return _collapse_lane_ids(route)
+
+
+def _collapse_lane_ids(route):
+    return [lane_id for idx, lane_id in enumerate(route) if idx == 0 or lane_id != route[idx - 1]]
+
+
+def _find_shortest_lane_path(start_lane_id, end_lane_id, route_cache, max_hops=MAX_TRANSITION_HOPS):
+    cache_key = (start_lane_id, end_lane_id)
+    if cache_key in route_cache["path_cache"]:
+        return route_cache["path_cache"][cache_key]
+
+    if start_lane_id == end_lane_id:
+        path = (start_lane_id,)
+        route_cache["path_cache"][cache_key] = path
+        return path
+
+    lane_graph = route_cache["lane_graph"]
+    queue = deque([(start_lane_id, (start_lane_id,))])
+    seen = {start_lane_id}
+
+    while queue:
+        lane_id, path = queue.popleft()
+        if len(path) - 1 >= max_hops:
+            continue
+
+        for exit_lane_id in lane_graph.get(lane_id, ()):
+            next_path = (*path, exit_lane_id)
+            if exit_lane_id == end_lane_id:
+                route_cache["path_cache"][cache_key] = next_path
+                return next_path
+            if exit_lane_id in seen:
+                continue
+            seen.add(exit_lane_id)
+            queue.append((exit_lane_id, next_path))
+
+    route_cache["path_cache"][cache_key] = ()
+    return ()
+
+
+def _extend_route_to_dead_end(route, route_cache):
+    if not route:
+        return []
+
+    lane_graph = route_cache["lane_graph"]
+    visited = set(route)
+    max_length = max(1, len(route_cache["lane_ids"]))
+
+    while len(route) < max_length:
+        current_lane_id = route[-1]
+        exit_lane_ids = [lane_id for lane_id in lane_graph.get(current_lane_id, ()) if lane_id not in visited]
+        if not exit_lane_ids:
+            break
+
+        next_lane_id = _select_straightest_exit(current_lane_id, exit_lane_ids, route_cache)
+        route.append(next_lane_id)
+        visited.add(next_lane_id)
+
+    return route
+
+
+def _select_straightest_exit(current_lane_id, exit_lane_ids, route_cache):
+    lane_id_to_idx = route_cache["lane_id_to_idx"]
+    current_dir = route_cache["lane_tail_dirs"][lane_id_to_idx[current_lane_id]]
+    return max(
+        exit_lane_ids,
+        key=lambda lane_id: (
+            float(np.dot(current_dir, route_cache["lane_head_dirs"][lane_id_to_idx[lane_id]])),
+            -int(lane_id),
+        ),
     )
-    min_distances = np.asarray(min_distances, dtype=np.float64)
 
-    coverage_mask = min_distances < LANE_WIDTH_THRESHOLD
-    covered_counts = coverage_mask.sum(axis=0)
-    positive_coverage = covered_counts > 0
-    if not np.any(positive_coverage):
-        return scores
 
-    avg_distances = np.full(len(aligned_indices), np.inf, dtype=np.float64)
-    covered_distances = np.where(coverage_mask, min_distances, 0.0).sum(axis=0)
-    avg_distances[positive_coverage] = covered_distances[positive_coverage] / covered_counts[positive_coverage]
+def _compute_lane_length_tables(trimmed_polylines, max_points):
+    segment_lengths = np.zeros((len(trimmed_polylines), max(0, max_points - 1)), dtype=np.float64)
+    cum_lengths = np.zeros((len(trimmed_polylines), max_points), dtype=np.float64)
 
-    if not np.all(np.isfinite(avg_distances[positive_coverage])):
-        raise ValueError("Invalid route distance. This may indicate degenerate route polylines.")
+    for lane_idx, polyline in enumerate(trimmed_polylines):
+        if len(polyline) < 2:
+            continue
+        seg_lengths = np.linalg.norm(np.diff(polyline, axis=0), axis=1)
+        segment_lengths[lane_idx, : len(seg_lengths)] = seg_lengths
+        cum_lengths[lane_idx, : len(polyline)] = np.concatenate(([0.0], np.cumsum(seg_lengths)))
 
-    coverage_ratios = covered_counts[positive_coverage] / len(agent_context["trajectory"])
-    scores[aligned_indices[positive_coverage]] = coverage_ratios / (1.0 + avg_distances[positive_coverage])
-    return scores
+    return segment_lengths, cum_lengths
+
+
+def _get_lane_endpoint_direction(polyline, from_start):
+    if len(polyline) < 2:
+        return np.zeros(2, dtype=np.float64)
+
+    segment_iter = zip(polyline[:-1], polyline[1:], strict=False)
+    segments = segment_iter if from_start else reversed(tuple(segment_iter))
+
+    for start, end in segments:
+        direction = end - start
+        norm = np.linalg.norm(direction)
+        if norm > 1e-6:
+            return direction / norm
+
+    return np.zeros(2, dtype=np.float64)
 
 
 def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) -> bool:
@@ -510,7 +596,13 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) 
     return False
 
 
-def _points_to_polylines_distance(points, polylines, polyline_lengths=None, return_indices=True):
+def _points_to_polylines_distance(
+    points,
+    polylines,
+    polyline_lengths=None,
+    return_indices=True,
+    return_t=False,
+):
     n_points = len(points)
     n_lanes = len(polylines)
     max_segments = polylines.shape[1] - 1 if n_lanes > 0 else 0
@@ -518,7 +610,12 @@ def _points_to_polylines_distance(points, polylines, polyline_lengths=None, retu
     if n_points == 0 or n_lanes == 0 or max_segments <= 0:
         empty_distances = np.zeros((n_points, n_lanes), dtype=np.float64)
         empty_indices = np.zeros((n_points, n_lanes), dtype=np.int64)
-        return (empty_distances, empty_indices) if return_indices else empty_distances
+        empty_t = np.zeros((n_points, n_lanes), dtype=np.float64)
+        if not return_indices and not return_t:
+            return empty_distances
+        if return_indices and return_t:
+            return empty_distances, empty_indices, empty_t
+        return (empty_distances, empty_indices) if return_indices else (empty_distances, empty_t)
 
     seg_starts = polylines[:, :-1, :]
     seg_ends = polylines[:, 1:, :]
@@ -551,13 +648,20 @@ def _points_to_polylines_distance(points, polylines, polyline_lengths=None, retu
     distances_sq = np.einsum("ijkl,ijkl->ijk", diff, diff)
     distances_sq = np.where(valid_segs.reshape(1, n_lanes, max_segments), distances_sq, np.inf)
 
+    closest_indices = np.argmin(distances_sq, axis=2).astype(np.int64)
     min_distances_sq = np.min(distances_sq, axis=2)
     min_distances = np.sqrt(min_distances_sq)
 
-    if not return_indices:
+    if not return_indices and not return_t:
         return min_distances
 
-    closest_indices = np.argmin(distances_sq, axis=2).astype(np.int64)
+    if return_t:
+        lane_axis = np.arange(n_lanes)[np.newaxis, :]
+        closest_t = t[np.arange(n_points)[:, np.newaxis], lane_axis, closest_indices]
+        if return_indices:
+            return min_distances, closest_indices, closest_t
+        return min_distances, closest_t
+
     return min_distances, closest_indices
 
 

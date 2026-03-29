@@ -72,8 +72,9 @@ def _read_dynamic_agent(f):
     trajectory_length = _read_count(f, "trajectory", limit=MAX_TRAJECTORY_LENGTH)
     states = _read_dynamic_states(f, trajectory_length)
     route = _read_int_list(f, "route")
+    route_gt_len = _read_int32(f)
     _read_exact(f, 16)
-    return {"id": agent_id, "type": agent_type, "states": states, "route": route}
+    return {"id": agent_id, "type": agent_type, "states": states, "route": route, "route_gt_len": route_gt_len}
 
 
 def _read_object(f):
