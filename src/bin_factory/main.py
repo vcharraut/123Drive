@@ -46,7 +46,6 @@ def build_parser():
     parser.add_argument("--log_names", nargs="+", help="Log names to include")
     parser.add_argument("--scene_uuids", nargs="+", help="Scene UUIDs to include (for debugging specific scenarios)")
     parser.add_argument("--duration_s", type=float, default=0.0, help="Duration of scenario in seconds")
-    parser.add_argument("--history_s", type=float, default=0.0, help="History duration in seconds")
     parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios (no logs)")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite existing output files")
     parser.add_argument("--fail_fast", action="store_true", help="Stop on first error")
@@ -178,14 +177,12 @@ def main() -> int:
 
     logger.info("123Drive: %s -> %s", py123d_data_root, args.output)
     logger.info(
-        "Filters - datasets: %s, split_types: %s, split_names: %s, log_names: %s, "
-        "duration_s: %s, history_s: %s, map_only: %s",
+        "Filters - datasets: %s, split_types: %s, split_names: %s, log_names: %s, duration_s: %s, map_only: %s",
         args.datasets,
         args.split_types,
         args.split_names,
         args.log_names,
         args.duration_s,
-        args.history_s,
         args.map_only,
     )
 
@@ -199,7 +196,6 @@ def main() -> int:
             split_names=args.split_names,
             log_names=args.log_names,
             scene_uuids=args.scene_uuids,
-            history_s=args.history_s,
             duration_s=None if args.duration_s == 0.0 else args.duration_s,
             map_only=args.map_only,
         ),

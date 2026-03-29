@@ -102,7 +102,6 @@ Filtering flags:
 | `--split_names` | all | Split names to include |
 | `--log_names` | all | Specific log names to include |
 | `--duration_s` | `0` | Scenario duration in seconds, `0` = full |
-| `--history_s` | `0` | History duration in seconds |
 | `--map_only` | off | Load map-only scenarios |
 
 Geometry + route flags:
