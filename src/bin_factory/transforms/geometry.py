@@ -1,12 +1,7 @@
-import logging
-
 import numpy as np
 from shapely import geometry as shapely_geom
 
 from bin_factory import puffer_types
-
-
-logger = logging.getLogger(__name__)
 
 
 # ── Interpolate polygons to ensure they are all the same spacing ───────────────────────
@@ -18,7 +13,7 @@ def interpolate_all_polygons(scenario, spacing=3.0) -> None:
             element_data["polygon"] = _interpolate_polygon(element_data["polygon"], spacing)
 
 
-def _interpolate_polygon(xyz, spacing=3.0):
+def _interpolate_polygon(xyz, spacing):
     if xyz is None or len(xyz) == 0:
         return np.zeros((0, 3), dtype=np.float64)
 

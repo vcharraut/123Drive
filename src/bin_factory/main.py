@@ -108,7 +108,7 @@ def _build_output_path(py123d_data, output_dir):
     if not dataset:
         raise ValueError("py123d_data is missing 'dataset' attribute, which is required for output filename")
 
-    stem = f"{sanitize(dataset)}__{sanitize(source_id)}" if dataset else sanitize(source_id)
+    stem = f"{sanitize(dataset)}__{sanitize(source_id)}"
 
     return output_dir / f"{stem}.bin"
 
@@ -126,26 +126,17 @@ def _convert_one(py123d_data, output_dir, config) -> None:
         if errors:
             raise loader.ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
-    # 3. Process scenario (geometry, routes, traffic controls, lane graph)
-    # Rotate body-frame velocities to global frame (dataset-specific, e.g. nuplan)
-    transforms.rotate_body_to_global_velocity(scenario)
-    # Impute/correct traffic light states using raw lane geometry + vehicle trajectories.
+    # 3. Process scenario
+    transforms.rotate_body_to_global_velocity(scenario)  # body-frame → global (dataset-specific)
     if config.impute_tl:
-        transforms.impute_traffic_lights(scenario, extras)
+        transforms.impute_traffic_lights(scenario, extras)  # Yan et al. 2025
     if config.reindex_id:
-        # Reindexing all IDs to a contiguous range (0, n)
         transforms.reindex_scenario_and_extras(scenario, extras)
-    # Clean polylines and apply Douglas-Peucker simplification
     transforms.process_polylines(scenario, config.max_segment_length, config.area_threshold)
-    # Interpolate polygons to ensure they are properly closed and have enough points
     transforms.interpolate_all_polygons(scenario)
-    # Reverse road edges for certain datasets to ensure consistent directionality
     transforms.reverse_road_edges(scenario)
-    # Create traffic controls (traffic lights, stop zones) and associate them with map elements
     transforms.process_traffic_controls(scenario, extras)
-    # Process agent routes based on their trajectories and the lane graph
     transforms.process_agent_routes(scenario, config.min_route_valid_points, config.route_check_timestep)
-    # Build lane graph distance matrix for Dijkstra's algorithm
     scenario.lane_graph = transforms.build_lane_distance_matrix(scenario.map)
 
     # 4. Serialize to binary and save
@@ -199,8 +190,6 @@ def _validate_args(args, parser):
     py123d_data_root = args.py123d_path or os.environ.get("PY123D_DATA_ROOT")
     if not py123d_data_root:
         parser.error("--py123d_path is required (or set PY123D_DATA_ROOT environment variable)")
-    assert py123d_data_root is not None
-
     return args, py123d_data_root
 
 
@@ -274,7 +263,6 @@ def main() -> int:
         logger.info("Conversion complete. %d/%d succeeded.", len(py123d_data), len(py123d_data))
         return 0
 
-    results = [r for r in results if r is not None]
     failed = [r for r in results if not r["ok"]]
     logger.info(
         "Conversion complete. %d/%d succeeded, %d failed.",

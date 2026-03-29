@@ -72,6 +72,7 @@ TC_TYPE_NAMES = {t.value: t.name.lower() for t in TCType}
 OBJECT_TYPE_NAMES = {t.value: t.name.lower() for t in ObjectType}
 
 
+# Road type ranges: 0-9 = lane, 10-19 = line marking, 20-29 = edge, 30+ = misc
 def is_road_lane(t):
     return 0 <= t <= 9
 
