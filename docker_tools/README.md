@@ -4,10 +4,8 @@ Build-only CLI for 123Drive Docker images. Produce reusable images for both pipe
 
 Install policy:
 
-- `build` requires `uv sync --extra docker` or `uv sync --extra all`
-- `123Drive` remains uv-only
-- the `123drive` image installs the repo with `uv sync --extra convert --frozen`
-- plain `pip install 123Drive` is not a supported public install path
+- `uv sync` installs everything needed for `convert` and `build`
+- the `123drive` image installs the repo with `uv sync --frozen`
 - Docker builds require BuildKit because the Dockerfiles use `RUN --mount=type=cache`
 
 ## Images
@@ -29,7 +27,7 @@ Install policy:
 ## Build
 
 ```bash
-uv sync --extra docker
+uv sync
 
 # Build one py123d image per dataset
 uv run build py123d --dataset nuplan-mini

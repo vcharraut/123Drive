@@ -23,29 +23,24 @@ classifiers = [
 ]
 dependencies = [
   "numpy",
-]
-
-[project.optional-dependencies]
-convert = [
   "tqdm",
   "joblib",
   "scipy",
   "shapely",
   "py123d",
 ]
+
+[project.optional-dependencies]
 viz = [
   "fastapi",
   "uvicorn[standard]",
-]
-docker = [
-  "PyYAML",
 ]
 dev = [
   "pytest",
   "ruff",
 ]
 all = [
-  "123Drive[convert,viz,docker,dev]",
+  "123Drive[viz,dev]",
 ]
 
 [project.scripts]
