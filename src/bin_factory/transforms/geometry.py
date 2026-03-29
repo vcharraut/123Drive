@@ -58,6 +58,23 @@ def reverse_road_edges(scenario) -> None:
             element_data["polyline"] = element_data["polyline"][::-1]
 
 
+# ── Rotate body-frame velocity to global frame for certain datasets ─────────────────────
+
+BODY_FRAME_VELOCITY_DATASETS = ["nuplan"]
+
+
+def rotate_body_to_global_velocity(scenario):
+    if scenario.metadata.dataset.split("-")[0] not in BODY_FRAME_VELOCITY_DATASETS:
+        return
+    for track in [*scenario.agents.values(), *scenario.objects.values()]:
+        cos_h = np.cos(track.heading)
+        sin_h = np.sin(track.heading)
+        vx = track.velocity[:, 0].copy()
+        vy = track.velocity[:, 1].copy()
+        track.velocity[:, 0] = vx * cos_h - vy * sin_h
+        track.velocity[:, 1] = vx * sin_h + vy * cos_h
+
+
 # ── Downsample and simplify polylines ──────────────────────────────────────────────────
 
 

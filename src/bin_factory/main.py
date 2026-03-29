@@ -127,6 +127,8 @@ def _convert_one(py123d_data, output_dir, config) -> None:
             raise loader.ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
     # 3. Process scenario (geometry, routes, traffic controls, lane graph)
+    # Rotate body-frame velocities to global frame (dataset-specific, e.g. nuplan)
+    transforms.rotate_body_to_global_velocity(scenario)
     # Impute/correct traffic light states using raw lane geometry + vehicle trajectories.
     if config.impute_tl:
         transforms.impute_traffic_lights(scenario, extras)
