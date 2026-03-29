@@ -10,6 +10,9 @@ const MAX_PITCH_ANGLE = 80;
 const FIT_VIEW_PADDING = 1.1;
 const DEFAULT_3D_PITCH = 20;
 const DEFAULT_3D_ROTATION_X = 30;
+const CHASE_CAM_PITCH = 20;
+const CHASE_CAM_ZOOM = 4.2;
+const CHASE_CAM_OFFSET = 8;
 
 // ── Theme ───────────────────────────────────────────────────────────────────
 const CLEAR_COLORS = {
@@ -455,10 +458,11 @@ function update3DDrag(event) {
   if (!dragState.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
   if (!dragState.moved) {
     dragState.moved = true;
-    disableFollowEgo();
+    if (dragState.mode === 'pan') disableFollowEgo();
   }
 
   if (dragState.mode === 'pan') {
+    if (state.followEgo) return;
     const viewport = getMainViewport();
     if (!viewport || !dragState.startGround || !dragState.startTarget) return;
     const ground = viewport.unproject(pos, {targetZ: dragState.startTarget[2] || 0});
@@ -475,11 +479,12 @@ function update3DDrag(event) {
   } else if (dragState.mode === 'rotate') {
     const width = Math.max(deckContainer.clientWidth, 1);
     const height = Math.max(deckContainer.clientHeight, 1);
-    setViewState(instantViewState({
+    const next = {
       ...state.viewState,
-      rotationOrbit: dragState.startRotationOrbit + (dx / width) * 180,
       rotationX: Math.max(0, Math.min(MAX_PITCH_ANGLE, dragState.startRotationX + (dy / height) * 180)),
-    }));
+    };
+    if (!state.followEgo) next.rotationOrbit = dragState.startRotationOrbit + (dx / width) * 180;
+    setViewState(instantViewState(next));
   }
 
   event.preventDefault();
@@ -495,7 +500,6 @@ function end3DDrag(event) {
 function handle3DWheel(event) {
   if (state.viewMode !== '3d') return;
   event.preventDefault();
-  disableFollowEgo();
   setViewState(instantViewState({
     ...state.viewState,
     zoom: (state.viewState.zoom || 0) - event.deltaY * WHEEL_ZOOM_SPEED,
@@ -601,11 +605,10 @@ const deckgl = new DeckGL({
       viewState.rotationX = Math.max(0, Math.min(80, viewState.rotationX));
     }
     if (state.followEgo) {
-      // Follow-ego locks target; let user control zoom + rotation
+      // Follow-ego locks target; let user control zoom + pitch (not orbit in 3D chase cam)
       const keep = {zoom: viewState.zoom};
       if (state.viewMode === '3d') {
         keep.rotationX = viewState.rotationX;
-        keep.rotationOrbit = viewState.rotationOrbit;
       }
       state.viewState = {...state.viewState, ...keep};
       deckgl.setProps({viewState: state.viewState});
@@ -655,10 +658,11 @@ function getStaticLayers(scenario, layerFlags) {
     ...onClick(obj => selectElement('road', obj)),
   });
 
-  // Helper: scatter points — one dot per polyline vertex
+  // Helper: scatter points — one dot per polyline vertex + heading arrows
   const scatterRoads = (id, data, color, radius = 2) => {
-    const pts = data.flatMap(road => road.xyz.map(p => ({pos: p, road})));
-    return new ScatterplotLayer({
+    const pts = data.flatMap(road => road.xyz.map((p, i) => ({pos: p, heading: road.heading[i], road})));
+
+    const scatterLayer = new ScatterplotLayer({
       id, data: pts,
       getPosition: d => toViewPoint(d.pos),
       getFillColor: color,
@@ -668,6 +672,20 @@ function getStaticLayers(scenario, layerFlags) {
         ? handleSelectableClick(event, () => selectElement('road', info.object.road), info.coordinate)
         : false,
     });
+
+    const arrowData = pts
+      .filter(d => Number.isFinite(d.heading))
+      .map(d => ({path: getHeadingPath(d.pos[0], d.pos[1], d.heading, 1.0, d.pos[2] || 0)}));
+
+    const arrowLayer = new PathLayer({
+      id: `${id}-arrows`, data: arrowData,
+      getPath: toPath,
+      getColor: [...color.slice(0, 3), 160],
+      getWidth: 1, widthUnits: 'pixels',
+      capRounded: true,
+    });
+
+    return [scatterLayer, arrowLayer];
   };
 
   // Dispatch to lines or scatter depending on flag.
@@ -1311,7 +1329,7 @@ function render() {
   const dynL = getDynamicLayers(s, t, state.layers, state.selected);
   const axisL = build3DAxisLayers(s);
   const mm = state.viewMode === '2d' ? FLIP_Y : IDENTITY;
-  const allLayers = [...staticL, ...axisL, ...dynL].map(
+  const allLayers = [staticL, axisL, dynL].flat(2).map(
     l => l.clone({modelMatrix: mm})
   );
   deckgl.setProps({layers: allLayers});
@@ -1323,9 +1341,16 @@ function render() {
       if (state.viewMode === '2d') {
         vs = {...state.viewState, target: [ego.x, -ego.y, 0], transitionDuration: 80};
       } else {
+        const headingDeg = ego.heading * 180 / Math.PI;
+        const ahead = CHASE_CAM_OFFSET;
         vs = {
           ...state.viewState,
-          target: [ego.x, ego.y, ego.z],
+          target: [
+            ego.x + ahead * Math.cos(ego.heading),
+            ego.y + ahead * Math.sin(ego.heading),
+            ego.z,
+          ],
+          rotationOrbit: -headingDeg + 90,
           transitionDuration: 60,
         };
       }
@@ -1509,10 +1534,10 @@ async function loadScenario(filename) {
     fitView();
     // Center on Ego if available
     const ego = getEgoState(data, 0);
-    if (ego) setViewState({
+    if (ego) setViewState(instantViewState({
       ...state.viewState,
       target: state.viewMode === '3d' ? [ego.x, ego.y, ego.z] : [ego.x, -ego.y, 0],
-    });
+    }));
     render();
   } catch (err) {
     const errMsg = String(err?.message || err);
@@ -1572,8 +1597,6 @@ function fitView() {
     : {};
   setViewState({
     target: [b.cx, state.viewMode === '2d' ? -b.cy : b.cy, state.viewMode === '3d' ? b.cz : 0], zoom, ...rotation,
-    transitionDuration: 600,
-    transitionInterpolator: LinearInterpolator && new LinearInterpolator(['target', 'zoom']),
   });
   deckgl.setProps({
     views: state.viewMode === '2d'
@@ -1676,7 +1699,22 @@ function togglePlay() {
 document.getElementById('btn-fit').addEventListener('click', fitView);
 
 document.getElementById('btn-follow').addEventListener('click', () => {
-  setFollowEgo(!state.followEgo);
+  const enabling = !state.followEgo;
+  setFollowEgo(enabling);
+  if (enabling && state.viewMode === '3d' && state.scenario) {
+    const ego = getEgoState(state.scenario, state.timestep);
+    if (ego) {
+      const headingDeg = ego.heading * 180 / Math.PI;
+      state.viewState = {
+        ...instantViewState(state.viewState),
+        target: [ego.x, ego.y, ego.z],
+        rotationOrbit: -headingDeg + 90,
+        rotationX: CHASE_CAM_PITCH,
+        zoom: CHASE_CAM_ZOOM,
+      };
+      deckgl.setProps({viewState: state.viewState});
+    }
+  }
   render();
 });
 

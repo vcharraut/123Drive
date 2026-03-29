@@ -123,16 +123,6 @@
     for (const tc of scenario.traffic_control_elements || []) {
       for (const pt of tc.stop_line || []) addPoint(pt);
     }
-    for (const agent of scenario.agents || []) {
-      for (let i = 0; i < (agent.xyz || []).length; i++) {
-        if (!agent.valid || agent.valid[i]) addPoint(agent.xyz[i]);
-      }
-    }
-    for (const object of scenario.objects || []) {
-      for (let i = 0; i < (object.xyz || []).length; i++) {
-        if (!object.valid || object.valid[i]) addPoint(object.xyz[i]);
-      }
-    }
 
     if (!hasPoint) {
       return {xmin: 0, xmax: 0, ymin: 0, ymax: 0, zmin: 0, zmax: 0, cx: 0, cy: 0, cz: 0};
