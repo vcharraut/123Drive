@@ -10,9 +10,9 @@ raw dataset -> [123D] -> .arrow -> [123Drive] -> .bin
 
 `123Drive` is `uv`-only. Use Python `3.11`-`3.13` from a local git checkout.
 
-Pick the smallest extra that matches your workflow:
+Pick the extra that matches your workflow:
 
-- `uv sync --extra convert`: dataset conversion
+- `uv sync`: dataset conversion (base dependencies)
 - `uv sync --extra viz`: browser viewer
 - `uv sync --extra all`: everything
 
@@ -23,7 +23,7 @@ Pick the smallest extra that matches your workflow:
 Convert only:
 
 ```bash
-uv sync --extra convert
+uv sync
 uv run convert --py123d_path /data/123d --output ./output
 ```
 
@@ -32,12 +32,6 @@ Inspect existing `.bin` output in the browser:
 ```bash
 uv sync --extra viz
 uv run web --dir ./output
-```
-
-Build Docker images:
-
-```bash
-uv run build list
 ```
 
 Open `http://localhost:8080`.

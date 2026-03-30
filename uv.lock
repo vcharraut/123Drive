@@ -48,7 +48,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'viz'" },
     { name = "joblib" },
     { name = "numpy" },
-    { name = "py123d", git = "https://github.com/autonomousvision/py123d?branch=main" },
+    { name = "py123d" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "scipy" },
@@ -2622,7 +2622,7 @@ wheels = [
 [[package]]
 name = "py123d"
 version = "0.1.0"
-source = { git = "https://github.com/autonomousvision/py123d?branch=main#acef9014073053fefcdf3797b5637a2bcf1a5785" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
     { name = "dracopy" },
@@ -2649,6 +2649,10 @@ dependencies = [
     { name = "trimesh" },
     { name = "typing-extensions" },
     { name = "viser" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/33/30/69abe6dc84e44ccda093365c26e88223763839f0a4d650145e08fbebb04d/py123d-0.1.0.tar.gz", hash = "sha256:ee1f11b9fc987a859c326cd82e6abd33b443a966646db45ac08a1c8856331ea9", size = 23229888, upload-time = "2026-03-22T17:04:59.47Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/0d/3fbf459084ef8ff2525ae9566f6c92d6faafa50bd71334121b3260f46755/py123d-0.1.0-py3-none-any.whl", hash = "sha256:5ce8f043cfe943bf9764cdda7af37c814263e1b897628fb41bc2b2f4508c8ca9", size = 23364231, upload-time = "2026-03-22T17:04:56.352Z" },
 ]
 
 [[package]]

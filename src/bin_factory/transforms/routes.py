@@ -13,7 +13,6 @@ from collections import deque
 from dataclasses import dataclass
 
 import numpy as np
-import shapely
 from shapely import geometry as shapely_geom
 
 from bin_factory import puffer_types
@@ -299,7 +298,7 @@ def _build_point_observations(agent_context, route_cache):
             ),
         }
         for point_idx, (point_distances, point_alignments, point_s, point_mask) in enumerate(
-            zip(min_distances_all, alignments_all, projected_s_all, valid_mask, strict=False),
+            zip(min_distances_all, alignments_all, projected_s_all, valid_mask, strict=True),
         )
     ]
     return [observation for observation in observations if observation["candidates"]]
@@ -421,7 +420,7 @@ def _transition_cost(prev_candidate, next_candidate, skipped_points, route_cache
 
 
 def _add_costs(*costs):
-    return tuple(sum(parts) for parts in zip(*costs, strict=False))
+    return tuple(sum(parts) for parts in zip(*costs, strict=True))
 
 
 def _make_path_cost(skipped_points, hop_count, lane_changes, total_distance):
@@ -596,8 +595,6 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) 
     corners = local_corners @ rotation.T + position
 
     agent_poly = shapely_geom.Polygon(corners)
-    shapely.prepare(agent_poly)
-
     bbox_min = corners.min(axis=0) - max(half_len, half_w)
     bbox_max = corners.max(axis=0) + max(half_len, half_w)
 
@@ -653,7 +650,7 @@ def _points_to_polylines_distance(
     points_bc = points.reshape(n_points, 1, 1, 2)
     point_to_start = points_bc - seg_starts.reshape(1, n_lanes, max_segments, 2)
     t = np.einsum("ijkl,jkl->ijk", point_to_start, seg_vecs) / seg_lens_sq_safe.reshape(1, n_lanes, max_segments)
-    t = np.clip(t, 0.0, 1.0, out=t)
+    t = np.clip(t, 0.0, 1.0)
     closest_on_seg = seg_starts.reshape(1, n_lanes, max_segments, 2) + t[..., np.newaxis] * seg_vecs.reshape(
         1,
         n_lanes,

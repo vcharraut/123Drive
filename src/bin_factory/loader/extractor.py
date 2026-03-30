@@ -440,4 +440,4 @@ def _fix_lane_topology(
 
 
 def _centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
-    return array.astype(np.float64, copy=True) - center
+    return array.astype(np.float64) - center
