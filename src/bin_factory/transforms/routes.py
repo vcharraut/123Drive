@@ -36,17 +36,6 @@ LANE_CHANGE_COST = 6.0
 
 
 @dataclass(frozen=True)
-class AgentRouteInput:
-    agent_id: int
-    positions: np.ndarray
-    headings: np.ndarray
-    valid: np.ndarray
-    lengths: np.ndarray
-    widths: np.ndarray
-    is_ego: bool
-
-
-@dataclass(frozen=True)
 class PointLaneCandidate:
     point_idx: int
     lane_id: int
@@ -74,15 +63,13 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
             continue
 
         route, route_gt_len = compute_agent_route(
-            agent_data=AgentRouteInput(
-                agent_id=agent_id,
-                positions=agent_data.position,
-                headings=agent_data.heading,
-                valid=agent_data.valid,
-                lengths=agent_data.length,
-                widths=agent_data.width,
-                is_ego=is_ego,
-            ),
+            agent_id=agent_id,
+            positions=agent_data.position,
+            headings=agent_data.heading,
+            valid=agent_data.valid,
+            lengths=agent_data.length,
+            widths=agent_data.width,
+            is_ego=is_ego,
             route_cache=route_cache,
             route_check_timestep=route_check_timestep,
             min_route_valid_points=min_route_valid_points,
@@ -190,15 +177,21 @@ def build_route_cache(static_map_elements, lane_data):
 
 
 def compute_agent_route(
-    agent_data,
+    agent_id,
+    positions,
+    headings,
+    valid,
+    lengths,
+    widths,
+    is_ego,
     route_cache,
     route_check_timestep=0,
     min_route_valid_points=0,
 ):
     """Return the best lane sequence for one agent, or an empty list."""
-    positions_2d = agent_data.positions[:, :2] if agent_data.positions.shape[1] == 3 else agent_data.positions
-    headings = agent_data.headings
-    valid = np.asarray(agent_data.valid, dtype=bool)
+    positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
+    headings = headings
+    valid = np.asarray(valid, dtype=bool)
     trajectory = positions_2d[valid]
     heading_valid = headings[valid]
 
@@ -206,37 +199,35 @@ def compute_agent_route(
         "positions_2d": positions_2d,
         "headings": headings,
         "valid": valid,
-        "lengths": agent_data.lengths,
-        "widths": agent_data.widths,
+        "lengths": lengths,
+        "widths": widths,
         "trajectory": trajectory,
         "heading_valid": heading_valid,
     }
 
-    agent_str = f"Agent {agent_data.agent_id}" if agent_data.agent_id is not None else "Agent"
-
     if not _can_compute_route(
         agent_context,
         route_cache,
-        agent_data.is_ego,
+        is_ego,
         route_check_timestep,
         min_route_valid_points,
     ):
-        logger.debug(f"{agent_str}: Skipping route computation due to insufficient valid data or offroad start")
+        logger.debug(f"Agent {agent_id}: Skipping route computation due to insufficient valid data or offroad start")
         return [], 0
 
     observations = _build_point_observations(agent_context, route_cache)
     if not observations:
-        logger.debug(f"{agent_str}: No GT-supported lane candidates found")
+        logger.debug(f"Agent {agent_id}: No GT-supported lane candidates found")
         return [], 0
 
     candidate_path = _select_candidate_path(observations, len(trajectory), route_cache)
     if not candidate_path:
-        logger.debug(f"{agent_str}: No topologically valid lane path found")
+        logger.debug(f"Agent {agent_id}: No topologically valid lane path found")
         return [], 0
 
     gt_route = _expand_candidate_path(candidate_path, route_cache)
     if not gt_route:
-        logger.debug(f"{agent_str}: Failed to reconstruct GT-supported route")
+        logger.debug(f"Agent {agent_id}: Failed to reconstruct GT-supported route")
         return [], 0
 
     route_gt_len = len(gt_route)
@@ -425,10 +416,7 @@ def _add_costs(*costs):
 
 def _make_path_cost(skipped_points, hop_count, lane_changes, total_distance):
     return (
-        skipped_points * SKIPPED_POINT_COST
-        + hop_count * HOP_COST
-        + lane_changes * LANE_CHANGE_COST
-        + total_distance,
+        skipped_points * SKIPPED_POINT_COST + hop_count * HOP_COST + lane_changes * LANE_CHANGE_COST + total_distance,
         skipped_points,
         hop_count,
         lane_changes,
