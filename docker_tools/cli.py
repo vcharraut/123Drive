@@ -1,101 +1,78 @@
-"""CLI for building Docker images for the py123d/123Drive pipeline."""
+"""Build CLI for py123d/123Drive Docker images."""
 
 import argparse
 import pathlib
 import subprocess
 import sys
 
-from docker_tools import py123d_config
 
-
-DOCKERFILES_DIR = pathlib.Path(__file__).parent / "dockerfiles"
-REPO_ROOT = DOCKERFILES_DIR.parent.parent
+DOCKERFILES = pathlib.Path(__file__).parent / "dockerfiles"
+REPO_ROOT = DOCKERFILES.parent.parent
 DEFAULT_PY_VERSION = "3.13"
 
-
-def _sanitize_tag(ref):
-    return ref.replace("/", "-").replace(":", "-")
-
-
-def _docker_build_cmd(
-    dockerfile: str,
-    tag: str,
-    build_args: dict[str, str] | None = None,
-    no_cache: bool = False,
-    context_dir: pathlib.Path | None = None,
-) -> list[str]:
-    """Assemble a docker build command."""
-    cmd = ["docker", "build"]
-
-    if no_cache:
-        cmd += ["--no-cache"]
-
-    for k, v in (build_args or {}).items():
-        cmd += ["--build-arg", f"{k}={v}"]
-
-    cmd += ["-f", str(DOCKERFILES_DIR / dockerfile), "-t", tag, str(context_dir or DOCKERFILES_DIR.parent)]
-    return cmd
+DATASETS = {
+    "nuplan": "nuplan",
+    "nuplan-mini": "nuplan",
+    "wod-motion": "waymo",
+    "av2-sensor": "av2",
+}
 
 
-def run_cmd(cmd: list[str], dry_run: bool, label: str = "") -> None:
-    """Print and optionally execute a shell command."""
+def cmd_py123d(args):
+    if not args.dataset or args.dataset not in DATASETS:
+        print(f"Error: --dataset must be one of {list(DATASETS)}", file=sys.stderr)
+        sys.exit(1)
+
+    tag = f"py123d-{args.dataset}"
+    cmd = [
+        "docker",
+        "build",
+        *(["--no-cache"] if args.no_cache else []),
+        "--build-arg",
+        f"PYTHON_VERSION={DEFAULT_PY_VERSION}",
+        "--build-arg",
+        f"EXTRAS={DATASETS[args.dataset]}",
+        "--build-arg",
+        f"DATASET={args.dataset}",
+        "-f",
+        str(DOCKERFILES / "py123d.Dockerfile"),
+        "-t",
+        tag,
+        str(DOCKERFILES.parent),
+    ]
+
     print(f"$ {' '.join(cmd)}")
-    if not dry_run:
+    if not args.dry_run:
         result = subprocess.run(cmd)
-
-        if result.returncode != 0:
-            print(f"Error: {label} failed with exit code {result.returncode}", file=sys.stderr)
+        if result.returncode:
             sys.exit(result.returncode)
 
 
-def cmd_list(_args: argparse.Namespace) -> None:
-    """Print available datasets and build targets."""
-    print("Available py123d datasets:")
-    for name, cfg in py123d_config.DATASET_CONFIGS.items():
-        splits = ", ".join(py123d_config.get_default_splits(name)) or "none"
-        print(f"  {name:<30} extras={cfg['extras']}  splits=[{splits}]")
+def cmd_123drive(args):
+    cmd = [
+        "docker",
+        "build",
+        *(["--no-cache"] if args.no_cache else []),
+        "-f",
+        str(DOCKERFILES / "123drive.Dockerfile"),
+        "-t",
+        "123drive",
+        str(REPO_ROOT),
+    ]
+
+    print(f"$ {' '.join(cmd)}")
+    if not args.dry_run:
+        result = subprocess.run(cmd)
+        if result.returncode:
+            sys.exit(result.returncode)
 
 
-def cmd_py123d(args: argparse.Namespace) -> None:
-    """Build a py123d dataset Docker image."""
-    if not args.dataset:
-        print("Error: --dataset is required for 'py123d'", file=sys.stderr)
-        sys.exit(1)
-
-    if args.dataset not in py123d_config.DATASET_CONFIGS:
-        print(f"Unknown dataset: {args.dataset!r}. Use 'build list' to see available datasets.", file=sys.stderr)
-        sys.exit(1)
-
-    config = py123d_config.DATASET_CONFIGS[args.dataset]
-    ref = args.ref or "main"
-    name = f"py123d-{args.dataset}:{_sanitize_tag(ref)}"
-    build_args: dict[str, str] = {
-        "PYTHON_VERSION": config.get("python_version", DEFAULT_PY_VERSION),
-        "EXTRAS": config["extras"],
-        "DATASET": args.dataset,
-        "PY123D_REF": ref,
-    }
-
-    cmd = _docker_build_cmd("py123d.Dockerfile", name, build_args, args.no_cache)
-    run_cmd(cmd, args.dry_run, label="docker build")
-
-
-def cmd_123drive(args: argparse.Namespace) -> None:
-    """Build the 123Drive converter Docker image."""
-    cmd = _docker_build_cmd("123drive.Dockerfile", "123drive", None, args.no_cache, context_dir=REPO_ROOT)
-    run_cmd(cmd, args.dry_run, label="docker build")
-
-
-def main() -> None:
-    """Entry point for the build CLI."""
+def main():
     parser = argparse.ArgumentParser(prog="build", description="Build Docker images for py123d/123Drive pipeline")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("list", help="List supported py123d datasets")
-
     py123d_parser = sub.add_parser("py123d", help="Build py123d dataset image")
-    py123d_parser.add_argument("--dataset", help="Dataset name (required)")
-    py123d_parser.add_argument("--ref", default="main", help="py123d git ref (branch/commit). Default: main")
+    py123d_parser.add_argument("--dataset", required=True, help="Dataset name")
     py123d_parser.add_argument("--no_cache", action="store_true", help="Build without Docker cache")
     py123d_parser.add_argument("--dry_run", action="store_true", help="Print commands without running")
 
@@ -104,9 +81,7 @@ def main() -> None:
     drive_parser.add_argument("--dry_run", action="store_true", help="Print commands without running")
 
     args = parser.parse_args()
-
-    commands = {"list": cmd_list, "py123d": cmd_py123d, "123drive": cmd_123drive}
-    commands[args.command](args)
+    {"py123d": cmd_py123d, "123drive": cmd_123drive}[args.command](args)
 
 
 if __name__ == "__main__":

@@ -85,12 +85,20 @@ def _validate_dynamic_states(items, prefix, length, errors) -> None:
                 errors.append(f"{prefix} {eid} {field} length {arr.shape[0]} != scenario_length {length}")
 
 
+def _validate_polygon(poly, label, min_points, errors):
+    if poly is None:
+        errors.append(f"{label} missing polygon")
+    elif not isinstance(poly, np.ndarray) or poly.ndim != 2 or poly.shape[1] < 2:
+        errors.append(f"{label} polygon invalid shape {getattr(poly, 'shape', None)}")
+    elif len(poly) < min_points:
+        errors.append(f"{label} polygon needs >= {min_points} points, got {len(poly)}")
+
+
 def _validate_map_elements(map_data, errors) -> None:
     for eid, elem in map_data.items():
         t = elem["type"]
         if puffer_types.is_road_lane(t) or puffer_types.is_road_line(t) or puffer_types.is_road_edge(t):
-            poly = elem.get("polyline")
-            if poly is None:
+            if (poly := elem.get("polyline")) is None:
                 errors.append(f"Map {eid} missing polyline")
             elif not isinstance(poly, np.ndarray) or poly.ndim != 2 or poly.shape[1] < 2:
                 errors.append(f"Map {eid} polyline invalid shape {getattr(poly, 'shape', None)}")
@@ -103,24 +111,12 @@ def _validate_map_elements(map_data, errors) -> None:
                         errors.append(f"Map {eid} missing or invalid {key}")
 
         elif puffer_types.is_crosswalk(t):
-            poly = elem.get("polygon")
-            if poly is None:
-                errors.append(f"Map {eid} missing polygon")
-            elif not isinstance(poly, np.ndarray) or poly.ndim != 2 or poly.shape[1] < 2:
-                errors.append(f"Map {eid} polygon invalid shape {getattr(poly, 'shape', None)}")
-            elif len(poly) < 3:
-                errors.append(f"Map {eid} polygon needs >= 3 points, got {len(poly)}")
+            _validate_polygon(elem.get("polygon"), f"Map {eid}", 3, errors)
 
 
 def _validate_stop_zones(stop_zones, errors) -> None:
     for i, sz in enumerate(stop_zones):
-        poly = sz.get("polygon")
-        if poly is None:
-            errors.append(f"StopZone {i} missing polygon")
-        elif not isinstance(poly, np.ndarray) or poly.ndim != 2 or poly.shape[1] < 2:
-            errors.append(f"StopZone {i} polygon invalid shape {getattr(poly, 'shape', None)}")
-        elif len(poly) < 3:
-            errors.append(f"StopZone {i} polygon needs >= 3 points, got {len(poly)}")
+        _validate_polygon(sz.get("polygon"), f"StopZone {i}", 3, errors)
         if not isinstance(sz.get("controlled_lanes"), list):
             errors.append(f"StopZone {i} missing or invalid controlled_lanes")
 
@@ -148,8 +144,7 @@ def _validate_no_nan_inf(scenario, errors) -> None:
 
     for eid, elem in scenario.map.items():
         for key in ("polyline", "polygon"):
-            arr = elem.get(key)
-            if arr is not None and isinstance(arr, np.ndarray) and not np.all(np.isfinite(arr)):
+            if (arr := elem.get(key)) is not None and isinstance(arr, np.ndarray) and not np.all(np.isfinite(arr)):
                 errors.append(f"Map {eid} {key} contains NaN or Inf")
 
 
@@ -203,7 +198,3 @@ def _validate_agent_sizes(items, prefix, errors) -> None:
             vals = getattr(ds, key)[valid]
             if np.any(vals <= 0):
                 errors.append(f"{prefix} {eid} has non-positive {key}")
-
-        speeds = np.linalg.norm(ds.velocity[valid, :2], axis=1)
-        if np.any(speeds > 60.0):
-            errors.append(f"{prefix} {eid} speed exceeds 60 m/s")

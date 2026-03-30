@@ -63,7 +63,7 @@ class ObjectType(enum.IntEnum):
 
 
 # Derived name dicts (int -> str)
-AGENT_TYPE_NAMES = {0: "unset", **{t.value: t.name.lower() for t in AgentType}}
+AGENT_TYPE_NAMES = {t.value: t.name.lower() for t in AgentType}
 ROAD_TYPE_NAMES = {
     t.value: t.name.lower() for enum_cls in [LaneType, RoadLineType, RoadEdgeType, MiscRoadType] for t in enum_cls
 }
@@ -71,12 +71,8 @@ TL_STATE_NAMES = {t.value: t.name.lower() for t in TLState}
 TC_TYPE_NAMES = {t.value: t.name.lower() for t in TCType}
 OBJECT_TYPE_NAMES = {t.value: t.name.lower() for t in ObjectType}
 
-# Range checks
-LANE_RANGE = (0, 9)
-ROAD_LINE_RANGE = (10, 19)
-ROAD_EDGE_RANGE = (20, 29)
 
-
+# Road type ranges: 0-9 = lane, 10-19 = line marking, 20-29 = edge, 30+ = misc
 def is_road_lane(t):
     return 0 <= t <= 9
 

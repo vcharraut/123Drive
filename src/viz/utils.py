@@ -2,10 +2,7 @@
 
 from bin_factory.puffer_types import (
     AGENT_TYPE_NAMES,
-    LANE_RANGE,
     OBJECT_TYPE_NAMES,
-    ROAD_EDGE_RANGE,
-    ROAD_LINE_RANGE,
     ROAD_TYPE_NAMES,
     TC_TYPE_NAMES,
     TL_STATE_NAMES,
@@ -42,8 +39,8 @@ def as_json_dict():
         "TL_STATE_COLORS": dict(TL_STATE_COLORS.items()),
         "TC_TYPE_NAMES": TC_TYPE_NAMES,
         "OBJECT_TYPE_NAMES": OBJECT_TYPE_NAMES,
-        "LANE_RANGE": LANE_RANGE,
-        "ROAD_LINE_RANGE": ROAD_LINE_RANGE,
-        "ROAD_EDGE_RANGE": ROAD_EDGE_RANGE,
+        "LANE_RANGE": (0, 9),
+        "ROAD_LINE_RANGE": (10, 19),
+        "ROAD_EDGE_RANGE": (20, 29),
         "ROAD_COLORS": ROAD_COLORS,
     }

@@ -17,7 +17,7 @@ def build_lane_distance_matrix(map_elements):
     id_to_idx = {lid: i for i, lid in enumerate(lane_ids)}
     n = len(lanes)
 
-    lane_lengths = np.array([_compute_lane_length(np.asarray(e["polyline"])) for _, e in lanes], dtype=np.float32)
+    lane_lengths = np.array([_compute_lane_length(np.asarray(e["polyline"])) for _, e in lanes], dtype=np.float64)
 
     rows, cols, weights = [], [], []
     for eid, element in lanes:
@@ -29,7 +29,7 @@ def build_lane_distance_matrix(map_elements):
                 weights.append(lane_lengths[src])
 
     graph = scipy_sparse.csr_matrix((weights, (rows, cols)), shape=(n, n)) if rows else scipy_sparse.csr_matrix((n, n))
-    dist_matrix = scipy_csgraph.dijkstra(graph, directed=True).astype(np.float32)
+    dist_matrix = scipy_csgraph.dijkstra(graph, directed=True).astype(np.float64)
 
     return {"lane_ids": lane_ids, "distances": dist_matrix, "lane_lengths": lane_lengths}
 

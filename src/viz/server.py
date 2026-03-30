@@ -42,7 +42,7 @@ def _require_scenario_dir() -> Path:
 def _resolve_scenario_path(filename: str) -> Path:
     base = _require_scenario_dir()
     path = (base / filename).resolve()
-    if path.parent != base or path.suffix != ".bin":
+    if not path.is_relative_to(base) or path.suffix != ".bin":
         raise HTTPException(status_code=400, detail="Invalid scenario filename")
     return path
 
@@ -55,11 +55,11 @@ def get_types():
 @app.get("/api/scenarios")
 def list_scenarios():
     scenario_dir = _require_scenario_dir()
-    files = sorted(scenario_dir.glob("*.bin"), key=lambda p: p.name)
-    return [p.name for p in files]
+    files = sorted(scenario_dir.rglob("*.bin"))
+    return [str(p.relative_to(scenario_dir)) for p in files]
 
 
-@app.get("/api/scenario/{filename}")
+@app.get("/api/scenario/{filename:path}")
 def get_scenario(filename: str):
     path = _resolve_scenario_path(filename)
     if not path.exists():

@@ -2,12 +2,24 @@ import argparse
 import logging
 import os
 import pathlib
+import re
 import warnings
+from typing import NamedTuple
 
 import joblib
 import tqdm
 
 from bin_factory import loader, serialize, transforms
+
+
+class ConvertConfig(NamedTuple):
+    max_segment_length: float
+    area_threshold: float
+    min_route_valid_points: int
+    route_check_timestep: int
+    reindex_id: bool
+    impute_tl: bool
+    validate_level: int
 
 
 logger = logging.getLogger(__name__)
@@ -34,8 +46,8 @@ def build_parser():
     parser.add_argument("--log_names", nargs="+", help="Log names to include")
     parser.add_argument("--scene_uuids", nargs="+", help="Scene UUIDs to include (for debugging specific scenarios)")
     parser.add_argument("--duration_s", type=float, default=0.0, help="Duration of scenario in seconds")
-    parser.add_argument("--history_s", type=float, default=0.0, help="History duration in seconds")
     parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios (no logs)")
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing output files")
     parser.add_argument("--fail_fast", action="store_true", help="Stop on first error")
     parser.add_argument("--validate_level", type=int, choices=[0, 1, 2], default=1, help="0=off, 1=schema, 2=semantic")
     parser.add_argument("--max_segment_length", type=float, default=10.0, help="Max segment length for interpolation")
@@ -66,58 +78,86 @@ def build_parser():
     return parser
 
 
-def _convert_one(py123d_data, map_id, output, config) -> None:
+def _build_output_path(py123d_data, output_dir):
+    """Derive output path for a given scenario based on its metadata attributes.
+
+    Arguments:
+        py123d_data: py123d scenaio data object
+        output_dir: Base directory to save the output file
+
+    Returns:
+        A pathlib.Path object representing the output file path, e.g. <dataset>__<source_id>.bin"
+    """
+
+    def sanitize(v):
+        return re.sub(r"[^A-Za-z0-9._-]+", "_", v.strip()).strip("._-") or "scenario"
+
+    attrs = ("scene_uuid", "scenario_id", "log_name", "location", "map_id")
+
+    source_id = ""
+    for attr in attrs:
+        if value := getattr(py123d_data, attr, None):
+            source_id = str(value)
+            break
+
+    if not source_id:
+        raise ValueError("Cannot derive scenario identity from py123d_data attributes: " + ", ".join(attrs))
+
+    dataset = getattr(py123d_data, "dataset", "") or ""
+
+    if not dataset:
+        raise ValueError("py123d_data is missing 'dataset' attribute, which is required for output filename")
+
+    stem = f"{sanitize(dataset)}__{sanitize(source_id)}"
+
+    return output_dir / f"{stem}.bin"
+
+
+def _convert_one(py123d_data, output_dir, config) -> None:
     # 1. Load and convert 123D scenario to PufferDrive format
     scenario, extras = loader.extract_scenario(py123d_data)
 
     # 2. Validate scenario
-    if config["validate_level"] > 0:
-        errors = loader.validate_scenario(scenario, extras=extras, level=config["validate_level"])
+    if config.validate_level > 0:
+        errors = loader.validate_scenario(scenario, extras=extras, level=config.validate_level)
         scenario_id = scenario.metadata.id
         for error in errors:
             logger.error(f"{scenario_id}: {error}")
         if errors:
             raise loader.ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
-    # 3. Process scenario (geometry, routes, traffic controls, lane graph)
-    # Impute/correct traffic light states using raw lane geometry + vehicle trajectories.
-    if config["impute_tl"]:
-        transforms.impute_traffic_lights(scenario, extras)
-    if config["reindex_id"]:
-        # Reindexing all IDs to a contiguous range (0, n)
+    # 3. Process scenario
+    transforms.rotate_body_to_global_velocity(scenario)  # body-frame → global (dataset-specific)
+    if config.impute_tl:
+        transforms.impute_traffic_lights(scenario, extras)  # Yan et al. 2025
+    if config.reindex_id:
         transforms.reindex_scenario_and_extras(scenario, extras)
-    # Clean polylines and apply Douglas-Peucker simplification
-    transforms.process_polylines(scenario, config["max_segment_length"], config["area_threshold"])
-    # Interpolate polygons to ensure they are properly closed and have enough points
+    transforms.process_polylines(scenario, config.max_segment_length, config.area_threshold)
     transforms.interpolate_all_polygons(scenario)
-    # Reverse road edges for certain datasets to ensure consistent directionality
     transforms.reverse_road_edges(scenario)
-    # Create traffic controls (traffic lights, stop zones) and associate them with map elements
     transforms.process_traffic_controls(scenario, extras)
-    # Process agent routes based on their trajectories and the lane graph
-    transforms.process_agent_routes(scenario, config["min_route_valid_points"], config["route_check_timestep"])
-    # Build lane graph distance matrix for Dijkstra's algorithm
+    transforms.process_agent_routes(scenario, config.min_route_valid_points, config.route_check_timestep)
     scenario.lane_graph = transforms.build_lane_distance_matrix(scenario.map)
 
     # 4. Serialize to binary and save
-    binary_data = serialize.scenario_to_binary(scenario, map_id=map_id)
-    output_path = pathlib.Path(output) / f"map_{map_id:03d}.bin"
+    binary_data = serialize.scenario_to_binary(scenario)
+    output_path = _build_output_path(py123d_data, output_dir)
     with output_path.open("wb") as f:
         f.write(binary_data)
 
 
-def _convert_one_safe(py123d_data, map_id, output, config):
+def _convert_one_safe(py123d_data, output_dir, config):
     scenario_id = getattr(py123d_data, "scenario_id", None) or getattr(py123d_data, "log_name", "unknown")
     dataset = getattr(py123d_data, "dataset", "unknown")
     try:
-        _convert_one(py123d_data, map_id, output, config)
-        return {"ok": True, "scenario_id": scenario_id, "map_id": map_id, "error": ""}
+        _convert_one(py123d_data, output_dir, config)
+        return {"ok": True, "scenario_id": scenario_id, "error": ""}
     except loader.ValidationError as ve:
-        logger.error("[%s][%s][%s] Validation error: %s", dataset, scenario_id, map_id, ve)
-        return {"ok": False, "scenario_id": scenario_id, "map_id": map_id, "error": str(ve)}
+        logger.error("[%s][%s] Validation error: %s", dataset, scenario_id, ve)
+        return {"ok": False, "scenario_id": scenario_id, "error": str(ve)}
     except Exception as e:
-        logger.exception("[%s][%s][%s] Scenario failed", dataset, scenario_id, map_id)
-        return {"ok": False, "scenario_id": scenario_id, "map_id": map_id, "error": str(e)}
+        logger.exception("[%s][%s] Scenario failed", dataset, scenario_id)
+        return {"ok": False, "scenario_id": scenario_id, "error": str(e)}
 
 
 def _validate_args(args, parser):
@@ -150,8 +190,6 @@ def _validate_args(args, parser):
     py123d_data_root = args.py123d_path or os.environ.get("PY123D_DATA_ROOT")
     if not py123d_data_root:
         parser.error("--py123d_path is required (or set PY123D_DATA_ROOT environment variable)")
-    assert py123d_data_root is not None
-
     return args, py123d_data_root
 
 
@@ -165,14 +203,12 @@ def main() -> int:
 
     logger.info("123Drive: %s -> %s", py123d_data_root, args.output)
     logger.info(
-        "Filters - datasets: %s, split_types: %s, split_names: %s, log_names: %s, "
-        "duration_s: %s, history_s: %s, map_only: %s",
+        "Filters - datasets: %s, split_types: %s, split_names: %s, log_names: %s, duration_s: %s, map_only: %s",
         args.datasets,
         args.split_types,
         args.split_names,
         args.log_names,
         args.duration_s,
-        args.history_s,
         args.map_only,
     )
 
@@ -186,7 +222,6 @@ def main() -> int:
             split_names=args.split_names,
             log_names=args.log_names,
             scene_uuids=args.scene_uuids,
-            history_s=args.history_s,
             duration_s=None if args.duration_s == 0.0 else args.duration_s,
             map_only=args.map_only,
         ),
@@ -196,15 +231,17 @@ def main() -> int:
         logger.info("No scenarios to process.")
         return 0
 
-    config = {
-        "max_segment_length": args.max_segment_length,
-        "area_threshold": args.area_threshold,
-        "min_route_valid_points": args.min_route_valid_points,
-        "route_check_timestep": args.route_check_timestep,
-        "reindex_id": args.reindex_id,
-        "impute_tl": args.impute_tl,
-        "validate_level": args.validate_level,
-    }
+    output_dir = pathlib.Path(args.output)
+
+    config = ConvertConfig(
+        max_segment_length=args.max_segment_length,
+        area_threshold=args.area_threshold,
+        min_route_valid_points=args.min_route_valid_points,
+        route_check_timestep=args.route_check_timestep,
+        reindex_id=args.reindex_id,
+        impute_tl=args.impute_tl,
+        validate_level=args.validate_level,
+    )
 
     logger.info(
         "Loaded %d scenarios after filtering. Starting conversion with %d workers",
@@ -217,8 +254,8 @@ def main() -> int:
     with joblib.Parallel(n_jobs=args.workers) as parallel:
         results = list(
             parallel(
-                joblib.delayed(worker)(data, map_id=i, output=args.output, config=config)
-                for i, data in tqdm.tqdm(enumerate(py123d_data), total=len(py123d_data))
+                joblib.delayed(worker)(data, output_dir=output_dir, config=config)
+                for data in tqdm.tqdm(py123d_data, total=len(py123d_data))
             ),
         )
 
@@ -226,7 +263,6 @@ def main() -> int:
         logger.info("Conversion complete. %d/%d succeeded.", len(py123d_data), len(py123d_data))
         return 0
 
-    results = [r for r in results if r is not None]
     failed = [r for r in results if not r["ok"]]
     logger.info(
         "Conversion complete. %d/%d succeeded, %d failed.",

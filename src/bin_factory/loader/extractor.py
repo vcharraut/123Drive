@@ -14,6 +14,8 @@ from bin_factory.loader import mapping
 
 logger = logging.getLogger(__name__)
 
+SCENE_MAP_RADIUS = 250.0  # Max distance from ego to map elements for non-map-only scenarios
+
 
 def extract_scenario(
     py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI,
@@ -44,18 +46,24 @@ def extract_scenario(
         dataset=py123_arrow.dataset,
         scenario_length=0,
         dt=0.0,
+        location=map_api.location or "",
     )
 
     map_only = scene_api is None
-    ego_states: list[Any] | None = None
-    if scene_api is not None:
-        ego_states = [scene_api.get_ego_state_se3_at_iteration(i) for i in range(scene_api.number_of_iterations)]
+    ego_states = (
+        [scene_api.get_ego_state_se3_at_iteration(i) for i in range(scene_api.number_of_iterations)]
+        if scene_api is not None
+        else None
+    )
 
     centroid = _compute_centroid(ego_states, map_api)
     map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, map_only)
 
     if scene_api is not None and ego_states is not None:
-        dt = round(scene_api.scene_metadata.future_duration_s / scene_api.scene_metadata.num_future_iterations, 1)
+        dt = round(scene_api.scene_metadata.iteration_duration_s, 3)
+        if dt <= 0:
+            raise ValueError(f"Invalid time step dt={dt} computed from scene metadata")
+
         all_objects = _extract_objects(scene_api, centroid, ego_states, dt)
         for oid, obj in all_objects.items():
             label = obj.type
@@ -70,6 +78,9 @@ def extract_scenario(
         metadata.scenario_length = scene_api.number_of_iterations
         metadata.dt = dt
 
+    if not map_api.map_has_z:
+        _zero_all_z(agents, objects, traffic_lights, map_elements, stop_zones)
+
     scenario = schema.PufferScenario(
         agents=agents,
         map=map_elements,
@@ -78,6 +89,9 @@ def extract_scenario(
     )
     extras = {"traffic_lights": traffic_lights, "stop_zones": stop_zones}
     return scenario, extras
+
+
+# ── Main Extraction Functions ───────────────────────
 
 
 def _extract_objects(
@@ -100,16 +114,15 @@ def _extract_objects(
 
         _write_detection_frame(ego, frame_idx, ego_state.center_se3, ego_state.bounding_box_se3, centroid)
 
-        if ego_state.dynamic_state_se3 is not None:
+        if ego_state.dynamic_state_se3:
             vel = ego_state.dynamic_state_se3.velocity_3d
             ego.velocity[frame_idx] = [float(vel.x), float(vel.y)]
+        # Fallback to finite difference
+        elif frame_idx > 0 and ego.valid[frame_idx - 1]:
+            delta_pos = ego.position[frame_idx, :2] - ego.position[frame_idx - 1, :2]
+            ego.velocity[frame_idx] = delta_pos / dt
+        else:
             continue
-
-        if frame_idx == 0 or not ego.valid[frame_idx - 1] or dt <= 0:
-            continue
-
-        delta_pos = ego.position[frame_idx, :2] - ego.position[frame_idx - 1, :2]
-        ego.velocity[frame_idx] = delta_pos / dt
 
     # Detections for all other agents
     next_object_id = 0
@@ -133,10 +146,18 @@ def _extract_objects(
             obj = objects[object_id]
             _write_detection_frame(obj, frame_idx, bbox.center_se3, bbox, centroid)
 
-            if detection.velocity_2d is None:
+            if detection.velocity_3d is None:
                 continue
 
-            obj.velocity[frame_idx] = [float(detection.velocity_2d.x), float(detection.velocity_2d.y)]
+            obj.velocity[frame_idx] = [float(detection.velocity_3d.x), float(detection.velocity_3d.y)]
+
+    # Backfill first valid frame velocity from next valid frame (no delta available at frame 0)
+    for obj in objects.values():
+        first_valid = np.argmax(obj.valid)
+        if obj.valid[first_valid] and np.all(obj.velocity[first_valid] == 0) and first_valid + 1 < episode_length:
+            next_valid = first_valid + 1 + np.argmax(obj.valid[first_valid + 1 :])
+            if obj.valid[next_valid] and np.any(obj.velocity[next_valid] != 0):
+                obj.velocity[first_valid] = obj.velocity[next_valid]
 
     return objects
 
@@ -161,9 +182,13 @@ def _extract_traffic_lights(
                 logger.debug("TL detection references unknown lane %d, skipping", lane_id)
                 continue
             if lane_id not in elements:
-                position = _get_lane_position(map_api, lane_id, centroid)
+                lane = map_api.get_map_object_in_layer(lane_id, map_objects.MapLayer.LANE)
+                if lane is None or not isinstance(lane, map_objects.Lane) or len(lane.centerline.array) == 0:
+                    logger.debug("TL lane %d has no centerline, skipping", lane_id)
+                    continue
+
                 elements[lane_id] = schema.TrafficLightTrack(
-                    position=np.array(position, dtype=np.float64),
+                    position=_centered_array(lane.centerline.array[0], centroid).flatten(),
                     states=[puffer_types.TLState.UNKNOWN] * scene_api.number_of_iterations,
                     controlled_lane=lane_id,
                 )
@@ -176,28 +201,6 @@ def _extract_traffic_lights(
     return elements
 
 
-def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) -> np.ndarray:
-    """Compute scene centroid from ego trajectory, falling back to road geometry."""
-    if ego_states is not None:
-        positions = np.array(
-            [[float(s.center_se3.x), float(s.center_se3.y)] for s in ego_states if s is not None],
-            dtype=np.float64,
-        )
-        if len(positions) > 0:
-            return positions.mean(axis=0)
-
-    # Fallback: road geometry centroid
-    road_layers = [map_objects.MapLayer.LANE, map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE]
-    points = [
-        coords
-        for obj in _get_map_objects(map_api, road_layers)
-        if (coords := _get_object_xy_points(obj)) is not None and len(coords) > 0
-    ]
-    if points:
-        return np.vstack(points).mean(axis=0)
-    return np.zeros(2, dtype=np.float64)
-
-
 def _extract_map(
     map_api: py123d_api.MapAPI,
     centroid: np.ndarray,
@@ -208,22 +211,22 @@ def _extract_map(
     stop_zones: list[dict[str, Any]] = []
     non_lane_objects: list[Any] = []
     undefined_lane: list[int] = []
-    all_map_layers = map_api.get_available_map_layers()
+    layers = [layer for layer in map_api.available_map_layers if layer in mapping.SUPPORTED_MAP_LAYERS]
 
     if map_only or map_api.map_is_per_log:
-        map_objs = _get_map_objects(map_api, all_map_layers)
+        map_objs = map_api.get_all_map_objects_in_layers(layers)
     else:
         map_objects_by_layer = map_api.get_map_objects_in_radius(
-            py123d_geometry.Point2D(centroid[0], centroid[1]),
-            radius=250.0,
-            layers=all_map_layers,
+            py123d_geometry.Point3D(centroid[0], centroid[1], centroid[2]),
+            radius=SCENE_MAP_RADIUS,
+            layers=layers,
         )
-        map_objs = [obj for layer in all_map_layers for obj in map_objects_by_layer.get(layer, [])]
+        map_objs = [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])]
 
     # Lanes first — other elements reference lane IDs
     for obj in map_objs:
         if obj.layer == map_objects.MapLayer.LANE:
-            element = _convert_map_object_to_static_element(obj, centroid)
+            element = _write_map_object(obj, centroid)
             if element is None:
                 continue
             result[obj.object_id] = element
@@ -238,7 +241,7 @@ def _extract_map(
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
     next_id = max(result.keys(), default=-1) + 1
     for obj in non_lane_objects:
-        element = _convert_map_object_to_static_element(obj, centroid)
+        element = _write_map_object(obj, centroid)
         if element is None:
             continue
         if obj.layer == map_objects.MapLayer.STOP_ZONE:
@@ -250,7 +253,10 @@ def _extract_map(
     return result, stop_zones, lane_ids
 
 
-def _convert_map_object_to_static_element(map_object: Any, centroid: np.ndarray) -> dict[str, Any] | None:
+# ── Writer functions ───────────────────────
+
+
+def _write_map_object(map_object: Any, centroid: np.ndarray) -> dict[str, Any] | None:
     """Convert 123D map object to unified static element dict with puffer types."""
     layer = map_object.layer
     if mapping.MAP_TYPE_MAP.get(layer) is None:
@@ -264,10 +270,8 @@ def _convert_map_object_to_static_element(map_object: Any, centroid: np.ndarray)
             speed_limit_mps = -1.0
         else:
             speed_limit_mps = float(map_object.speed_limit_mps)
-        left_id = getattr(map_object, "left_lane_id", None)
-        right_id = getattr(map_object, "right_lane_id", None)
-        left_neighbor = [left_id] if left_id is not None else []
-        right_neighbor = [right_id] if right_id is not None else []
+        left_neighbor = [lid] if (lid := getattr(map_object, "left_lane_id", None)) is not None else []
+        right_neighbor = [rid] if (rid := getattr(map_object, "right_lane_id", None)) is not None else []
         return {
             "type": puffer_type,
             "polyline": _centered_array(map_object.centerline.array, centroid),
@@ -318,8 +322,23 @@ def _convert_map_object_to_static_element(map_object: Any, centroid: np.ndarray)
     raise ValueError(f"Unsupported map layer {layer} for object ID {map_object.object_id}")
 
 
-def _get_map_objects(map_api: py123d_api.MapAPI, layers: list[map_objects.MapLayer]) -> list:
-    return [obj for layer in layers for obj in map_api.get_all_map_objects_in_layer(layer)]
+def _write_detection_frame(
+    obj: schema.Track,
+    frame_idx: int,
+    center_se3: Any,
+    bbox: Any,
+    centroid: np.ndarray,
+) -> None:
+    obj.position[frame_idx] = [
+        float(center_se3.x) - float(centroid[0]),
+        float(center_se3.y) - float(centroid[1]),
+        float(center_se3.z) - float(centroid[2]) - float(bbox.height) / 2.0,
+    ]
+    obj.heading[frame_idx] = center_se3.pose_se2.yaw
+    obj.valid[frame_idx] = 1
+    obj.length[frame_idx] = float(bbox.length)
+    obj.width[frame_idx] = float(bbox.width)
+    obj.height[frame_idx] = float(bbox.height)
 
 
 def _make_empty_track(episode_length: int, agent_type: object) -> schema.Track:
@@ -335,17 +354,44 @@ def _make_empty_track(episode_length: int, agent_type: object) -> schema.Track:
     )
 
 
-def _write_detection_frame(obj: schema.Track, frame_idx: int, center_se3: Any, bbox: Any, centroid: np.ndarray) -> None:
-    obj.position[frame_idx] = [
-        float(center_se3.x) - float(centroid[0]),
-        float(center_se3.y) - float(centroid[1]),
-        float(center_se3.z),
+def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) -> np.ndarray:
+    """Compute 3D scene centroid from ego trajectory, falling back to road geometry mean."""
+    if ego_states is not None:
+        positions = np.array(
+            [
+                [float(s.center_se3.x), float(s.center_se3.y), float(s.center_se3.z)]
+                for s in ego_states
+                if s is not None
+            ],
+            dtype=np.float64,
+        )
+        if len(positions) > 0:
+            return positions.mean(axis=0)
+
+    # Fallback: road geometry centroid
+    points = [
+        coords
+        for obj in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE)
+        if (coords := obj.centerline.array) is not None and len(coords) > 0
     ]
-    obj.heading[frame_idx] = center_se3.pose_se2.yaw
-    obj.valid[frame_idx] = 1
-    obj.length[frame_idx] = float(bbox.length)
-    obj.width[frame_idx] = float(bbox.width)
-    obj.height[frame_idx] = float(bbox.height)
+    if points:
+        return np.vstack(points).mean(axis=0)
+    return np.zeros(3, dtype=np.float64)
+
+
+# ── Corrective functions ───────────────────────
+
+
+def _zero_all_z(agents, objects, traffic_lights, map_elements, stop_zones):
+    """Force all Z values to 0 when map has no Z data."""
+    for track in [*agents.values(), *objects.values()]:
+        track.position[:, 2] = 0.0
+    for tl in traffic_lights.values():
+        tl.position[2] = 0.0
+    for element in [*map_elements.values(), *stop_zones]:
+        for key in ("polyline", "left_boundary", "right_boundary", "polygon"):
+            if key in element:
+                element[key][:, 2] = 0.0
 
 
 def _fix_lane_topology(
@@ -393,38 +439,5 @@ def _fix_lane_topology(
         element["exit_lanes"] = [lid for lid in element["exit_lanes"] if lid in valid_lane_ids]
 
 
-def _get_object_xy_points(map_object: object) -> np.ndarray | None:
-    centerline = getattr(map_object, "centerline", None)
-    if centerline is not None:
-        return np.asarray(centerline.array[:, :2], dtype=np.float64)
-    polyline_3d = getattr(map_object, "polyline_3d", None)
-    if polyline_3d is not None:
-        return np.asarray(polyline_3d.array[:, :2], dtype=np.float64)
-    outline_3d = getattr(map_object, "outline_3d", None)
-    if outline_3d is not None:
-        return np.asarray(outline_3d.array[:, :2], dtype=np.float64)
-    return None
-
-
 def _centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
-    centered = array.astype(np.float64, copy=True)
-    if centered.shape[1] >= 2:
-        centered[:, 0] -= center[0]
-        centered[:, 1] -= center[1]
-    return centered
-
-
-def _get_lane_position(map_api: py123d_api.MapAPI, lane_id: int, center: np.ndarray) -> list[float]:
-    lane = map_api.get_map_object_in_layer(lane_id, map_objects.MapLayer.LANE)
-    if lane is None or not isinstance(lane, map_objects.Lane):
-        raise ValueError(f"Lane {lane_id} not found or has no centerline")
-
-    if len(lane.centerline.array) == 0:
-        raise ValueError(f"Lane {lane_id} has empty centerline")
-
-    point = lane.centerline.array[0]
-    x = float(point[0]) - float(center[0])
-    y = float(point[1]) - float(center[1])
-    z = float(point[2]) if len(point) > 2 else 0.0
-
-    return [x, y, z]
+    return array.astype(np.float64) - center

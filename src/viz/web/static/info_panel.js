@@ -17,11 +17,18 @@
     return {validAt, x, y, z, h, vx, vy, vmag, l, w, ht};
   }
 
+  function hasZPositions(data) {
+    return (data.xyz || []).some(pos => pos != null && pos.length > 2);
+  }
+
   function buildTrajectoryRows(data, t, escapeHtml) {
+    const showZ = hasZPositions(data);
     return data.xyz.slice(0, 50).map((pos, i) => {
       const cls = i === t ? 'class="current-row"' : '';
       const valid = data.valid[i] ? '✓' : '✗';
-      return `<tr ${cls}><td>${i}</td><td>${escapeHtml(pos[0].toFixed(1))}</td><td>${escapeHtml(pos[1].toFixed(1))}</td><td>${valid}</td></tr>`;
+      const zVal = pos != null && pos.length > 2 && Number.isFinite(pos[2]) ? pos[2] : 0;
+      const zCell = showZ ? `<td>${escapeHtml(zVal.toFixed(1))}</td>` : '';
+      return `<tr ${cls}><td>${i}</td><td>${escapeHtml(pos[0].toFixed(1))}</td><td>${escapeHtml(pos[1].toFixed(1))}</td>${zCell}<td>${valid}</td></tr>`;
     }).join('');
   }
 
@@ -46,19 +53,20 @@
 
     const routeLanes = (data.route && data.route.length) ? safeIdList(data.route) : '—';
     const trajRows = buildTrajectoryRows(data, t, escapeHtml);
+    const trajHead = hasZPositions(data) ? '<tr><th>#</th><th>X</th><th>Y</th><th>Z</th><th>V</th></tr>' : '<tr><th>#</th><th>X</th><th>Y</th><th>V</th></tr>';
 
     return `
       ${badges}
       <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>
       <div class="info-row"><span class="info-label">Valid</span><span class="info-val">${s.validAt ? '✓' : '✗'}</span></div>
-      <div class="info-row"><span class="info-label">X,Y</span><span class="info-val">${escapeHtml(s.x)}, ${escapeHtml(s.y)}</span></div>
+      <div class="info-row"><span class="info-label">X,Y,Z</span><span class="info-val">${escapeHtml(s.x)}, ${escapeHtml(s.y)}, ${escapeHtml(s.z)}</span></div>
       <div class="info-row"><span class="info-label">Heading</span><span class="info-val">${escapeHtml(s.h)}</span></div>
       <div class="info-row"><span class="info-label">Speed</span><span class="info-val">${escapeHtml(s.vmag)} m/s</span></div>
       <div class="info-row"><span class="info-label">Vel XY</span><span class="info-val">${escapeHtml(s.vx)}, ${escapeHtml(s.vy)}</span></div>
       <div class="info-row"><span class="info-label">L×W×H</span><span class="info-val">${escapeHtml(s.l)}×${escapeHtml(s.w)}×${escapeHtml(s.ht)}</span></div>
       <div class="info-row"><span class="info-label">Route lanes</span><span class="info-val" style="font-size:9px">${routeLanes}</span></div>
       <details><summary>Trajectory</summary>
-        <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th><th>V</th></tr></thead>
+        <table class="traj-table"><thead>${trajHead}</thead>
         <tbody>${trajRows}</tbody></table>
       </details>`;
   }
@@ -68,6 +76,7 @@
     const typeName = OBJECT_TYPE_NAMES[data.type] || `type_${data.type}`;
     const s = formatEntityState(data, t, escapeHtml);
     const trajRows = buildTrajectoryRows(data, t, escapeHtml);
+    const trajHead = hasZPositions(data) ? '<tr><th>#</th><th>X</th><th>Y</th><th>Z</th><th>V</th></tr>' : '<tr><th>#</th><th>X</th><th>Y</th><th>V</th></tr>';
 
     return `
       <span class="badge badge-${escapeHtml(typeName)}">${escapeHtml(typeName)}</span>
@@ -79,7 +88,7 @@
       <div class="info-row"><span class="info-label">Vel XY</span><span class="info-val">${escapeHtml(s.vx)}, ${escapeHtml(s.vy)}</span></div>
       <div class="info-row"><span class="info-label">L×W×H</span><span class="info-val">${escapeHtml(s.l)}×${escapeHtml(s.w)}×${escapeHtml(s.ht)}</span></div>
       <details><summary>Trajectory</summary>
-        <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th><th>V</th></tr></thead>
+        <table class="traj-table"><thead>${trajHead}</thead>
         <tbody>${trajRows}</tbody></table>
       </details>`;
   }
@@ -91,9 +100,10 @@
     const isLane = data.type >= 0 && data.type <= 9;
     const isLine = data.type >= 10 && data.type <= 19;
     const isEdge = data.type >= 20 && data.type <= 29;
+    const showZ = hasZPositions(data);
 
-    const ptRows = data.xyz.slice(0, 30).map(([x, y], i) =>
-      `<tr><td>${i}</td><td>${x.toFixed(2)}</td><td>${y.toFixed(2)}</td></tr>`).join('');
+    const ptRows = data.xyz.slice(0, 30).map(([x, y, z = 0], i) =>
+      `<tr><td>${i}</td><td>${x.toFixed(2)}</td><td>${y.toFixed(2)}</td>${showZ ? `<td>${z.toFixed(2)}</td>` : ''}</tr>`).join('');
 
     let category = 'misc';
     if (isLane) category = 'lane';
@@ -118,7 +128,7 @@
 
     html += `
       <details><summary>Polyline</summary>
-        <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th></tr></thead>
+        <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th>${showZ ? '<th>Z</th>' : ''}</tr></thead>
         <tbody>${ptRows}</tbody></table>
       </details>`;
 

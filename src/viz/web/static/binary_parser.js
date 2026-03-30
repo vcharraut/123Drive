@@ -6,7 +6,7 @@
  *              x[T](f32), y[T](f32), z[T](f32),
  *              heading[T](f32), vx[T](f32), vy[T](f32),
  *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32),
- *              n_route(i32), route[n_route](i32),
+ *              n_route(i32), route[n_route](i32), route_gt_len(i32),
  *              goal_x(f32), goal_y(f32), goal_z(f32), mark_as_expert(i32)
  *   Roads[]:   id(i32), type(i32), S(i32),
  *              x[S](f32), y[S](f32), z[S](f32), heading[S](f32),
@@ -19,7 +19,7 @@
  *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32)
  *   LaneGraph: n_lanes_graph(i32),
  *              [if n>0: lane_ids[n](i32), lane_lengths[n](f32), distances[n*n](f32)]
- *   Metadata:  id(char[128]), map_id(i32), dataset(char[32]),
+ *   Metadata:  id(char[128]), dataset(char[32]),
  *              scenario_length(i32), dt(f32),
  *              n_ooi(i32), ooi[](i32), n_ttp(i32), ttp[](i32)
  */
@@ -103,6 +103,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       const T = i32();
       const states = readDynamicStateArrays(T);
       const route = intList();
+      const route_gt_len = i32();
       f32();
       f32();
       f32();
@@ -112,6 +113,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
         id, type,
         ...states,
         route,
+        route_gt_len,
       };
     }
 
@@ -172,7 +174,6 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
 
     // --- Metadata ---
     const id = str(128);
-    const map_id = i32();
     const dataset = str(32);
     const scenario_length = i32();
     const dt = f32();
@@ -185,7 +186,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       traffic_control_elements,
       objects,
       lane_graph,
-      metadata: { id, map_id, dataset, scenario_length, dt, num_objects: numObjects, objects_of_interest, tracks_to_predict },
+      metadata: { id, dataset, scenario_length, dt, num_objects: numObjects, objects_of_interest, tracks_to_predict },
     };
   } catch (error) {
     if (error instanceof RangeError) {

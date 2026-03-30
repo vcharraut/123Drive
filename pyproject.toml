@@ -23,38 +23,24 @@ classifiers = [
 ]
 dependencies = [
   "numpy",
-]
-
-[project.optional-dependencies]
-convert = [
   "tqdm",
   "joblib",
   "scipy",
   "shapely",
   "py123d",
 ]
+
+[project.optional-dependencies]
 viz = [
   "fastapi",
   "uvicorn[standard]",
-]
-docker = [
-  "PyYAML",
 ]
 dev = [
   "pytest",
   "ruff",
 ]
 all = [
-  "tqdm",
-  "joblib",
-  "scipy",
-  "shapely",
-  "py123d",
-  "fastapi",
-  "uvicorn[standard]",
-  "PyYAML",
-  "pytest",
-  "ruff",
+  "123Drive[viz,dev]",
 ]
 
 [project.scripts]
@@ -74,9 +60,6 @@ docker_tools = ["dockerfiles/*", "*.py"]
 Homepage = "https://github.com/vcharraut/123Drive"
 Repository = "https://github.com/vcharraut/123Drive"
 Issues = "https://github.com/vcharraut/123Drive/issues"
-
-[tool.uv.sources]
-py123d = { git = "https://github.com/autonomousvision/py123d", branch = "main" }
 
 [tool.ruff]
 line-length = 120

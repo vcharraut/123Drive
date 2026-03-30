@@ -5,44 +5,50 @@ Routes assign each vehicle agent an ordered sequence of lane IDs representing th
 ## Pipeline
 
 ```
-Per-scenario cache → Per-agent offroad check → Root lane selection → Beam search → Best route
+Per-scenario cache → Per-agent offroad check → GT candidates → DP sequence search → Dead-end extension
 ```
 
-### 1. Route Cache (once per scenario)
+### 1. Route Cache
 
-`build_route_cache()` precomputes shared data:
-- Trimmed lane centerline polylines and bounding boxes
-- Lane connectivity graph (exit lanes)
+`build_route_cache()` precomputes shared lane data:
+- Trimmed lane centerlines and bounding boxes
+- Lane connectivity graph from `exit_lanes`
+- Lane start/end tangents for downstream extension
 - Road edge segments for offroad detection
 
 ### 2. Offroad Check
 
-`_is_offroad_at_timestep()` skips agents that start off drivable road:
-- If the agent's position is farther than 5m (1m if stationary) from all lane centerlines → offroad
-- If the agent's bounding box intersects a road edge boundary → offroad
+`_is_offroad_at_timestep()` keeps the current agent selection logic:
+- If the agent's position is farther than 5m from all lane centerlines, or 1m when nearly stationary, skip it
+- If the agent's footprint intersects a road edge boundary, skip it
 
-### 3. Root Lane Selection
+### 3. GT Lane Candidates
 
-`_select_root_lane_candidates()` finds the most likely starting lane:
-1. Sample up to 5 points from the first 8 trajectory positions
-2. Prefilter lanes by bounding-box distance (12m margin)
-3. For each candidate lane, compute point-to-polyline distance and heading alignment
-4. Score = 0.7 × alignment + 0.3 × inverse_distance, summed over valid samples
-5. Return top 3 lanes with score ≥ 0.3
+`_build_point_observations()` builds a small lane set per GT point:
+1. Prefilter lanes by the GT trajectory bounding box
+2. Compute point-to-lane distance and local lane tangent alignment
+3. Keep only candidates with distance `<= 7m` and heading alignment `> 0.3`
+4. Keep up to 7 candidates per point, ranked by distance, alignment, and lane ID
+5. Compute projected arc-length on each candidate lane
 
-### 4. Beam Search
+### 4. DP Sequence Search
 
-`_search_route_beam()` extends root lanes through the lane graph:
-1. Start with scored root candidates (beam width = 3)
-2. At each step, expand each beam state through exit lanes
-3. Score each candidate route by concatenating lane centerlines and measuring:
-   - **Coverage**: fraction of trajectory points within 6m of the route polyline
-   - **Distance**: average distance of covered points
-   - **Final score**: coverage / (1 + avg_distance)
-4. Routes with poor heading alignment (< 70% of samples aligned) are rejected early
-5. Keep top 3 candidates per step, up to 10 lanes deep
-6. Return the highest-scoring route across all steps
+`_select_candidate_path()` solves the route jointly across GT:
+1. Use a weighted path score: `50 * skipped_points + 1 * hops + 6 * lane_changes + point_distance`
+2. Break ties by skipped points, hops, lane changes, then total distance
+3. Allow same-lane transitions only if projected progress stays forward within a 2m tolerance
+4. Allow lane changes only if the exit-graph shortest path needs at most 3 hops
+5. Backtrack the best candidate path
+6. Expand connector lanes between consecutive GT-supported lanes
 
-### 5. Output
+### 5. Extension Beyond GT
 
-Each agent gets at most one route (list of lane IDs). Agents without a valid route get an empty list and are marked as `mark_as_expert=1` in the binary output.
+`_extend_route_to_dead_end()` continues the route after GT ends:
+1. Start from the last GT-supported lane
+2. At each branch, choose the exit whose start tangent is most aligned with the current lane end tangent
+3. Break ties by smaller lane ID
+4. Stop at dead-end, revisit, or map-size safety cap
+
+### 6. Output
+
+Each eligible vehicle gets one route `list[int]` and `route_gt_len`, the count of leading route lanes supported by GT before extension. Agents without a valid route get an empty list and are marked offroad in the binary output.

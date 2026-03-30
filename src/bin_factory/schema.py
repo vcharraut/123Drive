@@ -9,6 +9,7 @@ class ScenarioMetadata:
     dataset: str
     scenario_length: int
     dt: float
+    location: str = ""
 
 
 @dataclasses.dataclass
@@ -22,6 +23,7 @@ class Track:
     width: np.ndarray
     height: np.ndarray
     route: list = dataclasses.field(default_factory=list)
+    route_gt_len: int = 0
 
 
 @dataclasses.dataclass

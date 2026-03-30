@@ -3,6 +3,17 @@ from py123d.datatypes import detections, map_objects
 from bin_factory import puffer_types
 
 
+SUPPORTED_MAP_LAYERS = frozenset(
+    {
+        map_objects.MapLayer.LANE,
+        map_objects.MapLayer.ROAD_LINE,
+        map_objects.MapLayer.ROAD_EDGE,
+        map_objects.MapLayer.CROSSWALK,
+        map_objects.MapLayer.STOP_ZONE,
+    }
+)
+
+
 AGENT_TYPE_MAP = {
     detections.DefaultBoxDetectionLabel.EGO: puffer_types.AgentType.VEHICLE,
     detections.DefaultBoxDetectionLabel.VEHICLE: puffer_types.AgentType.VEHICLE,
@@ -23,6 +34,7 @@ LANE_TYPE_MAP = {
     map_objects.LaneType.FREEWAY: int(puffer_types.LaneType.FREEWAY),
     map_objects.LaneType.SURFACE_STREET: int(puffer_types.LaneType.SURFACE_STREET),
     map_objects.LaneType.BIKE_LANE: int(puffer_types.LaneType.BIKE_LANE),
+    map_objects.LaneType.BUS_LANE: int(puffer_types.LaneType.BUS_LANE),
 }
 
 CROSSWALK_TYPE = int(puffer_types.MiscRoadType.CROSSWALK)
@@ -32,7 +44,7 @@ STOP_ZONE_TYPE_MAP = {
     map_objects.StopZoneType.STOP_SIGN: int(puffer_types.TCType.STOP_SIGN),
     map_objects.StopZoneType.YIELD_SIGN: int(puffer_types.TCType.YIELD_SIGN),
     map_objects.StopZoneType.PEDESTRIAN_CROSSING: None,  # Not supported as a stop zone type, only as a crosswalk type
-    map_objects.StopZoneType.TURN_STOP: int(puffer_types.TCType.STOP_SIGN), # No specific turn stop type in puffer
+    map_objects.StopZoneType.TURN_STOP: int(puffer_types.TCType.STOP_SIGN),  # No specific turn stop type in puffer
 }
 
 ROAD_EDGE_TYPE_MAP = {
@@ -42,6 +54,7 @@ ROAD_EDGE_TYPE_MAP = {
 }
 
 ROAD_LINE_TYPE_MAP = {
+    map_objects.RoadLineType.NONE: int(puffer_types.RoadLineType.UNKNOWN),
     map_objects.RoadLineType.UNKNOWN: int(puffer_types.RoadLineType.UNKNOWN),
     map_objects.RoadLineType.DASHED_WHITE: int(puffer_types.RoadLineType.BROKEN_SINGLE_WHITE),
     map_objects.RoadLineType.SOLID_WHITE: int(puffer_types.RoadLineType.SOLID_SINGLE_WHITE),

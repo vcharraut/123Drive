@@ -32,6 +32,7 @@ Each agent is laid out sequentially:
 | int32 × T | `valid` | 1 if observation exists at this timestep |
 | int32 | `n_route_lanes` | Number of lane IDs in route |
 | int32 × n_route_lanes | `route_lane_ids` | Ordered lane ID sequence |
+| int32 | `route_gt_len` | Number of leading route lanes supported by GT before extension |
 | float32 | `goal_x` | Last valid x position |
 | float32 | `goal_y` | Last valid y position |
 | float32 | `goal_z` | Last valid z position |
@@ -117,7 +118,6 @@ All-pairs shortest lane-to-lane distances precomputed via Dijkstra on FREEWAY an
 | Type | Field | Notes |
 |------|-------|-------|
 | char[128] | `id` | UTF-8, null-padded |
-| int32 | `map_id` | |
 | char[32] | `dataset` | UTF-8, null-padded |
 | int32 | `scenario_length` | Number of timesteps |
 | float32 | `dt` | Seconds between timesteps |

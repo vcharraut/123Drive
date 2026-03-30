@@ -26,6 +26,7 @@ def _remap_map_element(element, map_id_map):
 
 def _remap_track(track, map_id_map):
     track.route = [map_id_map[ref_id] for ref_id in track.route if ref_id in map_id_map]
+    track.route_gt_len = min(track.route_gt_len, len(track.route))
     return track
 
 
@@ -34,7 +35,7 @@ def _remap_traffic_light(traffic_light, map_id_map):
         traffic_light.controlled_lane = [
             map_id_map[ref_id] for ref_id in traffic_light.controlled_lane if ref_id in map_id_map
         ]
-    else:
+    elif traffic_light.controlled_lane in map_id_map:
         traffic_light.controlled_lane = map_id_map[traffic_light.controlled_lane]
     return traffic_light
 

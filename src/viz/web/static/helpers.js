@@ -34,9 +34,10 @@
     let dist = 0;
     let nextArrow = spacingM * 0.4;
     const hw = sizeM * 0.35;
+    const useZ = xyz.some(pt => pt != null && pt.length > 2 && Number.isFinite(pt[2]));
     for (let i = 0; i < xyz.length - 1; i++) {
-      const [x1, y1] = [xyz[i][0], xyz[i][1]];
-      const [x2, y2] = [xyz[i + 1][0], xyz[i + 1][1]];
+      const [x1, y1, z1 = 0] = xyz[i];
+      const [x2, y2, z2 = z1] = xyz[i + 1];
       const dx = x2 - x1;
       const dy = y2 - y1;
       const len = Math.hypot(dx, dy);
@@ -49,13 +50,18 @@
         const t = (nextArrow - dist) / len;
         const cx = x1 + t * dx;
         const cy = y1 + t * dy;
+        const cz = z1 + t * (z2 - z1);
         const hx = sizeM * 0.5;
+        const left = [cx - ux * hx + nx * hw, cy - uy * hx + ny * hw];
+        const tip = [cx + ux * hx, cy + uy * hx];
+        const right = [cx - ux * hx - nx * hw, cy - uy * hx - ny * hw];
+        if (useZ) {
+          left.push(cz);
+          tip.push(cz);
+          right.push(cz);
+        }
         arrows.push({
-          path: [
-            [cx - ux * hx + nx * hw, cy - uy * hx + ny * hw],
-            [cx + ux * hx, cy + uy * hx],
-            [cx - ux * hx - nx * hw, cy - uy * hx - ny * hw],
-          ],
+          path: [left, tip, right],
         });
         nextArrow += spacingM;
       }
@@ -64,18 +70,28 @@
     return arrows;
   }
 
-  function getVehicleCorners(x, y, heading, length, width) {
+  function getVehicleCorners(x, y, heading, length, width, z = null) {
     const cos = Math.cos(heading);
     const sin = Math.sin(heading);
     const hl = length / 2;
     const hw = width / 2;
     const local = [[-hl, -hw], [hl, -hw], [hl, hw], [-hl, hw], [-hl, -hw]];
-    return local.map(([dx, dy]) => [dx * cos - dy * sin + x, dx * sin + dy * cos + y]);
+    return local.map(([dx, dy]) => {
+      const pt = [dx * cos - dy * sin + x, dx * sin + dy * cos + y];
+      if (Number.isFinite(z)) pt.push(z);
+      return pt;
+    });
   }
 
-  function getHeadingArrow(x, y, heading, length) {
+  function getHeadingArrow(x, y, heading, length, z = null) {
     const al = length * 0.6;
-    return [[x, y], [x + al * Math.cos(heading), y + al * Math.sin(heading)]];
+    const start = [x, y];
+    const end = [x + al * Math.cos(heading), y + al * Math.sin(heading)];
+    if (Number.isFinite(z)) {
+      start.push(z);
+      end.push(z);
+    }
+    return [start, end];
   }
 
   function sceneBounds(scenario) {
@@ -83,15 +99,49 @@
     let xmax = -Infinity;
     let ymin = Infinity;
     let ymax = -Infinity;
-    for (const road of scenario.road_map_elements) {
-      for (const [x, y] of road.xyz) {
-        if (x < xmin) xmin = x;
-        if (x > xmax) xmax = x;
-        if (y < ymin) ymin = y;
-        if (y > ymax) ymax = y;
+    let zmin = Infinity;
+    let zmax = -Infinity;
+    let hasPoint = false;
+    const addPoint = (pt) => {
+      if (pt == null || pt.length < 2) return;
+      const [x, y, z = 0] = pt;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      hasPoint = true;
+      if (x < xmin) xmin = x;
+      if (x > xmax) xmax = x;
+      if (y < ymin) ymin = y;
+      if (y > ymax) ymax = y;
+      if (Number.isFinite(z)) {
+        if (z < zmin) zmin = z;
+        if (z > zmax) zmax = z;
       }
+    };
+
+    for (const road of scenario.road_map_elements) {
+      for (const pt of road.xyz) addPoint(pt);
     }
-    return {xmin, xmax, ymin, ymax, cx: (xmin + xmax) / 2, cy: (ymin + ymax) / 2};
+    for (const tc of scenario.traffic_control_elements || []) {
+      for (const pt of tc.stop_line || []) addPoint(pt);
+    }
+
+    if (!hasPoint) {
+      return {xmin: 0, xmax: 0, ymin: 0, ymax: 0, zmin: 0, zmax: 0, cx: 0, cy: 0, cz: 0};
+    }
+    if (!Number.isFinite(zmin) || !Number.isFinite(zmax)) {
+      zmin = 0;
+      zmax = 0;
+    }
+    return {
+      xmin,
+      xmax,
+      ymin,
+      ymax,
+      zmin,
+      zmax,
+      cx: (xmin + xmax) / 2,
+      cy: (ymin + ymax) / 2,
+      cz: (zmin + zmax) / 2,
+    };
   }
 
   globalScope.VizHelpers = {

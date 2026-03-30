@@ -1,3 +1,70 @@
+"""Serialize a PufferScenario to PufferDrive binary format.
+
+Binary layout (all little-endian):
+
+  HEADER
+    int32 x4  — counts: [num_agents, num_road_elements, num_traffic_controls, num_objects]
+
+  AGENTS (repeated num_agents)
+    int32 x2          — agent_id, agent_type (AgentType enum)
+    DYNAMIC_STATES    — trajectory block (see below)
+    int_list          — lane route (ordered lane IDs the agent follows)
+    int32             — route_gt_len (number of leading route lanes supported by GT)
+    float32 x3        — goal position (x, y, z) from last valid frame
+    int32             — off_road flag (1 if no route assigned, else 0)
+
+  ROAD MAP ELEMENTS (repeated num_road_elements)
+    int32 x2          — element_id, road_type (LaneType/RoadLineType/RoadEdgeType/MiscRoadType)
+    int32             — num_points
+    float32[N] x3     — x, y, z columns (polyline for lines/edges, polygon for crosswalks)
+    float32[N]        — per-point heading (radians, from segment tangent)
+    if road_type is lane:
+      int_list        — entry_lane IDs (predecessors)
+      int_list        — exit_lane IDs (successors)
+      float32         — speed_limit_mps (-1 if unknown)
+
+  TRAFFIC CONTROLS (repeated num_traffic_controls)
+    int32 x2          — control_id, control_type (TCType enum)
+    float32 x3        — stop_line start point (x, y, z)
+    float32 x3        — stop_line end point (x, y, z)
+    float32           — heading (radians)
+    int_list          — per-frame states (TLState ints; empty for non-light controls)
+    int_list          — controlled_lane IDs
+
+  OBJECTS (repeated num_objects)
+    int32 x2          — object_id, object_type (ObjectType enum)
+    DYNAMIC_STATES    — trajectory block
+
+  LANE GRAPH
+    int32             — N (number of lanes in graph; 0 = no graph)
+    if N > 0:
+      int32[N]        — lane_ids
+      float32[N]      — lane_lengths
+      float32[N*N]    — pairwise distance matrix (row-major)
+
+  METADATA
+    char[128]         — scenario_id (utf-8, null-padded)
+    char[32]          — dataset name (utf-8, null-padded)
+    int32             — scenario_length (number of timesteps)
+    float32           — dt (seconds per timestep)
+    int_list          — objects_of_interest (currently empty)
+    int_list          — tracks_to_predict (currently empty)
+
+  Sub-structures:
+
+  DYNAMIC_STATES — per-track trajectory over T timesteps:
+    int32             — T (trajectory length)
+    float32[T] x3     — x, y, z position columns
+    float32[T]        — heading
+    float32[T] x2     — velocity_x, velocity_y
+    float32[T]        — length, width, height (per-frame bounding box)
+    int32[T]          — valid mask (1 = observed, 0 = missing)
+
+  int_list — length-prefixed int32 array:
+    int32             — N (count)
+    int32[N]          — values
+"""
+
 import struct
 
 import numpy as np
@@ -9,203 +76,134 @@ METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
 
 
-def _pack_int_list(buffer, items) -> None:
-    n = len(items)
-    buffer.extend(struct.pack("<i", n))
-    if n > 0:
-        buffer.extend(struct.pack(f"<{n}i", *[int(x) for x in items]))
+def scenario_to_binary(scenario):
+    """Serialize a PufferScenario into the PufferDrive .bin format. See module docstring for layout."""
+    buf = bytearray()
+    agents, road_map, tcs, objects = scenario.agents, scenario.map, scenario.traffic_controls, scenario.objects
 
+    # Header — road_count placeholder at offset 4, patched after filtering
+    buf.extend(struct.pack("<iiii", len(agents), 0, len(tcs), len(objects)))
 
-def _pack_dynamic_states(buffer, states):
-    xyz = np.asarray(states["xyz"], dtype=np.float32)
-    velocity = np.asarray(states["velocity"], dtype=np.float32)
-    heading = np.asarray(states["heading"], dtype=np.float32)
-    valid = np.asarray(states["valid"], dtype=np.int32)
-    width = np.asarray(states["width"], dtype=np.float32)
-    length = np.asarray(states["length"], dtype=np.float32)
-    height = np.asarray(states["height"], dtype=np.float32)
+    # Agents: id, type, trajectory, route, route_gt_len, goal, off_road flag
+    for eid, track in agents.items():
+        buf.extend(struct.pack("<ii", int(eid), int(track.type)))
 
-    trajectory_length = len(xyz)
-    buffer.extend(struct.pack("<i", trajectory_length))
-    for i in range(3):
-        buffer.extend(xyz[:, i].tobytes())
-    buffer.extend(heading.tobytes())
-    for i in range(2):
-        buffer.extend(velocity[:, i].tobytes())
-    buffer.extend(length.tobytes())
-    buffer.extend(width.tobytes())
-    buffer.extend(height.tobytes())
-    buffer.extend(valid.tobytes())
-    return xyz, valid
+        # Dynamic states
+        xyz = np.asarray(track.position, dtype=np.float32)
+        buf.extend(struct.pack("<i", len(xyz)))
+        for col in [
+            xyz[:, 0],
+            xyz[:, 1],
+            xyz[:, 2],
+            track.heading,
+            track.velocity[:, 0],
+            track.velocity[:, 1],
+            track.length,
+            track.width,
+            track.height,
+        ]:
+            buf.extend(np.asarray(col, dtype=np.float32).tobytes())
+        buf.extend(np.asarray(track.valid, dtype=np.int32).tobytes())
 
+        # Route
+        buf.extend(struct.pack("<i", len(track.route)))
+        if track.route:
+            buf.extend(struct.pack(f"<{len(track.route)}i", *map(int, track.route)))
+        buf.extend(struct.pack("<i", int(track.route_gt_len)))
 
-def _pack_fixed_string(buffer, value, size) -> None:
-    encoded = str(value).encode("utf-8")[:size]
-    buffer.extend(encoded.ljust(size, b"\0"))
+        # Goal position from last valid frame
+        valid_idx = np.where(np.asarray(track.valid) > 0)[0]
+        if len(valid_idx) > 0:
+            i = valid_idx[-1]
+            buf.extend(struct.pack("<fff", float(xyz[i, 0]), float(xyz[i, 1]), float(xyz[i, 2])))
+        else:
+            buf.extend(struct.pack("<fff", 0.0, 0.0, 0.0))
 
+        buf.extend(struct.pack("<i", 0 if track.route else 1))  # off_road flag
 
-def puffer_dict_to_binary(puffer_dict, map_id=0):
-    """Serialize a puffer dict to binary format."""
-    agents = puffer_dict["agents"]
-    road_map_elements = puffer_dict["road_map_elements"]
-    traffic_control_elements = puffer_dict["traffic_control_elements"]
-    objects = puffer_dict.get("objects", [])
-    metadata = puffer_dict["metadata"]
-
-    buffer = bytearray()
-    buffer.extend(
-        struct.pack("<iiii", len(agents), len(road_map_elements), len(traffic_control_elements), len(objects)),
-    )
-
-    for agent in agents:
-        buffer.extend(struct.pack("<ii", int(agent["id"]), int(agent["type"])))
-        xyz, valid = _pack_dynamic_states(buffer, agent["states"])
-        route = agent.get("route", [])
-        _pack_int_list(buffer, route)
-
-        goal_x = goal_y = goal_z = 0.0
-        if len(valid) > 0:
-            valid_indices = np.where(valid > 0)[0]
-            if len(valid_indices) > 0:
-                last_valid_idx = valid_indices[-1]
-                goal_x = float(xyz[last_valid_idx, 0])
-                goal_y = float(xyz[last_valid_idx, 1])
-                goal_z = float(xyz[last_valid_idx, 2])
-        buffer.extend(struct.pack("<fff", goal_x, goal_y, goal_z))
-        buffer.extend(struct.pack("<i", 0 if route else 1))
-
-    for road in road_map_elements:
-        road_type = int(road["type"])
-        buffer.extend(struct.pack("<ii", int(road["id"]), road_type))
-        xyz = np.asarray(road["xyz"], dtype=np.float32)
-        heading = np.asarray(road["heading"], dtype=np.float32)
-        buffer.extend(struct.pack("<i", len(xyz)))
-        for i in range(3):
-            buffer.extend(xyz[:, i].tobytes())
-        buffer.extend(heading.tobytes())
-        if puffer_types.is_road_lane(road_type):
-            _pack_int_list(buffer, road["entry_lanes"])
-            _pack_int_list(buffer, road["exit_lanes"])
-            buffer.extend(struct.pack("<f", road["speed_limit"]))
-
-    for element in traffic_control_elements:
-        buffer.extend(struct.pack("<ii", int(element["id"]), int(element["type"])))
-        stop_line = np.asarray(element["stop_line"], dtype=np.float32)
-        buffer.extend(struct.pack("<fff", float(stop_line[0, 0]), float(stop_line[0, 1]), float(stop_line[0, 2])))
-        buffer.extend(struct.pack("<fff", float(stop_line[1, 0]), float(stop_line[1, 1]), float(stop_line[1, 2])))
-        buffer.extend(struct.pack("<f", float(element["heading"])))
-        _pack_int_list(buffer, element["states"])
-        _pack_int_list(buffer, element["controlled_lanes"])
-
-    for obj in objects:
-        buffer.extend(struct.pack("<ii", int(obj["id"]), int(obj["type"])))
-        _pack_dynamic_states(buffer, obj["states"])
-
-    lane_graph = puffer_dict.get("lane_graph_distances")
-    if lane_graph:
-        n = len(lane_graph["lane_ids"])
-        buffer.extend(struct.pack("<i", n))
-        buffer.extend(struct.pack(f"<{n}i", *lane_graph["lane_ids"]))
-        buffer.extend(np.asarray(lane_graph["lane_lengths"], dtype=np.float32).tobytes())
-        buffer.extend(np.asarray(lane_graph["distances"], dtype=np.float32).tobytes())
-    else:
-        buffer.extend(struct.pack("<i", 0))
-
-    _pack_fixed_string(buffer, metadata["id"], METADATA_ID_BYTES)
-    buffer.extend(struct.pack("<i", int(map_id)))
-    _pack_fixed_string(buffer, metadata["dataset"], METADATA_DATASET_BYTES)
-    buffer.extend(struct.pack("<i", int(metadata["scenario_length"])))
-    buffer.extend(struct.pack("<f", float(metadata["dt"])))
-    _pack_int_list(buffer, metadata["objects_of_interest"])
-    _pack_int_list(buffer, metadata["tracks_to_predict"])
-
-    return bytes(buffer)
-
-
-def scenario_to_binary(scenario, map_id=0):
-    agents = _flatten_tracks(scenario.agents, include_route=True)
-    road_map_elements = _flatten_road_map(scenario.map)
-    traffic_control_elements = _flatten_traffic_controls(scenario.traffic_controls)
-    objects = _flatten_tracks(scenario.objects)
-
-    puffer_dict = {
-        "agents": agents,
-        "road_map_elements": road_map_elements,
-        "traffic_control_elements": traffic_control_elements,
-        "objects": objects,
-        "lane_graph_distances": scenario.lane_graph,
-        "metadata": {
-            "id": scenario.metadata.id,
-            "dataset": scenario.metadata.dataset,
-            "scenario_length": scenario.metadata.scenario_length,
-            "dt": scenario.metadata.dt,
-            "objects_of_interest": [],
-            "tracks_to_predict": [],
-        },
-    }
-    return puffer_dict_to_binary(puffer_dict, map_id=map_id)
-
-
-def _flatten_tracks(tracks, include_route=False):
-    return [
-        {
-            "id": eid,
-            "type": track.type,
-            "states": {k: getattr(track, k) for k in ("heading", "velocity", "length", "width", "height", "valid")}
-            | {"xyz": track.position},
-            **({"route": track.route} if include_route else {}),
-        }
-        for eid, track in tracks.items()
-    ]
-
-
-def _flatten_road_map(static_map):
-    elements = []
-    for eid, elem in static_map.items():
+    # Road map: id, type, geometry, heading; lanes get topology + speed limit
+    road_count = 0
+    for eid, elem in road_map.items():
         road_type = elem["type"]
-
-        if (
+        is_line = (
             puffer_types.is_road_lane(road_type)
             or puffer_types.is_road_line(road_type)
             or puffer_types.is_road_edge(road_type)
-        ):
-            xyz = elem.get("polyline")
-            if xyz is None or len(xyz) <= 1:
-                continue
-        else:
-            xyz = elem.get("polygon")
-            if xyz is None or len(xyz) <= 1:
-                continue
+        )
+        xyz = elem.get("polyline" if is_line else "polygon")
+        if xyz is None or len(xyz) <= 1:
+            continue
+        road_count += 1
 
-        heading = _compute_road_heading(xyz)
-        puffer_elem = {"id": eid, "type": road_type, "xyz": xyz, "heading": heading}
+        xyz_f = np.asarray(xyz, dtype=np.float32)
+        pts = np.asarray(xyz, dtype=np.float64)
+        seg = np.arctan2(np.diff(pts[:, 1]), np.diff(pts[:, 0]))
+        heading = np.append(seg, seg[-1]).astype(np.float32)
+
+        buf.extend(struct.pack("<ii", int(eid), int(road_type)))
+        buf.extend(struct.pack("<i", len(xyz_f)))
+        for col in [xyz_f[:, 0], xyz_f[:, 1], xyz_f[:, 2]]:
+            buf.extend(col.tobytes())
+        buf.extend(heading.tobytes())
 
         if puffer_types.is_road_lane(road_type):
-            puffer_elem["speed_limit"] = elem["speed_limit_mps"]
-            puffer_elem["entry_lanes"] = elem["entry_lanes"]
-            puffer_elem["exit_lanes"] = elem["exit_lanes"]
+            for lane_list in [elem["entry_lanes"], elem["exit_lanes"]]:
+                buf.extend(struct.pack("<i", len(lane_list)))
+                if lane_list:
+                    buf.extend(struct.pack(f"<{len(lane_list)}i", *map(int, lane_list)))
+            buf.extend(struct.pack("<f", elem["speed_limit_mps"]))
 
-        elements.append(puffer_elem)
+    struct.pack_into("<i", buf, 4, road_count)  # patch actual road count in header
 
-    return elements
+    # Traffic controls: id, type, stop line endpoints, heading, states, controlled lanes
+    for tc in tcs:
+        buf.extend(struct.pack("<ii", int(tc["id"]), int(tc["type"])))
+        sl = np.asarray(tc["stop_line"], dtype=np.float32)
+        buf.extend(struct.pack("<fff", *sl[0]))
+        buf.extend(struct.pack("<fff", *sl[1]))
+        buf.extend(struct.pack("<f", float(tc["heading"])))
+        for int_list in [tc["states"], tc["controlled_lanes"]]:
+            buf.extend(struct.pack("<i", len(int_list)))
+            if int_list:
+                buf.extend(struct.pack(f"<{len(int_list)}i", *map(int, int_list)))
 
+    # Objects: id, type, trajectory (same layout as agents but no route/goal)
+    for eid, track in objects.items():
+        buf.extend(struct.pack("<ii", int(eid), int(track.type)))
+        xyz = np.asarray(track.position, dtype=np.float32)
+        buf.extend(struct.pack("<i", len(xyz)))
+        for col in [
+            xyz[:, 0],
+            xyz[:, 1],
+            xyz[:, 2],
+            track.heading,
+            track.velocity[:, 0],
+            track.velocity[:, 1],
+            track.length,
+            track.width,
+            track.height,
+        ]:
+            buf.extend(np.asarray(col, dtype=np.float32).tobytes())
+        buf.extend(np.asarray(track.valid, dtype=np.int32).tobytes())
 
-def _compute_road_heading(xyz):
-    pts = np.asarray(xyz, dtype=np.float64)
-    diffs = np.diff(pts[:, :2], axis=0)
-    seg_headings = np.arctan2(diffs[:, 1], diffs[:, 0])
-    return np.append(seg_headings, seg_headings[-1]).astype(np.float32)
+    # Lane graph: pairwise distance matrix between lanes (Dijkstra-precomputed)
+    if lg := scenario.lane_graph:
+        n = len(lg["lane_ids"])
+        buf.extend(struct.pack("<i", n))
+        buf.extend(struct.pack(f"<{n}i", *lg["lane_ids"]))
+        buf.extend(np.asarray(lg["lane_lengths"], dtype=np.float32).tobytes())
+        buf.extend(np.asarray(lg["distances"], dtype=np.float32).tobytes())
+    else:
+        buf.extend(struct.pack("<i", 0))
 
+    # Metadata: scenario id, dataset, timing, prediction targets
+    buf.extend(str(scenario.metadata.id).encode("utf-8")[:METADATA_ID_BYTES].ljust(METADATA_ID_BYTES, b"\0"))
+    buf.extend(
+        str(scenario.metadata.dataset).encode("utf-8")[:METADATA_DATASET_BYTES].ljust(METADATA_DATASET_BYTES, b"\0")
+    )
+    buf.extend(struct.pack("<i", int(scenario.metadata.scenario_length)))
+    buf.extend(struct.pack("<f", float(scenario.metadata.dt)))
+    buf.extend(struct.pack("<i", 0))  # objects_of_interest (empty)
+    buf.extend(struct.pack("<i", 0))  # tracks_to_predict (empty)
 
-def _flatten_traffic_controls(traffic_controls):
-    return [
-        {
-            "id": tc["id"],
-            "type": tc["type"],
-            "stop_line": tc["stop_line"],
-            "heading": tc["heading"],
-            "states": np.array(tc["states"]),
-            "controlled_lanes": tc["controlled_lanes"],
-        }
-        for tc in traffic_controls
-    ]
+    return bytes(buf)

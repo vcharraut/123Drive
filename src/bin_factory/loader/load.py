@@ -22,7 +22,6 @@ def load_scenes(
     log_names: list[str] | None = None,
     scene_uuids: list[str] | None = None,
     duration_s: float | None = None,
-    history_s: float | None = 0.0,
     map_only: bool = False,
 ) -> list[Any]:
     """Load 123D scenarios from Arrow logs and/or maps.
@@ -36,7 +35,6 @@ def load_scenes(
         split_names: Optional list of split names (e.g. ["nuplan-mini_val"]).
         log_names: Optional list of log names to include.
         duration_s: Optional duration for scene extraction; None uses full log.
-        history_s: Optional history duration (seconds).
         map_only: If True, load map-only scenarios (no logs).
 
     Returns:
@@ -61,7 +59,6 @@ def load_scenes(
         log_names=log_names,
         scene_uuids=scene_uuids,
         future_duration_s=duration_s,
-        history_duration_s=history_s,
         max_num_scenes=num_scenes,
         required_scene_modalities=["box_detections_se3:any"],
     )
