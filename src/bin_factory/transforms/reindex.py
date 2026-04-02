@@ -1,7 +1,7 @@
 _MAP_LIST_REF_KEYS = ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor")
 
 
-def reindex_scenario_and_extras(scenario, extras) -> None:
+def reindex_scenario(scenario) -> None:
     map_id_map = {element_id: idx for idx, element_id in enumerate(scenario.map)}
 
     scenario.map = {
@@ -9,11 +9,11 @@ def reindex_scenario_and_extras(scenario, extras) -> None:
     }
     scenario.agents = {idx: _remap_track(track, map_id_map) for idx, (_, track) in enumerate(scenario.agents.items())}
     scenario.objects = {idx: _remap_track(track, map_id_map) for idx, (_, track) in enumerate(scenario.objects.items())}
-    extras["traffic_lights"] = {
-        map_id_map[element_id]: _remap_traffic_light(traffic_light, map_id_map)
-        for element_id, traffic_light in extras["traffic_lights"].items()
-    }
-    extras["stop_zones"] = [_remap_stop_zone(stop_zone, map_id_map) for stop_zone in extras["stop_zones"]]
+    scenario.traffic_controls = [_remap_traffic_control(tc, map_id_map) for tc in scenario.traffic_controls]
+    if scenario.lane_graph:
+        scenario.lane_graph["lane_ids"] = [
+            map_id_map[lid] for lid in scenario.lane_graph["lane_ids"] if lid in map_id_map
+        ]
 
 
 def _remap_map_element(element, map_id_map):
@@ -30,18 +30,8 @@ def _remap_track(track, map_id_map):
     return track
 
 
-def _remap_traffic_light(traffic_light, map_id_map):
-    if isinstance(traffic_light.controlled_lane, list):
-        traffic_light.controlled_lane = [
-            map_id_map[ref_id] for ref_id in traffic_light.controlled_lane if ref_id in map_id_map
-        ]
-    elif traffic_light.controlled_lane in map_id_map:
-        traffic_light.controlled_lane = map_id_map[traffic_light.controlled_lane]
-    return traffic_light
-
-
-def _remap_stop_zone(stop_zone, map_id_map):
+def _remap_traffic_control(tc, map_id_map):
     return {
-        **stop_zone,
-        "controlled_lanes": [map_id_map[ref_id] for ref_id in stop_zone["controlled_lanes"] if ref_id in map_id_map],
+        **tc,
+        "controlled_lanes": [map_id_map[lid] for lid in tc["controlled_lanes"] if lid in map_id_map],
     }

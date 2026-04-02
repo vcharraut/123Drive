@@ -108,7 +108,7 @@ Geometry + route flags:
 | `--area_threshold` | `0.1` | Polyline simplification threshold, `0` = off |
 | `--min_route_valid_points` | `0` | Min valid trajectory points for route computation |
 | `--route_check_timestep` | `0` | Timestep that must be valid for route computation |
-| `--reindex_id` | off | Reindex all element IDs to contiguous `range(0, n)` |
+| `--no_reindex` | off | Skip reindexing element IDs to contiguous `range(0, n)` |
 | `--impute_tl` | off | Impute traffic light states from vehicle trajectories |
 
 Validation levels:

@@ -17,7 +17,7 @@ class ConvertConfig(NamedTuple):
     area_threshold: float
     min_route_valid_points: int
     route_check_timestep: int
-    reindex_id: bool
+    no_reindex: bool
     impute_tl: bool
     validate_level: int
 
@@ -69,7 +69,9 @@ def build_parser():
         default=0,
         help="Timestep at which agent must be valid for route computation",
     )
-    parser.add_argument("--reindex_id", action="store_true", help="Reindex all element IDs to contiguous range(0, n)")
+    parser.add_argument(
+        "--no_reindex", action="store_true", help="Skip reindexing element IDs to contiguous range(0, n)"
+    )
     parser.add_argument(
         "--impute_tl",
         action="store_true",
@@ -130,14 +132,14 @@ def _convert_one(py123d_data, output_dir, config) -> None:
     transforms.rotate_body_to_global_velocity(scenario)  # body-frame → global (dataset-specific)
     if config.impute_tl:
         transforms.impute_traffic_lights(scenario, extras)  # Yan et al. 2025
-    if config.reindex_id:
-        transforms.reindex_scenario_and_extras(scenario, extras)
     transforms.process_polylines(scenario, config.max_segment_length, config.area_threshold)
     transforms.interpolate_all_polygons(scenario)
     transforms.reverse_road_edges(scenario)
     transforms.process_traffic_controls(scenario, extras)
     transforms.process_agent_routes(scenario, config.min_route_valid_points, config.route_check_timestep)
     scenario.lane_graph = transforms.build_lane_distance_matrix(scenario.map)
+    if not config.no_reindex:
+        transforms.reindex_scenario(scenario)
 
     # 4. Serialize to binary and save
     binary_data = serialize.scenario_to_binary(scenario)
@@ -238,7 +240,7 @@ def main() -> int:
         area_threshold=args.area_threshold,
         min_route_valid_points=args.min_route_valid_points,
         route_check_timestep=args.route_check_timestep,
-        reindex_id=args.reindex_id,
+        no_reindex=args.no_reindex,
         impute_tl=args.impute_tl,
         validate_level=args.validate_level,
     )
