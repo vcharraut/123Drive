@@ -7,7 +7,7 @@
  *              heading[T](f32), vx[T](f32), vy[T](f32),
  *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32),
  *              n_route(i32), route[n_route](i32), route_gt_len(i32),
- *              goal_x(f32), goal_y(f32), goal_z(f32), mark_as_expert(i32)
+ *              goal_x(f32), goal_y(f32), goal_z(f32)
  *   Roads[]:   id(i32), type(i32), S(i32),
  *              x[S](f32), y[S](f32), z[S](f32), heading[S](f32),
  *              [if lane (type 0-9): n_entry(i32), entry[](i32), n_exit(i32), exit[](i32), speed_limit(f32)]
@@ -107,7 +107,6 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       f32();
       f32();
       f32();
-      i32(); // mark_as_expert (unused in viz)
 
       agents[a] = {
         id, type,

@@ -11,7 +11,6 @@ Binary layout (all little-endian):
     int_list          — lane route (ordered lane IDs the agent follows)
     int32             — route_gt_len (number of leading route lanes supported by GT)
     float32 x3        — goal position (x, y, z) from last valid frame
-    int32             — off_road flag (1 if no route assigned, else 0)
 
   ROAD MAP ELEMENTS (repeated num_road_elements)
     int32 x2          — element_id, road_type (LaneType/RoadLineType/RoadEdgeType/MiscRoadType)
@@ -118,8 +117,6 @@ def scenario_to_binary(scenario):
             buf.extend(struct.pack("<fff", float(xyz[i, 0]), float(xyz[i, 1]), float(xyz[i, 2])))
         else:
             buf.extend(struct.pack("<fff", 0.0, 0.0, 0.0))
-
-        buf.extend(struct.pack("<i", 0 if track.route else 1))  # off_road flag
 
     # Road map: id, type, geometry, heading; lanes get topology + speed limit
     road_count = 0

@@ -47,7 +47,6 @@ def build_parser():
     parser.add_argument("--scene_uuids", nargs="+", help="Scene UUIDs to include (for debugging specific scenarios)")
     parser.add_argument("--duration_s", type=float, default=0.0, help="Duration of scenario in seconds")
     parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios (no logs)")
-    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing output files")
     parser.add_argument("--fail_fast", action="store_true", help="Stop on first error")
     parser.add_argument("--validate_level", type=int, choices=[0, 1, 2], default=1, help="0=off, 1=schema, 2=semantic")
     parser.add_argument("--max_segment_length", type=float, default=10.0, help="Max segment length for interpolation")
