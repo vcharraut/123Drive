@@ -42,9 +42,9 @@ class MiscRoadType(enum.IntEnum):
 
 class TLState(enum.IntEnum):
     UNKNOWN = 0
-    GREEN = 1
+    RED = 1
     YELLOW = 2
-    RED = 3
+    GREEN = 3
     OFF = 4
 
 
