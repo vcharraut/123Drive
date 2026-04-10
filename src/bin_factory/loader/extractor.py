@@ -64,7 +64,7 @@ def extract_scenario(
         if dt <= 0:
             raise ValueError(f"Invalid time step dt={dt} computed from scene metadata")
 
-        all_objects = _extract_objects(scene_api, centroid, ego_states, dt)
+        all_objects = _extract_objects(scene_api, centroid, ego_states)
         for oid, obj in all_objects.items():
             label = obj.type
             if label in mapping.AGENT_TYPE_MAP:
@@ -98,7 +98,6 @@ def _extract_objects(
     scene_api: py123d_api.SceneAPI,
     centroid: np.ndarray,
     ego_states: list[Any],
-    dt: float,
 ) -> dict[int, schema.Track]:
     """Extract dynamic objects from 123D box detections and ego state."""
     episode_length = scene_api.number_of_iterations
@@ -114,15 +113,8 @@ def _extract_objects(
 
         _write_detection_frame(ego, frame_idx, ego_state.center_se3, ego_state.bounding_box_se3, centroid)
 
-        if ego_state.dynamic_state_se3:
-            vel = ego_state.dynamic_state_se3.velocity_3d
-            ego.velocity[frame_idx] = [float(vel.x), float(vel.y)]
-        # Fallback to finite difference
-        elif frame_idx > 0 and ego.valid[frame_idx - 1]:
-            delta_pos = ego.position[frame_idx, :2] - ego.position[frame_idx - 1, :2]
-            ego.velocity[frame_idx] = delta_pos / dt
-        else:
-            continue
+        vel = ego_state.dynamic_state_se3.velocity_3d
+        ego.velocity[frame_idx] = [float(vel.x), float(vel.y)]
 
     # Detections for all other agents
     next_object_id = 0
