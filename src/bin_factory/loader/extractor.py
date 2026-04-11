@@ -113,8 +113,17 @@ def _extract_objects(
 
         _write_detection_frame(ego, frame_idx, ego_state.center_se3, ego_state.bounding_box_se3, centroid)
 
-        vel = ego_state.dynamic_state_se3.velocity_3d
-        ego.velocity[frame_idx] = [float(vel.x), float(vel.y)]
+        if ego_dynamic_state := ego_state.dynamic_state_se3:
+            ego.velocity[frame_idx] = [float(ego_dynamic_state.velocity_3d.x), float(ego_dynamic_state.velocity_3d.y)]
+        else:
+            # Fallback: finite difference of positions
+            if frame_idx == 0:
+                ego.velocity[frame_idx] = [np.nan, np.nan]
+            else:
+                ego.velocity[frame_idx] = ego.position[frame_idx][:2] - ego.position[frame_idx - 1][:2]
+
+    if np.isnan(ego.velocity[0, 0]):
+        ego.velocity[0] = ego.velocity[1]  # If first frame velocity is NaN, copy from second frame
 
     # Detections for all other agents
     next_object_id = 0
@@ -142,14 +151,6 @@ def _extract_objects(
                 continue
 
             obj.velocity[frame_idx] = [float(detection.velocity_3d.x), float(detection.velocity_3d.y)]
-
-    # Backfill first valid frame velocity from next valid frame (no delta available at frame 0)
-    for obj in objects.values():
-        first_valid = np.argmax(obj.valid)
-        if obj.valid[first_valid] and np.all(obj.velocity[first_valid] == 0) and first_valid + 1 < episode_length:
-            next_valid = first_valid + 1 + np.argmax(obj.valid[first_valid + 1 :])
-            if obj.valid[next_valid] and np.any(obj.velocity[next_valid] != 0):
-                obj.velocity[first_valid] = obj.velocity[next_valid]
 
     return objects
 
