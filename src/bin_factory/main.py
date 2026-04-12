@@ -134,6 +134,7 @@ def _convert_one(py123d_data, output_dir, config) -> None:
     transforms.process_polylines(scenario, config.max_segment_length, config.area_threshold)
     transforms.interpolate_all_polygons(scenario)
     transforms.reverse_road_edges(scenario)
+    transforms.prune_invalid_map_elements(scenario, extras)
     transforms.process_traffic_controls(scenario, extras)
     transforms.process_agent_routes(scenario, config.min_route_valid_points, config.route_check_timestep)
     scenario.lane_graph = transforms.build_lane_distance_matrix(scenario.map)
