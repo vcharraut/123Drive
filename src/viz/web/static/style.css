@@ -545,6 +545,25 @@ details summary:hover { color: var(--accent); }
   transition: color .1s, background .1s;
 }
 .pbtn:hover { color: var(--accent); background: var(--accent-bg); }
+.pbtn.active { color: var(--red); background: rgba(248, 81, 73, .12); }
+.pbtn:disabled {
+  cursor: not-allowed;
+  color: var(--text-4);
+  background: transparent;
+}
+.pbtn:disabled:hover {
+  color: var(--text-4);
+  background: transparent;
+}
+
+#btn-rec {
+  min-width: 42px;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: .05em;
+}
 
 #timeline {
   flex: 1;

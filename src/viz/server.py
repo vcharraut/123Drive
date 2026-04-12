@@ -1,14 +1,19 @@
 """FastAPI server for Puffer visualization."""
 
 import argparse
+import asyncio
+import re
+import shutil
+import tempfile
 from pathlib import Path
 
 
 try:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, Request
     from fastapi.middleware.gzip import GZipMiddleware
     from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
+    from starlette.background import BackgroundTask
     from starlette.middleware.base import BaseHTTPMiddleware
 except ImportError as exc:  # pragma: no cover - import guard
     raise SystemExit("Install viz dependencies first: uv sync --extra viz") from exc
@@ -47,6 +52,22 @@ def _resolve_scenario_path(filename: str) -> Path:
     return path
 
 
+def _input_suffix(content_type: str) -> str:
+    lowered = content_type.lower()
+    if "mp4" in lowered:
+        return ".mp4"
+    if "webm" in lowered:
+        return ".webm"
+    return ".dat"
+
+
+def _sanitize_export_name(name: str) -> str:
+    collapsed = re.sub(r"[\\/]+", "__", name)
+    stem = re.sub(r"\.(bin|mp4)$", "", collapsed, flags=re.IGNORECASE)
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", stem).strip("._")
+    return f"{safe or 'scenario'}.mp4"
+
+
 @app.get("/api/types")
 def get_types():
     return as_json_dict()
@@ -65,6 +86,59 @@ def get_scenario(filename: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="Scenario not found")
     return FileResponse(path, media_type="application/octet-stream")
+
+
+@app.post("/api/export/mp4")
+async def export_mp4(request: Request, name: str = "scenario"):
+    if shutil.which("ffmpeg") is None:
+        raise HTTPException(status_code=500, detail="ffmpeg is not available on the server")
+
+    payload = await request.body()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Missing recording payload")
+
+    tempdir = Path(tempfile.mkdtemp(prefix="viz-export-"))
+    input_path = tempdir / f"input{_input_suffix(request.headers.get('content-type', ''))}"
+    output_path = tempdir / "output.mp4"
+    input_path.write_bytes(payload)
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(input_path),
+        "-vf",
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "slow",
+        "-crf",
+        "18",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(output_path),
+    ]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0 or not output_path.exists():
+        shutil.rmtree(tempdir, ignore_errors=True)
+        detail = stderr.decode(errors="replace").strip() or "ffmpeg export failed"
+        raise HTTPException(status_code=500, detail=detail)
+
+    return FileResponse(
+        output_path,
+        media_type="video/mp4",
+        filename=_sanitize_export_name(name),
+        background=BackgroundTask(shutil.rmtree, tempdir, ignore_errors=True),
+    )
 
 
 def main() -> None:
