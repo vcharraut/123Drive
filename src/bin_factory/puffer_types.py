@@ -8,6 +8,12 @@ class AgentType(enum.IntEnum):
     CYCLIST = 3
 
 
+class ControlState(enum.IntEnum):
+    CONTROLLABLE = 0
+    NON_CONTROLLABLE_MOVING = 1
+    NON_CONTROLLABLE_STATIC = 2
+
+
 class LaneType(enum.IntEnum):
     UNKNOWN = 0
     FREEWAY = 1
@@ -64,6 +70,7 @@ class ObjectType(enum.IntEnum):
 
 # Derived name dicts (int -> str)
 AGENT_TYPE_NAMES = {t.value: t.name.lower() for t in AgentType}
+CONTROL_STATE_NAMES = {t.value: t.name.lower() for t in ControlState}
 ROAD_TYPE_NAMES = {
     t.value: t.name.lower() for enum_cls in [LaneType, RoadLineType, RoadEdgeType, MiscRoadType] for t in enum_cls
 }

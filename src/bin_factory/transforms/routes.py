@@ -60,6 +60,7 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
         if not is_vehicle:
             agent_data.route = []
             agent_data.route_gt_len = 0
+            agent_data.control_state = _compute_control_state(agent_data)
             continue
 
         route, route_gt_len = compute_agent_route(
@@ -78,6 +79,7 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
             raise ValueError(f"Route computation failed for ego vehicle (agent 0) in scenario {scenario.metadata.id}")
         agent_data.route = route
         agent_data.route_gt_len = route_gt_len
+        agent_data.control_state = _compute_control_state(agent_data)
 
 
 def _extract_lane_centers(static_map_elements):
@@ -562,7 +564,7 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) 
     width = agent_context["widths"][route_check_timestep]
     trajectory = agent_context["trajectory"]
 
-    displacement = np.sum(np.linalg.norm(np.diff(trajectory, axis=0), axis=1)) if len(trajectory) >= 2 else 0.0
+    displacement = _compute_trajectory_displacement(trajectory)
     distance_threshold = (
         OFFROAD_DISTANCE_THRESHOLD if displacement > MOVEMENT_THRESHOLD else STATIONARY_OFFROAD_DISTANCE_THRESHOLD
     )
@@ -595,6 +597,25 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) 
             return True
 
     return False
+
+
+def _compute_control_state(agent_data):
+    if agent_data.route:
+        return int(puffer_types.ControlState.CONTROLLABLE)
+    if _compute_trajectory_displacement(_valid_trajectory(agent_data.position, agent_data.valid)) > MOVEMENT_THRESHOLD:
+        return int(puffer_types.ControlState.NON_CONTROLLABLE_MOVING)
+    return int(puffer_types.ControlState.NON_CONTROLLABLE_STATIC)
+
+
+def _valid_trajectory(positions, valid):
+    positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
+    return positions_2d[np.asarray(valid, dtype=bool)]
+
+
+def _compute_trajectory_displacement(trajectory):
+    if len(trajectory) < 2:
+        return 0.0
+    return float(np.sum(np.linalg.norm(np.diff(trajectory, axis=0), axis=1)))
 
 
 def _points_to_polylines_distance(
