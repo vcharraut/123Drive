@@ -50,8 +50,7 @@ Basic use:
 uv run convert --py123d_path /path/to/123d --output ./output
 ```
 
-Output files are named from dataset + scenario identity (for example `nuplan__<scenario>.bin`). Existing files are not overwritten unless you pass `--overwrite`.
-
+Output files are named from dataset + scenario identity (for example `nuplan__<scenario>.bin`).
 Mental model:
 
 ```text
@@ -82,7 +81,6 @@ Core flags:
 |------|---------|-------------|
 | `--py123d_path` | `PY123D_DATA_ROOT` or required | Path to 123D dataset with `logs/` and `maps/` |
 | `--output` | `./output` | Directory for `.bin` files |
-| `--overwrite` | off | Replace existing output files |
 | `--workers` | `1` | Parallel workers |
 | `--validate_level` | `1` | Validation strictness |
 | `--fail_fast` | off | Stop on first error |
@@ -108,7 +106,7 @@ Geometry + route flags:
 | `--area_threshold` | `0.1` | Polyline simplification threshold, `0` = off |
 | `--min_route_valid_points` | `0` | Min valid trajectory points for route computation |
 | `--route_check_timestep` | `0` | Timestep that must be valid for route computation |
-| `--reindex_id` | off | Reindex all element IDs to contiguous `range(0, n)` |
+| `--no_reindex` | off | Skip reindexing element IDs to contiguous `range(0, n)` |
 | `--impute_tl` | off | Impute traffic light states from vehicle trajectories |
 
 Validation levels:

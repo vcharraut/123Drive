@@ -11,7 +11,7 @@ Binary layout (all little-endian):
     int_list          — lane route (ordered lane IDs the agent follows)
     int32             — route_gt_len (number of leading route lanes supported by GT)
     float32 x3        — goal position (x, y, z) from last valid frame
-    int32             — off_road flag (1 if no route assigned, else 0)
+    int32             — control_state (0=controllable, 1=background_moving, 2=background_static)
 
   ROAD MAP ELEMENTS (repeated num_road_elements)
     int32 x2          — element_id, road_type (LaneType/RoadLineType/RoadEdgeType/MiscRoadType)
@@ -84,7 +84,7 @@ def scenario_to_binary(scenario):
     # Header — road_count placeholder at offset 4, patched after filtering
     buf.extend(struct.pack("<iiii", len(agents), 0, len(tcs), len(objects)))
 
-    # Agents: id, type, trajectory, route, route_gt_len, goal, off_road flag
+    # Agents: id, type, trajectory, route, route_gt_len, goal, control_state
     for eid, track in agents.items():
         buf.extend(struct.pack("<ii", int(eid), int(track.type)))
 
@@ -118,8 +118,7 @@ def scenario_to_binary(scenario):
             buf.extend(struct.pack("<fff", float(xyz[i, 0]), float(xyz[i, 1]), float(xyz[i, 2])))
         else:
             buf.extend(struct.pack("<fff", 0.0, 0.0, 0.0))
-
-        buf.extend(struct.pack("<i", 0 if track.route else 1))  # off_road flag
+        buf.extend(struct.pack("<i", int(track.control_state)))
 
     # Road map: id, type, geometry, heading; lanes get topology + speed limit
     road_count = 0

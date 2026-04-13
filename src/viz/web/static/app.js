@@ -107,6 +107,14 @@ function getTlStateColorRgb(state) {
 
 
 const SPEED_MS = {0.5: 200, 1: 100, 2: 50, 4: 25};
+const RECORDING_FPS = 30;
+const RECORDING_GRID_STEP = 24;
+const RECORDING_VIDEO_BITS_PER_SECOND = 16_000_000;
+const RECORDING_MIME_TYPES = [
+  'video/webm;codecs=vp9',
+  'video/webm;codecs=vp8',
+  'video/webm',
+];
 
 const EMPTY_DETAIL_HTML = '<span class="empty-state">Click an element to inspect.</span>';
 
@@ -133,6 +141,23 @@ const state = {
   playTimer: null,
   viewState: {target: [0, 0, 0], zoom: 0, rotationX: 0, rotationOrbit: 0},
   suppressNextCanvasClick: false,
+  scenarioFilename: null,
+  recording: {
+    status: 'idle',
+    recorder: null,
+    chunks: [],
+    mimeType: '',
+    canvas: null,
+    ctx: null,
+    stream: null,
+    tickId: null,
+    widthCss: 0,
+    heightCss: 0,
+    exportName: null,
+    capturePending: false,
+    cachedBgColor: '#080C12',
+    cachedGridColor: 'rgba(242,113,141,.04)',
+  },
 };
 
 const dragState = {
@@ -147,6 +172,277 @@ const dragState = {
 };
 
 const DRAG_THRESHOLD_PX = 4;
+
+// ── Recording helpers ──────────────────────────────────────────────────────
+
+function getDeckCanvas() {
+  return deckContainer.querySelector('canvas');
+}
+
+function supportsRecording() {
+  return typeof window.MediaRecorder !== 'undefined';
+}
+
+function isRecording() {
+  return state.recording.status === 'recording';
+}
+
+function isRecordingBusy() {
+  return state.recording.status !== 'idle';
+}
+
+function getScenarioExportName(filename) {
+  const base = String(filename || 'scenario')
+    .replace(/\.[^.]+$/, '')
+    .replace(/[\\/]+/g, '__')
+    .replace(/[^A-Za-z0-9._-]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return base || 'scenario';
+}
+
+function getRecordingLabel() {
+  if (state.recording.status === 'recording') return 'STOP';
+  if (state.recording.status === 'encoding') return 'ENC';
+  return 'REC';
+}
+
+function getRecordingTitle() {
+  if (!supportsRecording()) return 'Recording unsupported in this browser';
+  if (!state.scenario) return 'Load a scenario to record';
+  if (state.recording.status === 'recording') return 'Stop recording and export mp4';
+  if (state.recording.status === 'encoding') return 'Encoding mp4';
+  return 'Start mp4 recording';
+}
+
+function updateRecordingUi() {
+  if (!btnRec) return;
+  btnRec.textContent = getRecordingLabel();
+  btnRec.title = getRecordingTitle();
+  btnRec.disabled = !supportsRecording() || !state.scenario || state.recording.status === 'encoding';
+  btnRec.classList.toggle('active', state.recording.status === 'recording');
+}
+
+function resetRecordingRuntime() {
+  if (state.recording.tickId) clearInterval(state.recording.tickId);
+  if (state.recording.stream) {
+    state.recording.stream.getTracks().forEach(track => track.stop());
+  }
+  state.recording.recorder = null;
+  state.recording.canvas = null;
+  state.recording.ctx = null;
+  state.recording.stream = null;
+  state.recording.tickId = null;
+  state.recording.widthCss = 0;
+  state.recording.heightCss = 0;
+  state.recording.capturePending = false;
+}
+
+function resetRecordingState() {
+  resetRecordingRuntime();
+  state.recording.status = 'idle';
+  state.recording.chunks = [];
+  state.recording.mimeType = '';
+  state.recording.exportName = null;
+  updateRecordingUi();
+}
+
+function pickRecordingMimeType() {
+  if (typeof window.MediaRecorder.isTypeSupported !== 'function') return '';
+  const pick = RECORDING_MIME_TYPES.find(type => window.MediaRecorder.isTypeSupported(type));
+  return pick || '';
+}
+
+function resizeRecordingCanvas() {
+  const rect = canvasContainer.getBoundingClientRect();
+  const widthCss = Math.max(Math.round(rect.width), 1);
+  const heightCss = Math.max(Math.round(rect.height), 1);
+  if (
+    state.recording.widthCss === widthCss &&
+    state.recording.heightCss === heightCss &&
+    state.recording.canvas
+  ) return;
+
+  const dpr = Math.max(window.devicePixelRatio || 1, 1);
+  const canvas = state.recording.canvas;
+  canvas.width = Math.max(Math.round(widthCss * dpr), 1);
+  canvas.height = Math.max(Math.round(heightCss * dpr), 1);
+  const ctx = state.recording.ctx;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  state.recording.widthCss = widthCss;
+  state.recording.heightCss = heightCss;
+}
+
+function drawRecordingGrid(ctx, width, height) {
+  ctx.strokeStyle = state.recording.cachedGridColor;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 0; x <= width; x += RECORDING_GRID_STEP) {
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, height);
+  }
+  for (let y = 0; y <= height; y += RECORDING_GRID_STEP) {
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(width, y + 0.5);
+  }
+  ctx.stroke();
+}
+
+function drawRecordingFrame() {
+  if (!isRecording()) return;
+  resizeRecordingCanvas();
+  const deckCanvas = getDeckCanvas();
+  if (!deckCanvas) return;
+
+  const ctx = state.recording.ctx;
+  const width = state.recording.widthCss;
+  const height = state.recording.heightCss;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = state.recording.cachedBgColor;
+  ctx.fillRect(0, 0, width, height);
+  drawRecordingGrid(ctx, width, height);
+  ctx.drawImage(deckCanvas, 0, 0, width, height);
+}
+
+function requestRecordingFrame() {
+  if (!isRecording()) return;
+  state.recording.capturePending = true;
+  deckgl.redraw(true);
+}
+
+function handleAfterRender() {
+  if (!isRecording() || !state.recording.capturePending) return;
+  state.recording.capturePending = false;
+  drawRecordingFrame();
+}
+
+function triggerRecordingDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+async function uploadRecording(blob, exportName) {
+  const resp = await fetch(`/api/export/mp4?name=${encodeURIComponent(exportName)}`, {
+    method: 'POST',
+    headers: {'Content-Type': blob.type || 'application/octet-stream'},
+    body: blob,
+  });
+  if (!resp.ok) {
+    let detail = `HTTP ${resp.status}`;
+    try {
+      const payload = await resp.json();
+      detail = payload.detail || detail;
+    } catch (_) {
+      const text = await resp.text();
+      if (text) detail = text;
+    }
+    throw new Error(detail);
+  }
+  return await resp.blob();
+}
+
+async function startRecording() {
+  if (isRecordingBusy() || !state.scenario || !supportsRecording()) return;
+  const deckCanvas = getDeckCanvas();
+  if (!deckCanvas) {
+    setAppStatus('Deck canvas unavailable for recording', 'error');
+    return;
+  }
+
+  const mimeType = pickRecordingMimeType();
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    setAppStatus('2D canvas unavailable for recording', 'error');
+    return;
+  }
+
+  state.recording.status = 'recording';
+  state.recording.recorder = null;
+  state.recording.chunks = [];
+  state.recording.mimeType = mimeType;
+  state.recording.canvas = canvas;
+  state.recording.ctx = ctx;
+  state.recording.exportName = getScenarioExportName(state.scenarioFilename);
+  const bodyStyles = getComputedStyle(document.body);
+  const containerStyles = getComputedStyle(canvasContainer);
+  state.recording.cachedGridColor = bodyStyles.getPropertyValue('--grid-color').trim() || 'rgba(242,113,141,.04)';
+  state.recording.cachedBgColor = containerStyles.backgroundColor || '#080C12';
+  resizeRecordingCanvas();
+  try {
+    const stream = canvas.captureStream(RECORDING_FPS);
+    state.recording.stream = stream;
+    const [videoTrack] = stream.getVideoTracks();
+    if (videoTrack && 'contentHint' in videoTrack) videoTrack.contentHint = 'detail';
+    const recorderOptions = mimeType
+      ? {mimeType, videoBitsPerSecond: RECORDING_VIDEO_BITS_PER_SECOND}
+      : {videoBitsPerSecond: RECORDING_VIDEO_BITS_PER_SECOND};
+    const recorder = new MediaRecorder(stream, recorderOptions);
+    recorder.addEventListener('dataavailable', event => {
+      if (event.data && event.data.size > 0) state.recording.chunks.push(event.data);
+    });
+    state.recording.recorder = recorder;
+    recorder.start();
+    state.recording.tickId = setInterval(requestRecordingFrame, 1000 / RECORDING_FPS);
+    requestRecordingFrame();
+
+    updateRecordingUi();
+    setAppStatus(`Recording ${state.recording.exportName}.mp4`, 'info');
+  } catch (err) {
+    resetRecordingState();
+    setAppStatus(`Recording failed: ${String(err?.message || err)}`, 'error');
+  }
+}
+
+async function stopRecording(statusMessage = 'Encoding mp4…') {
+  if (!isRecording()) return;
+  const recorder = state.recording.recorder;
+  if (!recorder) {
+    resetRecordingState();
+    setAppStatus('Recording failed: recorder unavailable', 'error');
+    return;
+  }
+  const exportName = state.recording.exportName;
+  const stopped = new Promise((resolve, reject) => {
+    recorder.addEventListener('stop', resolve, {once: true});
+    recorder.addEventListener('error', event => reject(event.error || new Error('Recording failed')), {once: true});
+  });
+
+  try {
+    if (state.recording.tickId) clearInterval(state.recording.tickId);
+    state.recording.tickId = null;
+    requestRecordingFrame();
+    recorder.stop();
+    await stopped;
+    state.recording.status = 'encoding';
+    updateRecordingUi();
+    setAppStatus(statusMessage, 'info');
+
+    const blob = new Blob(state.recording.chunks, {type: state.recording.mimeType || 'video/webm'});
+    if (!blob.size) throw new Error('Recording is empty');
+    resetRecordingRuntime();
+    const mp4 = await uploadRecording(blob, exportName);
+    triggerRecordingDownload(mp4, `${exportName}.mp4`);
+    resetRecordingState();
+    setAppStatus(`Saved ${exportName}.mp4`, 'ok');
+  } catch (err) {
+    resetRecordingState();
+    setAppStatus(`Recording failed: ${String(err?.message || err)}`, 'error');
+  }
+}
+
+async function toggleRecording() {
+  if (state.recording.status === 'recording') {
+    await stopRecording();
+    return;
+  }
+  if (state.recording.status === 'idle') {
+    await startRecording();
+  }
+}
 
 // ── Geometry helpers ───────────────────────────────────────────────────────
 
@@ -349,7 +645,9 @@ function getAgentRouteSegments(agent, roadMap) {
 
 // ── deck.gl setup ──────────────────────────────────────────────────────────
 
+const canvasContainer = document.getElementById('canvas-container');
 const deckContainer = document.getElementById('deckgl-canvas');
+const btnRec = document.getElementById('btn-rec');
 
 const CONTROLLER_2D = {
   scrollZoom: { smooth: false, speed: SCROLL_ZOOM_SPEED },
@@ -601,6 +899,7 @@ const deckgl = new DeckGL({
   views: [new OrthographicView({id:'main'})],
   viewState: state.viewState,
   controller: CONTROLLER_2D,
+  glOptions: {preserveDrawingBuffer: true},
   getCursor: ({isDragging}) => dragState.mode ? 'grabbing' : (state.viewMode === '3d' ? 'grab' : (isDragging ? 'grabbing' : 'crosshair')),
   pickingRadius: 8,
   layers: [],
@@ -624,6 +923,7 @@ const deckgl = new DeckGL({
     }
     updateZoomDisplay(viewState.zoom);
   },
+  onAfterRender: handleAfterRender,
   onClick: handleCanvasClick,
 });
 
@@ -1526,6 +1826,10 @@ async function loadScenario(filename) {
   document.getElementById('scenario-title').textContent = `Loading ${filename}…`;
   setAppStatus(`Loading ${filename}…`, 'info');
   try {
+    if (isRecording()) {
+      await stopRecording('Finalizing recording before loading scenario…');
+    }
+    stopPlay();
     reset3DDrag();
     const resp = await fetch(`/api/scenario/${filename.split('/').map(encodeURIComponent).join('/')}`);
     if (!resp.ok) {
@@ -1533,6 +1837,7 @@ async function loadScenario(filename) {
     }
     const data = parsePufferBinary(await resp.arrayBuffer());
     state.scenario = data;
+    state.scenarioFilename = filename;
     state.timestep = 0;
     state.selected = null;
     state.pathFinder = { active: false, source: null, dest: null, path: null, distance: null };
@@ -1548,6 +1853,7 @@ async function loadScenario(filename) {
     renderScenarioMeta(data);
     document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
     setAppStatus(`Loaded ${filename}`, 'ok');
+    updateRecordingUi();
 
     fitView();
     // Center on Ego if available
@@ -1560,12 +1866,14 @@ async function loadScenario(filename) {
   } catch (err) {
     const errMsg = String(err?.message || err);
     state.scenario = null;
+    state.scenarioFilename = null;
     state.selected = null;
     stopPlay();
     document.getElementById('scenario-title').textContent = `Failed to load ${filename}`;
     document.getElementById('scenario-meta').innerHTML = '<span class="empty-state">Failed to load scenario. Select another file and retry.</span>';
     document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
     setAppStatus(`Failed to load ${filename}: ${errMsg}`, 'error');
+    updateRecordingUi();
   }
 }
 
@@ -1695,6 +2003,7 @@ function startPlay() {
     const next = state.timestep + 1;
     if (next >= state.scenario.metadata.scenario_length) {
       stopPlay();
+      if (isRecording()) void stopRecording('Reached final timestep, encoding mp4…');
       return;
     }
     setTimestep(next);
@@ -1852,6 +2161,7 @@ document.getElementById('btn-next-last').addEventListener('click', () => {
   stopPlay();
   if (state.scenario) setTimestep(state.scenario.metadata.scenario_length - 1);
 });
+btnRec.addEventListener('click', () => { void toggleRecording(); });
 
 document.getElementById('timeline').addEventListener('input', e => {
   stopPlay();
@@ -1942,6 +2252,13 @@ document.getElementById('btn-theme').addEventListener('click', () => {
   setTheme(getTheme() === 'dark' ? 'light' : 'dark');
 });
 setTheme(savedTheme);
+updateRecordingUi();
+
+window.addEventListener('beforeunload', event => {
+  if (!isRecordingBusy()) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
 
 // ── Init ───────────────────────────────────────────────────────────────────
 

@@ -36,7 +36,7 @@ Each agent is laid out sequentially:
 | float32 | `goal_x` | Last valid x position |
 | float32 | `goal_y` | Last valid y position |
 | float32 | `goal_z` | Last valid z position |
-| int32 | `mark_as_expert` | 0 if route exists, 1 otherwise |
+| int32 | `control_state` | `0=controllable`, `1=non_controllable_moving`, `2=non_controllable_static` |
 
 ## Road Map Elements (× n_road_elements)
 
@@ -84,7 +84,7 @@ Each agent is laid out sequentially:
 
 ## Objects (× n_objects)
 
-Same dynamic state layout as agents, without route/goal/mark_as_expert:
+Same dynamic state layout as agents, without route/goal:
 
 | Type | Field | Notes |
 |------|-------|-------|

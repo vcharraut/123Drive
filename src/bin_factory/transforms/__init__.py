@@ -1,7 +1,8 @@
 from .geometry import interpolate_all_polygons, process_polylines, reverse_road_edges, rotate_body_to_global_velocity
 from .graph import build_lane_distance_matrix
-from .reindex import reindex_scenario_and_extras
+from .reindex import reindex_scenario
 from .routes import process_agent_routes
+from .sanitize import prune_invalid_map_elements
 from .traffic_controls import process_traffic_controls
 from .traffic_lights_imputation import impute_traffic_lights
 
@@ -13,7 +14,8 @@ __all__ = [
     "process_agent_routes",
     "process_polylines",
     "process_traffic_controls",
-    "reindex_scenario_and_extras",
+    "prune_invalid_map_elements",
+    "reindex_scenario",
     "reverse_road_edges",
     "rotate_body_to_global_velocity",
 ]
