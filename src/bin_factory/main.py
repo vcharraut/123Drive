@@ -128,12 +128,10 @@ def _convert_one(py123d_data, output_dir, config) -> None:
             raise loader.ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
     # 3. Process scenario
-    transforms.rotate_body_to_global_velocity(scenario)  # body-frame → global (dataset-specific)
     if config.impute_tl:
         transforms.impute_traffic_lights(scenario, extras)  # Yan et al. 2025
     transforms.process_polylines(scenario, config.max_segment_length, config.area_threshold)
     transforms.interpolate_all_polygons(scenario)
-    transforms.reverse_road_edges(scenario)
     transforms.prune_invalid_map_elements(scenario, extras)
     transforms.process_traffic_controls(scenario, extras)
     transforms.process_agent_routes(scenario, config.min_route_valid_points, config.route_check_timestep)

@@ -1,4 +1,4 @@
-from .geometry import interpolate_all_polygons, process_polylines, reverse_road_edges, rotate_body_to_global_velocity
+from .geometry import interpolate_all_polygons, process_polylines
 from .graph import build_lane_distance_matrix
 from .reindex import reindex_scenario
 from .routes import process_agent_routes
@@ -16,6 +16,4 @@ __all__ = [
     "process_traffic_controls",
     "prune_invalid_map_elements",
     "reindex_scenario",
-    "reverse_road_edges",
-    "rotate_body_to_global_velocity",
 ]

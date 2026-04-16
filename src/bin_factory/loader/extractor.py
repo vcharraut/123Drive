@@ -113,14 +113,10 @@ def _extract_objects(
 
         _write_detection_frame(ego, frame_idx, ego_state.center_se3, ego_state.bounding_box_se3, centroid)
 
-        if ego_dynamic_state := ego_state.dynamic_state_se3:
-            ego.velocity[frame_idx] = [float(ego_dynamic_state.velocity_3d.x), float(ego_dynamic_state.velocity_3d.y)]
-        else:
-            # Fallback: finite difference of positions
-            if frame_idx == 0:
-                ego.velocity[frame_idx] = [np.nan, np.nan]
-            else:
-                ego.velocity[frame_idx] = ego.position[frame_idx][:2] - ego.position[frame_idx - 1][:2]
+        ego.velocity[frame_idx] = [
+            float(ego_state.box_detection_se3.velocity_2d.x),
+            float(ego_state.box_detection_se3.velocity_2d.y),
+        ]
 
     if np.isnan(ego.velocity[0, 0]):
         ego.velocity[0] = ego.velocity[1]  # If first frame velocity is NaN, copy from second frame
