@@ -33,10 +33,10 @@ def build_parser():
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
+        default=0,
         help=(
             "Number of parallel workers - "
-            "0: 80%% of CPU cores, 1: no parallelism, -1: all CPU cores, 2-n: use n CPU cores"
+            "0: 80%% of CPU cores (default), 1: no parallelism, -1: all CPU cores, 2-n: use n CPU cores"
         ),
     )
     parser.add_argument("--num_scenes", type=int, default=None, help="Maximum number of scenes to process")
@@ -83,11 +83,11 @@ def _build_output_path(py123d_data, output_dir):
     """Derive output path for a given scenario based on its metadata attributes.
 
     Arguments:
-        py123d_data: py123d scenaio data object
+        py123d_data: py123d scenario data object
         output_dir: Base directory to save the output file
 
     Returns:
-        A pathlib.Path object representing the output file path, e.g. <dataset>__<source_id>.bin"
+        A pathlib.Path object representing the output file path, e.g. <dataset>__<source_id>.bin
     """
 
     def sanitize(v):
@@ -250,6 +250,7 @@ def main() -> int:
     )
     worker = _convert_one if args.fail_fast else _convert_one_safe
 
+    # Suppress the loky pool teardown warning that fires on normal completion.
     warnings.filterwarnings("ignore", message="A worker stopped while some jobs were given")
     with joblib.Parallel(n_jobs=args.workers) as parallel:
         results = list(

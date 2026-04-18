@@ -1,7 +1,7 @@
 ARG PYTHON_VERSION=3.12
 FROM python:${PYTHON_VERSION}-slim
 
-COPY --from=ghcr.io/astral-sh/uv:0.6.5 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.8.21 /uv /uvx /bin/
 
 ENV UV_LINK_MODE=copy
 

@@ -34,8 +34,9 @@ def load_scenes(
         split_types: Optional list of split types (train/val/test).
         split_names: Optional list of split names (e.g. ["nuplan-mini_val"]).
         log_names: Optional list of log names to include.
+        scene_uuids: Optional list of scene UUIDs to include (useful for debugging).
         duration_s: Optional duration for scene extraction; None uses full log.
-        map_only: If True, load map-only scenarios (no logs).
+        map_only: If True, load map-only scenarios from ``<root>/maps/**/*.arrow``.
 
     Returns:
         List of ArrowSceneAPI or ArrowMapAPI.
