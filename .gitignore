@@ -4,6 +4,7 @@
 # Data files
 *.bin
 *.arrow
+*.jsonl
 # Log files
 *.png
 *.mp4

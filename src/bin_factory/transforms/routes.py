@@ -229,22 +229,22 @@ def compute_agent_route(
         route_check_timestep,
         min_route_valid_points,
     ):
-        logger.debug(f"Agent {agent_id}: Skipping route computation due to insufficient valid data or offroad start")
+        logger.debug("agent=%d: skipping route computation (insufficient valid data or offroad start)", agent_id)
         return [], 0
 
     observations = _build_point_observations(agent_context, route_cache)
     if not observations:
-        logger.debug(f"Agent {agent_id}: No GT-supported lane candidates found")
+        logger.debug("agent=%d: no GT-supported lane candidates found", agent_id)
         return [], 0
 
     candidate_path = _select_candidate_path(observations, len(trajectory), route_cache)
     if not candidate_path:
-        logger.debug(f"Agent {agent_id}: No topologically valid lane path found")
+        logger.debug("agent=%d: no topologically valid lane path found", agent_id)
         return [], 0
 
     gt_route = _expand_candidate_path(candidate_path, route_cache)
     if not gt_route:
-        logger.debug(f"Agent {agent_id}: Failed to reconstruct GT-supported route")
+        logger.debug("agent=%d: failed to reconstruct GT-supported route", agent_id)
         return [], 0
 
     route_gt_len = len(gt_route)

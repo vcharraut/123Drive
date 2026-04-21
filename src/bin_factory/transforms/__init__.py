@@ -1,5 +1,6 @@
 from .geometry import interpolate_all_polygons, process_polylines
 from .graph import build_lane_distance_matrix
+from .invalid_agents import invalid_agent_overlap
 from .reindex import reindex_scenario
 from .routes import process_agent_routes
 from .sanitize import prune_invalid_map_elements
@@ -11,6 +12,7 @@ __all__ = [
     "build_lane_distance_matrix",
     "impute_traffic_lights",
     "interpolate_all_polygons",
+    "invalid_agent_overlap",
     "process_agent_routes",
     "process_polylines",
     "process_traffic_controls",

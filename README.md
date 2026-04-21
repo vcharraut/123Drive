@@ -81,9 +81,11 @@ Core flags:
 |------|---------|-------------|
 | `--py123d_path` | `PY123D_DATA_ROOT` or required | Path to 123D dataset with `logs/` and `maps/` |
 | `--output` | `./output` | Directory for `.bin` files |
-| `--workers` | `1` | Parallel workers |
+| `--workers` | `0` | Parallel workers (`0` = 80% of CPU cores) |
+| `--chunk_target_scenes` | `10000` | Scenarios per worker dispatch batch |
 | `--validate_level` | `1` | Validation strictness |
-| `--fail_fast` | off | Stop on first error |
+
+Failures are written to `failures.jsonl` under `--output`.
 
 Filtering flags:
 
