@@ -39,37 +39,6 @@ def _interpolate_polygon(xyz, spacing):
     return np.vstack([interpolated, interpolated[0:1]])
 
 
-# ── Reverse road edges for certain datasets to face opposite direction to lanes ────────
-
-REVERSE_ROAD_EDGE_DATASETS = ["av2", "nuplan", "carla"]
-
-
-def reverse_road_edges(scenario) -> None:
-    dataset = scenario.metadata.dataset
-    if dataset.split("-")[0] not in REVERSE_ROAD_EDGE_DATASETS:
-        return
-    for element_data in scenario.map.values():
-        if puffer_types.is_road_edge(element_data["type"]) and "polyline" in element_data:
-            element_data["polyline"] = element_data["polyline"][::-1]
-
-
-# ── Rotate body-frame velocity to global frame for certain datasets ─────────────────────
-
-BODY_FRAME_VELOCITY_DATASETS = ["nuplan"]
-
-
-def rotate_body_to_global_velocity(scenario):
-    if scenario.metadata.dataset.split("-")[0] not in BODY_FRAME_VELOCITY_DATASETS:
-        return
-    for track in [*scenario.agents.values(), *scenario.objects.values()]:
-        cos_h = np.cos(track.heading)
-        sin_h = np.sin(track.heading)
-        vx = track.velocity[:, 0].copy()
-        vy = track.velocity[:, 1].copy()
-        track.velocity[:, 0] = vx * cos_h - vy * sin_h
-        track.velocity[:, 1] = vx * sin_h + vy * cos_h
-
-
 # ── Downsample and simplify polylines ──────────────────────────────────────────────────
 
 

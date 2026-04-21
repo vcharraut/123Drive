@@ -15,6 +15,9 @@ Install policy:
 | `py123d-{dataset}` | `dockerfiles/py123d.Dockerfile`   | Raw dataset → 123D Arrow        |
 | `123drive:latest`  | `dockerfiles/123drive.Dockerfile` | 123D Arrow → PufferDrive `.bin` |
 
+The `py123d` image pins `py123d` to the same version as the `pyproject.toml` dependency
+(build arg `PY123D_VERSION`, default `v0.2.1`) so the two pipeline stages stay in lockstep.
+
 ## Supported py123d datasets
 
 | Dataset       | Extras   |

@@ -9,6 +9,20 @@ GRAPH_LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE
 
 
 def build_lane_distance_matrix(map_elements):
+    """Build the all-pairs shortest-path distance matrix over drivable lanes.
+
+    Only SURFACE_STREET and FREEWAY lanes participate. Directed edges follow each lane's
+    ``exit_lanes`` and are weighted by the source lane's polyline length, so distances
+    measure travel along the lane network (row = source, col = destination).
+
+    Arguments:
+        map_elements: Scenario map dict ``{id: element}`` as on ``PufferScenario.map``.
+
+    Returns:
+        ``None`` if the map has no drivable lanes, else ``{"lane_ids": [int, ...],
+        "distances": float64 N×N array, "lane_lengths": float64 N array}``. Unreachable
+        pairs are ``+inf`` (scipy Dijkstra default).
+    """
     lanes = [(eid, e) for eid, e in map_elements.items() if e["type"] in GRAPH_LANE_TYPES]
     if not lanes:
         return None

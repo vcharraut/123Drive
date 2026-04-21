@@ -132,7 +132,7 @@ class _UnionFind:
 def impute_traffic_lights(scenario, extras) -> None:
     dataset = str(scenario.metadata.dataset)
     if dataset != _SUPPORTED_DATASET:
-        logger.debug("Skipping traffic-light imputation for dataset %s", dataset)
+        logger.debug("skipping traffic-light imputation (unsupported dataset)")
         return
     if scenario.metadata.scenario_length <= 0:
         return
@@ -156,7 +156,7 @@ class _TrafficLightImputer:
         self._clean_lanes()
         signalized_intersections = self._find_signalized_intersections()
         if not signalized_intersections:
-            logger.debug("Scenario %s: no signalized intersections found", self.scenario.metadata.id)
+            logger.debug("no signalized intersections found")
             return
 
         lane_center_matrix, row_to_lane_id = self._form_lane_center_matrix()
@@ -182,13 +182,12 @@ class _TrafficLightImputer:
             updated_lanes += self._write_generated_states(intersection, tls_sequence, traffic_lights)
 
         if updated_lanes == 0:
-            logger.debug("Scenario %s: traffic-light imputation produced no updates", self.scenario.metadata.id)
+            logger.debug("traffic-light imputation produced no updates")
             return
 
         self.extras["traffic_lights"] = traffic_lights
         logger.info(
-            "Scenario %s: imputed traffic lights for %d lanes across %d intersections",
-            self.scenario.metadata.id,
+            "imputed traffic lights for %d lanes across %d intersections",
             updated_lanes,
             len(signalized_intersections),
         )

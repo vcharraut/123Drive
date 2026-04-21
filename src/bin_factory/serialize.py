@@ -77,11 +77,20 @@ METADATA_DATASET_BYTES = 32
 
 
 def scenario_to_binary(scenario):
-    """Serialize a PufferScenario into the PufferDrive .bin format. See module docstring for layout."""
+    """Serialize a PufferScenario into the PufferDrive .bin format.
+
+    See the module docstring for the full binary layout. Road elements with fewer than
+    two polyline points are skipped during serialization, so the header's road-element
+    count is written as a placeholder and patched in-place once all elements have been
+    emitted.
+
+    Returns:
+        ``bytes`` containing the serialized scenario.
+    """
     buf = bytearray()
     agents, road_map, tcs, objects = scenario.agents, scenario.map, scenario.traffic_controls, scenario.objects
 
-    # Header — road_count placeholder at offset 4, patched after filtering
+    # Header — road_count is a placeholder at offset 4; patched after filtering undersized polylines.
     buf.extend(struct.pack("<iiii", len(agents), 0, len(tcs), len(objects)))
 
     # Agents: id, type, trajectory, route, route_gt_len, goal, control_state

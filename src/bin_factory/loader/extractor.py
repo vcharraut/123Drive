@@ -112,18 +112,10 @@ def _extract_objects(
             raise ValueError(f"Missing ego state at frame {frame_idx}")
 
         _write_detection_frame(ego, frame_idx, ego_state.center_se3, ego_state.bounding_box_se3, centroid)
-
-        if ego_dynamic_state := ego_state.dynamic_state_se3:
-            ego.velocity[frame_idx] = [float(ego_dynamic_state.velocity_3d.x), float(ego_dynamic_state.velocity_3d.y)]
-        else:
-            # Fallback: finite difference of positions
-            if frame_idx == 0:
-                ego.velocity[frame_idx] = [np.nan, np.nan]
-            else:
-                ego.velocity[frame_idx] = ego.position[frame_idx][:2] - ego.position[frame_idx - 1][:2]
-
-    if np.isnan(ego.velocity[0, 0]):
-        ego.velocity[0] = ego.velocity[1]  # If first frame velocity is NaN, copy from second frame
+        ego.velocity[frame_idx] = [
+            float(ego_state.box_detection_se3.velocity_3d.x),
+            float(ego_state.box_detection_se3.velocity_3d.y),
+        ]
 
     # Detections for all other agents
     next_object_id = 0
@@ -143,14 +135,17 @@ def _extract_objects(
             if object_id not in objects:
                 objects[object_id] = _make_empty_track(episode_length, detection.attributes.default_label)
 
-            bbox = detection.bounding_box_se3
             obj = objects[object_id]
-            _write_detection_frame(obj, frame_idx, bbox.center_se3, bbox, centroid)
+            _write_detection_frame(
+                obj,
+                frame_idx,
+                detection.bounding_box_se3.center_se3,
+                detection.bounding_box_se3,
+                centroid,
+            )
 
-            if detection.velocity_3d is None:
-                continue
-
-            obj.velocity[frame_idx] = [float(detection.velocity_3d.x), float(detection.velocity_3d.y)]
+            if detection.velocity_3d is not None:
+                obj.velocity[frame_idx] = [float(detection.velocity_3d.x), float(detection.velocity_3d.y)]
 
     return objects
 
@@ -181,7 +176,7 @@ def _extract_traffic_lights(
                     continue
 
                 elements[lane_id] = schema.TrafficLightTrack(
-                    position=_centered_array(lane.centerline.array[0], centroid).flatten(),
+                    position=_centered_array(lane.centerline_3d.array[0], centroid).flatten(),
                     states=[puffer_types.TLState.UNKNOWN] * scene_api.number_of_iterations,
                     controlled_lane=lane_id,
                 )
@@ -267,12 +262,12 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> dict[str, Any] |
         right_neighbor = [rid] if (rid := getattr(map_object, "right_lane_id", None)) is not None else []
         return {
             "type": puffer_type,
-            "polyline": _centered_array(map_object.centerline.array, centroid),
+            "polyline": _centered_array(map_object.centerline_3d.array, centroid),
             "speed_limit_mps": speed_limit_mps,
             "entry_lanes": map_object.predecessor_ids,
             "exit_lanes": map_object.successor_ids,
-            "left_boundary": _centered_array(map_object.left_boundary.array, centroid),
-            "right_boundary": _centered_array(map_object.right_boundary.array, centroid),
+            "left_boundary": _centered_array(map_object.left_boundary_3d.array, centroid),
+            "right_boundary": _centered_array(map_object.right_boundary_3d.array, centroid),
             "left_neighbor": left_neighbor,
             "right_neighbor": right_neighbor,
         }
@@ -365,7 +360,7 @@ def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) 
     points = [
         coords
         for obj in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE)
-        if (coords := obj.centerline.array) is not None and len(coords) > 0
+        if (coords := obj.centerline_3d.array) is not None and len(coords) > 0
     ]
     if points:
         return np.vstack(points).mean(axis=0)
