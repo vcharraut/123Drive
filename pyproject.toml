@@ -45,6 +45,7 @@ all = [
 
 [project.scripts]
 convert = "bin_factory.main:main"
+classify = "bin_factory.classify:main"
 build = "docker_tools.cli:main"
 web = "viz.server:main"
 
