@@ -44,6 +44,21 @@ class PointLaneCandidate:
 
 
 def process_agent_routes(scenario, min_route_valid_points=0, route_check_timestep=0) -> None:
+    """Compute a lane route per agent and assign it back onto ``scenario``.
+
+    Routes are graph-constrained lane sequences. For each vehicle agent, the ground-truth
+    trajectory is projected onto lane centerlines and a best-matching lane sequence is
+    solved via DP, then extended past the last GT lane toward a dead-end.
+
+    Arguments:
+        scenario: PufferScenario whose ``agents`` and ``map`` are read; routes are written
+            back onto each Track (``route``, ``route_gt_len``, ``control_state``).
+        min_route_valid_points: Minimum number of valid trajectory samples from
+            ``route_check_timestep`` onwards required to attempt route computation for a
+            non-ego agent. Below this threshold the agent gets an empty route.
+        route_check_timestep: Timestep at which the agent must be valid (and on-road) for
+            non-ego routes. Ego (vehicle id 0) bypasses this gate; failure on ego raises.
+    """
     scenario_length = scenario.metadata.scenario_length
     if scenario_length > 0 and route_check_timestep >= scenario_length:
         raise ValueError(
@@ -214,22 +229,22 @@ def compute_agent_route(
         route_check_timestep,
         min_route_valid_points,
     ):
-        logger.debug(f"Agent {agent_id}: Skipping route computation due to insufficient valid data or offroad start")
+        logger.debug("agent=%d: skipping route computation (insufficient valid data or offroad start)", agent_id)
         return [], 0
 
     observations = _build_point_observations(agent_context, route_cache)
     if not observations:
-        logger.debug(f"Agent {agent_id}: No GT-supported lane candidates found")
+        logger.debug("agent=%d: no GT-supported lane candidates found", agent_id)
         return [], 0
 
     candidate_path = _select_candidate_path(observations, len(trajectory), route_cache)
     if not candidate_path:
-        logger.debug(f"Agent {agent_id}: No topologically valid lane path found")
+        logger.debug("agent=%d: no topologically valid lane path found", agent_id)
         return [], 0
 
     gt_route = _expand_candidate_path(candidate_path, route_cache)
     if not gt_route:
-        logger.debug(f"Agent {agent_id}: Failed to reconstruct GT-supported route")
+        logger.debug("agent=%d: failed to reconstruct GT-supported route", agent_id)
         return [], 0
 
     route_gt_len = len(gt_route)
@@ -238,10 +253,19 @@ def compute_agent_route(
 
 
 def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=0, min_route_valid_points=0) -> bool:
+    """Return True if a non-ego agent qualifies for route computation at ``route_check_timestep``.
+
+    Ego always qualifies. A non-ego agent qualifies only if it has a trajectory, the map has
+    routable lanes, it is valid and on-road at the check timestep, and it has at least
+    ``min_route_valid_points`` valid samples from that timestep onwards.
+    """
     if is_ego:
         return True
 
     if len(agent_context["trajectory"]) == 0 or len(route_cache["lane_ids"]) == 0:
+        return False
+
+    if route_check_timestep >= len(agent_context["valid"]):
         return False
 
     if not agent_context["valid"][route_check_timestep]:
