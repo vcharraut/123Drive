@@ -26,13 +26,13 @@ import logging
 import sqlite3
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, FrozenSet, List, Optional, Tuple
 
 import pyarrow as pa
 
 logger = logging.getLogger(__name__)
 
-NUPLAN_BENCHMARK_14_SCENARIO_TYPES = [
+NUPLAN_14_SCENARIO_TYPES = [
     "accelerating_at_crosswalk",
     "accelerating_at_stop_sign",
     "accelerating_at_traffic_light",
@@ -47,26 +47,40 @@ NUPLAN_BENCHMARK_14_SCENARIO_TYPES = [
     "starting_left_turn",
     "starting_right_turn",
     "starting_straight_traffic_light_intersection_traversal",
-    "starting_unprotected_noncross_turn",
 ]
 
-NUPLAN_15_SCENARIO_TYPES = [
-    "accelerating_at_crosswalk",
-    "accelerating_at_stop_sign",
-    "accelerating_at_traffic_light",
-    "changing_lane",
-    "following_lane_with_lead",
-    "high_magnitude_jerk",
+NUPLAN_15_SCENARIO_TYPES = NUPLAN_14_SCENARIO_TYPES + ["starting_unprotected_noncross_turn"]
+
+# nuPlan types targeted for 123Drive scenario classification
+TARGET_SCENARIO_TYPES: List[str] = [
+    # highway_straight
     "high_magnitude_speed",
-    "low_magnitude_speed",
-    "near_pedestrian_at_pickup_dropoff",
-    "on_intersection",
-    "on_pickup_dropoff",
-    "starting_left_turn",
-    "starting_right_turn",
+    "following_lane_without_lead",
+    # lane_change
+    "changing_lane_to_left",
+    "changing_lane_to_right",
+    "changing_lane_with_lead",
+    # traffic_light_green
+    "accelerating_at_traffic_light",
     "starting_straight_traffic_light_intersection_traversal",
+    "traversing_traffic_light_intersection",
+    # traffic_light_stop
+    "stopping_at_traffic_light_with_lead",
+    "stopping_at_traffic_light_without_lead",
+    # unprotected_left: right-hand traffic cities only, single-frame threshold
     "starting_unprotected_noncross_turn",
+    # protected_right: right-hand traffic cities only
+    "starting_protected_noncross_turn",
 ]
+
+# Qualify with even a single tagged frame (rare — don't require 25% continuity)
+SINGLE_FRAME_TYPES: FrozenSet[str] = frozenset({"starting_unprotected_noncross_turn"})
+
+# Skip these types for left-hand traffic cities (Singapore)
+RHT_ONLY_TYPES: FrozenSet[str] = frozenset({
+    "starting_unprotected_noncross_turn",
+    "starting_protected_noncross_turn",
+})
 
 _20S_US = 20_000_000  # 20 seconds in microseconds
 
@@ -92,7 +106,6 @@ def build_uuid_index(py123d_data_root: Path) -> _UuidIndex:
     for sync_path in sorted(logs_root.rglob("sync.arrow")):
         try:
             table = pa.ipc.open_file(sync_path).read_all()
-            # log_name is in the arrow schema metadata (msgpack-encoded)
             raw_meta = table.schema.metadata or {}
             meta_bytes = raw_meta.get(b"metadata", b"")
             log_name = _extract_log_name_from_meta(meta_bytes, sync_path)
@@ -125,54 +138,6 @@ def build_log_db_index(db_paths: List[Path]) -> _LogDbIndex:
     return {db_path.stem: db_path for db_path in db_paths}
 
 
-def find_scenario_type_in_windows(
-    bin_name: str,
-    db_path: Path,
-    start_ts: int,
-    duration_us: int = _20S_US,
-) -> List[str]:
-    """Return scenario types with a continuous run > min_continuous_fraction of frames.
-
-    A type qualifies only if its longest uninterrupted streak of consecutive frames
-    exceeds min_continuous_fraction * total_frames in [start_ts, start_ts + duration_us].
-    """
-    end_ts = start_ts + duration_us
-    try:
-        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        con.row_factory = sqlite3.Row
-        cur = con.cursor()
-        cur.execute(
-            """
-            SELECT lp.token, st.type
-            FROM lidar_pc lp
-            LEFT JOIN scenario_tag st ON st.lidar_pc_token = lp.token
-            WHERE lp.timestamp >= ? AND lp.timestamp < ?
-            AND st.type = ?
-            """,
-            (start_ts, end_ts, NUPLAN_15_SCENARIO_TYPES[-1]),
-        )
-        rows = cur.fetchall()
-        con.close()
-        if len(rows) > 0:
-            print(f"Queried {len(rows)} frames in {bin_name} from {db_path.name}")
-    except Exception as e:
-        logger.warning("Failed to query window in %s: %s", db_path.name, e)
-
-def _find_city_db(db_path: Path) -> str:
-    """Return the location/city of the log (e.g. 'las_vegas', 'singapore'), or '' on failure."""
-    try:
-        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        cur = con.cursor()
-        cur.execute("SELECT location FROM log LIMIT 1")
-        row = cur.fetchone()
-        con.close()
-        if row:
-            return row[0].lower()
-    except Exception:
-        pass
-    return ""
-
-
 def _is_singapore_db(db_path: Path) -> bool:
     """Return True if the log was recorded in Singapore (left-hand traffic)."""
     try:
@@ -182,24 +147,35 @@ def _is_singapore_db(db_path: Path) -> bool:
         row = cur.fetchone()
         con.close()
         if row:
-            return "singapore" in row[0].lower() or "sg" in row[0].lower()
+            loc = row[0].lower()
+            return "singapore" in loc or loc.startswith("sg")
     except Exception:
         pass
     return False
 
 
 def get_scenario_types_in_window(
-    bin_name: str,
     db_path: Path,
     start_ts: int,
     duration_us: int = _20S_US,
     min_continuous_fraction: float = 0.25,
+    target_types: Optional[List[str]] = None,
+    is_singapore: bool = False,
+    bin_path: Optional[str] = None,
 ) -> List[str]:
-    """Return scenario types with a continuous run > min_continuous_fraction of frames.
+    """Return qualifying scenario types in [start_ts, start_ts + duration_us].
 
-    A type qualifies only if its longest uninterrupted streak of consecutive frames
-    exceeds min_continuous_fraction * total_frames in [start_ts, start_ts + duration_us].
+    - Most types require a continuous run > min_continuous_fraction * total_frames.
+    - SINGLE_FRAME_TYPES qualify with any single tagged frame.
+    - RHT_ONLY_TYPES are skipped when is_singapore=True.
     """
+    active_targets = list(target_types or TARGET_SCENARIO_TYPES)
+    if is_singapore:
+        active_targets = [t for t in active_targets if t not in RHT_ONLY_TYPES]
+
+    if not active_targets:
+        return []
+
     end_ts = start_ts + duration_us
     try:
         con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -218,15 +194,12 @@ def get_scenario_types_in_window(
         rows = cur.fetchall()
         con.close()
 
-        # Build ordered unique-frame list and per-frame type sets
         frame_order: List[bytes] = []
         seen: set = set()
         frame_types: Dict[bytes, set] = {}
         for row in rows:
             token = bytes(row["token"])
             stype = row["type"]
-            # if stype is NUPLAN_15_SCENARIO_TYPES[0]:
-            #     print(f"Found type {stype} in frame {token.hex()} of {bin_name}")
             if token not in seen:
                 frame_order.append(token)
                 seen.add(token)
@@ -238,14 +211,13 @@ def get_scenario_types_in_window(
         if total_frames == 0:
             return []
 
-        all_types: set = set()
+        observed: set = set()
         for types in frame_types.values():
-            all_types.update(types)
+            observed.update(types)
+
         min_run = total_frames * min_continuous_fraction
         result = []
-        for stype in sorted(all_types):
-            # if stype == NUPLAN_15_SCENARIO_TYPES[-1]:
-            #     print(f"Found {stype} in {bin_name} with {total_frames} frames and min_run={min_run:.1f}")
+        for stype in active_targets:
             max_run = 0
             current_run = 0
             for token in frame_order:
@@ -256,14 +228,10 @@ def get_scenario_types_in_window(
                     current_run = 0
             if max_run > min_run:
                 result.append(stype)
-            elif stype == NUPLAN_15_SCENARIO_TYPES[-1]:
-                # A noncross turn doesn't cross oncoming traffic.
-                # In right-hand traffic (US cities) that's a left turn;
-                # in left-hand traffic (Singapore) that's a right turn.
-                noncross_tag = "unprotected_right_turn" if _is_singapore_db(db_path) else "unprotected_left_turn"
-                print(f'Found {noncross_tag} in {bin_name} of city {_find_city_db(db_path)} with {"left-hand" if _is_singapore_db(db_path) else "right-hand"} traffic')
-                if noncross_tag in all_types:
-                    result.append(stype)
+            
+            if (stype in SINGLE_FRAME_TYPES) and max_run > 0:
+                result.append(stype)
+                continue
 
         return result
     except Exception as e:
@@ -280,8 +248,9 @@ def classify_bins(
     min_continuous_fraction: float = 0.25,
 ) -> Dict[str, List[str]]:
     """Return bin_filename → [scenario_types] collected across the full scenario window."""
-    filter_set = set(filter_types) if filter_types else None
+    target = filter_types or TARGET_SCENARIO_TYPES
     results: Dict[str, List[str]] = {}
+    singapore_cache: Dict[Path, bool] = {}
 
     for bin_path in sorted(bins_dir.glob("*.bin")):
         parts = bin_path.stem.split("__", 1)
@@ -304,10 +273,14 @@ def classify_bins(
             results[bin_path.name] = []
             continue
 
-        # find_scenario_type_in_windows(bin_path.name, db_path, start_ts, duration_us)
-        types = get_scenario_types_in_window(bin_path.name, db_path, start_ts, duration_us, min_continuous_fraction)
-        if filter_set:
-            types = [t for t in types if t in filter_set]
+        if db_path not in singapore_cache:
+            singapore_cache[db_path] = _is_singapore_db(db_path)
+        is_sg = singapore_cache[db_path]
+
+        types = get_scenario_types_in_window(
+            db_path, start_ts, duration_us,
+            min_continuous_fraction, target_types=target, is_singapore=is_sg, bin_path=bin_path.name
+        )
         results[bin_path.name] = types
 
     found = sum(1 for v in results.values() if v)
@@ -315,7 +288,7 @@ def classify_bins(
     return results
 
 
-def print_summary(results: Dict[str, List[str]]) -> None:
+def print_summary(results: Dict[str, List[str]], target_types: Optional[List[str]] = None) -> None:
     type_counts: Counter = Counter()
     for types in results.values():
         for t in types:
@@ -324,6 +297,19 @@ def print_summary(results: Dict[str, List[str]]) -> None:
     print("\nScenario type distribution:")
     for stype, count in sorted(type_counts.items(), key=lambda x: -x[1]):
         print(f"  {stype}: {count}")
+
+    checked = target_types or TARGET_SCENARIO_TYPES
+    zero_types = [t for t in checked if type_counts.get(t, 0) == 0]
+    rare_types = [(t, type_counts[t]) for t in checked if 0 < type_counts.get(t, 0) <= 5]
+
+    if zero_types:
+        print("\nTypes with 0 bins (consider lowering threshold or checking DB coverage):")
+        for t in zero_types:
+            print(f"  {t}")
+    if rare_types:
+        print("\nRare types (<=5 bins):")
+        for t, c in rare_types:
+            print(f"  {t}: {c}")
 
     unclassified = sum(1 for v in results.values() if not v)
     print(f"\nTotal bins   : {len(results)}")
@@ -359,7 +345,7 @@ def main() -> int:
         "--scenario_types",
         nargs="+",
         default=None,
-        help="Restrict output to specific scenario types (default: all)",
+        help="Restrict output to specific scenario types (default: TARGET_SCENARIO_TYPES)",
     )
     parser.add_argument(
         "--min_continuous_fraction",
@@ -399,7 +385,7 @@ def main() -> int:
         json.dump(results, f, indent=2, sort_keys=True)
     logger.info("Saved labels to %s", output_path)
 
-    # print_summary(results)
+    print_summary(results, target_types=args.scenario_types or TARGET_SCENARIO_TYPES)
     return 0
 
 
