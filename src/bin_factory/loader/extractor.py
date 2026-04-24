@@ -125,14 +125,11 @@ def _extract_objects(
             continue
         for detection in detections_list:
             track_token = detection.attributes.track_token
-            if track_token in tokens_to_object_id:
-                object_id = tokens_to_object_id[track_token]
-            else:
+            object_id = tokens_to_object_id.get(track_token)
+            if object_id is None:
                 next_object_id += 1
                 object_id = next_object_id
                 tokens_to_object_id[track_token] = object_id
-
-            if object_id not in objects:
                 objects[object_id] = _make_empty_track(episode_length, detection.attributes.default_label)
 
             obj = objects[object_id]
@@ -254,35 +251,21 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> dict[str, Any] |
         puffer_type = mapping.LANE_TYPE_MAP.get(map_object.lane_type)
         if puffer_type is None:
             return None
-        if not map_object.speed_limit_mps or np.isnan(map_object.speed_limit_mps):
-            speed_limit_mps = -1.0
-        else:
-            speed_limit_mps = float(map_object.speed_limit_mps)
-        left_neighbor = [lid] if (lid := getattr(map_object, "left_lane_id", None)) is not None else []
-        right_neighbor = [rid] if (rid := getattr(map_object, "right_lane_id", None)) is not None else []
         return {
             "type": puffer_type,
             "polyline": _centered_array(map_object.centerline_3d.array, centroid),
-            "speed_limit_mps": speed_limit_mps,
+            "speed_limit_mps": _speed_limit(map_object.speed_limit_mps),
             "entry_lanes": map_object.predecessor_ids,
             "exit_lanes": map_object.successor_ids,
             "left_boundary": _centered_array(map_object.left_boundary_3d.array, centroid),
             "right_boundary": _centered_array(map_object.right_boundary_3d.array, centroid),
-            "left_neighbor": left_neighbor,
-            "right_neighbor": right_neighbor,
+            "left_neighbor": _optional_id_list(getattr(map_object, "left_lane_id", None)),
+            "right_neighbor": _optional_id_list(getattr(map_object, "right_lane_id", None)),
         }
 
-    if layer == map_objects.MapLayer.ROAD_LINE:
-        puffer_type = mapping.ROAD_LINE_TYPE_MAP.get(map_object.road_line_type)
-        if puffer_type is None:
-            return None
-        return {
-            "type": puffer_type,
-            "polyline": _centered_array(map_object.polyline_3d.array, centroid),
-        }
-
-    if layer == map_objects.MapLayer.ROAD_EDGE:
-        puffer_type = mapping.ROAD_EDGE_TYPE_MAP.get(map_object.road_edge_type)
+    if layer in (map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE):
+        type_attr = "road_line_type" if layer == map_objects.MapLayer.ROAD_LINE else "road_edge_type"
+        puffer_type = mapping.MAP_TYPE_MAP[layer].get(getattr(map_object, type_attr))
         if puffer_type is None:
             return None
         return {
@@ -291,9 +274,8 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> dict[str, Any] |
         }
 
     if layer == map_objects.MapLayer.CROSSWALK:
-        puffer_type = mapping.CROSSWALK_TYPE
         return {
-            "type": puffer_type,
+            "type": mapping.CROSSWALK_TYPE,
             "polygon": _centered_array(map_object.outline_3d.array, centroid),
         }
 
@@ -307,7 +289,15 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> dict[str, Any] |
             "controlled_lanes": map_object.lane_ids,
         }
 
-    raise ValueError(f"Unsupported map layer {layer} for object ID {map_object.object_id}")
+    return None
+
+
+def _speed_limit(speed_limit_mps):
+    return -1.0 if not speed_limit_mps or np.isnan(speed_limit_mps) else float(speed_limit_mps)
+
+
+def _optional_id_list(value):
+    return [value] if value is not None else []
 
 
 def _write_detection_frame(

@@ -85,38 +85,33 @@ def _validate_dynamic_states(items, prefix, length, errors) -> None:
                 errors.append(f"{prefix} {eid} {field} length {arr.shape[0]} != scenario_length {length}")
 
 
-def _validate_polygon(poly, label, min_points, errors):
-    if poly is None:
-        errors.append(f"{label} missing polygon")
-    elif not isinstance(poly, np.ndarray) or poly.ndim != 2 or poly.shape[1] < 2:
-        errors.append(f"{label} polygon invalid shape {getattr(poly, 'shape', None)}")
-    elif len(poly) < min_points:
-        errors.append(f"{label} polygon needs >= {min_points} points, got {len(poly)}")
+def _validate_geometry(elem, key, label, min_points, errors):
+    geom = elem.get(key)
+    if geom is None:
+        errors.append(f"{label} missing {key}")
+    elif not isinstance(geom, np.ndarray) or geom.ndim != 2 or geom.shape[1] < 2:
+        errors.append(f"{label} {key} invalid shape {getattr(geom, 'shape', None)}")
+    elif len(geom) < min_points:
+        errors.append(f"{label} {key} needs >= {min_points} points, got {len(geom)}")
 
 
 def _validate_map_elements(map_data, errors) -> None:
     for eid, elem in map_data.items():
         t = elem["type"]
         if puffer_types.is_road_lane(t) or puffer_types.is_road_line(t) or puffer_types.is_road_edge(t):
-            if (poly := elem.get("polyline")) is None:
-                errors.append(f"Map {eid} missing polyline")
-            elif not isinstance(poly, np.ndarray) or poly.ndim != 2 or poly.shape[1] < 2:
-                errors.append(f"Map {eid} polyline invalid shape {getattr(poly, 'shape', None)}")
-            elif len(poly) < 2:
-                errors.append(f"Map {eid} polyline needs >= 2 points, got {len(poly)}")
-
+            _validate_geometry(elem, "polyline", f"Map {eid}", 2, errors)
             if puffer_types.is_road_lane(t):
                 for key in ("entry_lanes", "exit_lanes"):
                     if not isinstance(elem.get(key), list):
                         errors.append(f"Map {eid} missing or invalid {key}")
 
         elif puffer_types.is_crosswalk(t):
-            _validate_polygon(elem.get("polygon"), f"Map {eid}", 3, errors)
+            _validate_geometry(elem, "polygon", f"Map {eid}", 3, errors)
 
 
 def _validate_stop_zones(stop_zones, errors) -> None:
     for i, sz in enumerate(stop_zones):
-        _validate_polygon(sz.get("polygon"), f"StopZone {i}", 3, errors)
+        _validate_geometry(sz, "polygon", f"StopZone {i}", 3, errors)
         if not isinstance(sz.get("controlled_lanes"), list):
             errors.append(f"StopZone {i} missing or invalid controlled_lanes")
 
@@ -135,7 +130,7 @@ def _validate_traffic_lights(tl_data, length, map_data, errors) -> None:
 
 
 def _validate_no_nan_inf(scenario, errors) -> None:
-    for prefix, items in [("Agent", scenario.agents), ("Object", scenario.objects)]:
+    for prefix, items in (("Agent", scenario.agents), ("Object", scenario.objects)):
         for eid, ds in items.items():
             for field in _DYNAMIC_STATE_SPECS:
                 arr = getattr(ds, field)

@@ -5,25 +5,12 @@ import os
 import pathlib
 import re
 import warnings
-from typing import NamedTuple
 
 import joblib
 import tqdm
 
 from bin_factory import loader, serialize, transforms
 from bin_factory.log_context import bind, setup_logging, unbind
-
-
-class ConvertConfig(NamedTuple):
-    max_segment_length: float
-    area_threshold: float
-    min_route_valid_points: int
-    route_check_timestep: int
-    no_reindex: bool
-    impute_tl: bool
-    invalid_agent_overlap: bool
-    validate_level: int
-    log_level: str
 
 
 logger = logging.getLogger(__name__)
@@ -192,9 +179,6 @@ def _convert_one(py123d_data, output_dir, config) -> None:
         f.write(binary_data)
 
 
-
-
-
 def _validate_args(args, parser):
     for attr in ("datasets", "split_types", "split_names", "log_names", "scene_uuids"):
         values = getattr(args, attr)
@@ -268,18 +252,6 @@ def main() -> int:
     output_dir = pathlib.Path(args.output)
     failures_path = output_dir / "failures.jsonl"
 
-    config = ConvertConfig(
-        max_segment_length=args.max_segment_length,
-        area_threshold=args.area_threshold,
-        min_route_valid_points=args.min_route_valid_points,
-        route_check_timestep=args.route_check_timestep,
-        no_reindex=args.no_reindex,
-        impute_tl=args.impute_tl,
-        invalid_agent_overlap=args.invalid_agent_overlap,
-        validate_level=args.validate_level,
-        log_level=args.log_level,
-    )
-
     logger.info("Discovered %d scenarios. Starting conversion with %d workers.", len(scenes), args.workers)
 
     # Suppress the loky pool teardown warning that fires on normal completion.
@@ -300,7 +272,9 @@ def main() -> int:
     ):
         for start in range(0, len(scenes), args.chunk_target_scenes):
             chunk = scenes[start : start + args.chunk_target_scenes]
-            for result in parallel(joblib.delayed(_worker_fn)(data, output_dir=output_dir, config=config) for data in chunk):
+            for result in parallel(
+                joblib.delayed(_worker_fn)(data, output_dir=output_dir, config=args) for data in chunk
+            ):
                 if result["ok"]:
                     succeeded += 1
                 else:
