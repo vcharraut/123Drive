@@ -15,7 +15,8 @@ Usage:
     --bins_dir ./nuplan_mini_val_bins \\
     --nuplan_db_dir ./mini \\
     --py123d_data_root ./py123d_output \\
-    --output nuplan_mini_scenario_labels.json
+    --output nuplan_mini_scenario_labels.json \\
+    -output_bins_dir ./nuplan_mini_val_bins_classified
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import shutil
 import sqlite3
 from collections import Counter
 from pathlib import Path
@@ -73,8 +75,38 @@ TARGET_SCENARIO_TYPES: List[str] = [
     "starting_protected_noncross_turn",
 ]
 
+TARGET_BIN_NAMES: List[str] = [
+    "highway_straight",
+    "lane_change",
+    "traffic_light_green",
+    "traffic_light_stop",
+    "unprotected_left",
+    "protected_right",
+]
+
+SCENARIO_TYPE_TO_BIN_NAME: Dict[str, str] = {
+    "high_magnitude_speed":                              TARGET_BIN_NAMES[0],
+    "following_lane_without_lead":                       TARGET_BIN_NAMES[0],
+    "changing_lane_to_left":                             TARGET_BIN_NAMES[1],
+    "changing_lane_to_right":                            TARGET_BIN_NAMES[1],
+    "changing_lane_with_lead":                           TARGET_BIN_NAMES[1],
+    "accelerating_at_traffic_light":                     TARGET_BIN_NAMES[2],
+    "starting_straight_traffic_light_intersection_traversal": TARGET_BIN_NAMES[2],
+    "traversing_traffic_light_intersection":             TARGET_BIN_NAMES[2],
+    "stopping_at_traffic_light_with_lead":               TARGET_BIN_NAMES[3],
+    "stopping_at_traffic_light_without_lead":            TARGET_BIN_NAMES[3],
+    "starting_unprotected_noncross_turn":                TARGET_BIN_NAMES[4],
+    "starting_protected_noncross_turn":                  TARGET_BIN_NAMES[5],
+}
+
 # Qualify with even a single tagged frame (rare — don't require 25% continuity)
-SINGLE_FRAME_TYPES: FrozenSet[str] = frozenset({"starting_unprotected_noncross_turn"})
+SINGLE_FRAME_TYPES: FrozenSet[str] = frozenset({"starting_unprotected_noncross_turn", 
+                                                "starting_protected_noncross_turn", 
+                                                "changing_lane_to_left", 
+                                                "changing_lane_to_right", 
+                                                "changing_lane_with_lead",
+                                                "stopping_at_traffic_light_with_lead",
+                                                "stopping_at_traffic_light_without_lead",})
 
 # Skip these types for left-hand traffic cities (Singapore)
 RHT_ONLY_TYPES: FrozenSet[str] = frozenset({
@@ -230,6 +262,7 @@ def get_scenario_types_in_window(
                 result.append(stype)
             
             if (stype in SINGLE_FRAME_TYPES) and max_run > 0:
+                print(f"  {bin_path}: qualifying {stype} with (max_run={max_run}) frames")
                 result.append(stype)
                 continue
 
@@ -237,6 +270,21 @@ def get_scenario_types_in_window(
     except Exception as e:
         logger.warning("Failed to query window in %s: %s", db_path.name, e)
         return []
+
+
+def copy_bins_to_dirs(bins_dir: Path, results: Dict[str, List[str]], output_bins_dir: Path) -> None:
+    """Copy each classified bin into all matching output_bins_dir/<bin_name>/ directories."""
+    for bin_name in TARGET_BIN_NAMES:
+        (output_bins_dir / bin_name).mkdir(parents=True, exist_ok=True)
+
+    for filename, types in results.items():
+        dest_bins: set = {SCENARIO_TYPE_TO_BIN_NAME[stype] for stype in types if stype in SCENARIO_TYPE_TO_BIN_NAME}
+        for bin_name in dest_bins:
+            shutil.copy2(bins_dir / filename, output_bins_dir / bin_name / filename)
+
+    for bin_name in TARGET_BIN_NAMES:
+        count = len(list((output_bins_dir / bin_name).glob("*.bin")))
+        print(f"  {bin_name}: {count} bins")
 
 
 def classify_bins(
@@ -336,6 +384,11 @@ def main() -> int:
     )
     parser.add_argument("--output", default="scenario_labels.json", help="Output JSON path")
     parser.add_argument(
+        "--output_bins_dir",
+        default=None,
+        help="If set, copy classified bins into <output_bins_dir>/<bin_name>/ subdirectories",
+    )
+    parser.add_argument(
         "--duration_s",
         type=float,
         default=20.0,
@@ -384,6 +437,9 @@ def main() -> int:
     with output_path.open("w") as f:
         json.dump(results, f, indent=2, sort_keys=True)
     logger.info("Saved labels to %s", output_path)
+    if args.output_bins_dir:
+        print("\nCopying bins to target directories:")
+        copy_bins_to_dirs(bins_dir, results, Path(args.output_bins_dir))
 
     print_summary(results, target_types=args.scenario_types or TARGET_SCENARIO_TYPES)
     return 0
