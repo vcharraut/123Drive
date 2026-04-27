@@ -20,7 +20,7 @@ ARG PY123D_VERSION=v0.2.1
 RUN --mount=type=cache,target=/root/.cache/pip \
     git clone --depth 1 --branch ${PY123D_VERSION} https://github.com/autonomousvision/py123d.git /tmp/py123d && \
     pip install --no-cache-dir "/tmp/py123d[${EXTRAS}]" && \
-    if [ "${EXTRAS}" = "nuplan" ]; then pip install --no-cache-dir pytest "nuplan-devkit @ git+https://github.com/motional/nuplan-devkit/@nuplan-devkit-v1.2"; fi && \
+    if [ "${EXTRAS}" = "nuplan" ]; then pip install --no-cache-dir "nuplan-devkit @ git+https://github.com/motional/nuplan-devkit/@nuplan-devkit-v1.2"; fi && \
     rm -rf /tmp/py123d
 
 COPY py123d_entrypoint.py /app/
