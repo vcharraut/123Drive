@@ -186,7 +186,7 @@ class _TrafficLightImputer:
             return
 
         self.extras["traffic_lights"] = traffic_lights
-        logger.info(
+        logger.debug(
             "imputed traffic lights for %d lanes across %d intersections",
             updated_lanes,
             len(signalized_intersections),
