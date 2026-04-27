@@ -66,6 +66,7 @@ docker run --rm \
   -v /data/nuplan:/input \          # host dataset dir  → container /input
   -v /data/py123d_out:/output \     # host output dir   → container /output
   --shm-size=10g \
+  --ulimit nofile=1048576:1048576 \
   py123d-nuplan-mini \
   --splits nuplan-mini_train nuplan-mini_val
 ```
@@ -80,6 +81,7 @@ Converts py123d output to PufferDrive `.bin`. Accepts all `convert` CLI args (se
 docker run --rm \
   -v /data/py123d_out:/input \      # py123d output     → container /input
   -v /data/bins:/output \           # binary output     → container /output
+  --ulimit nofile=1048576:1048576 \
   --shm-size=10g \
   123drive \
   --workers 8 \

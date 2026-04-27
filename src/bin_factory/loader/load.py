@@ -35,6 +35,7 @@ def discover_scenes(
         scene_uuids=scene_uuids,
         future_duration_s=duration_s,
         max_num_scenes=num_scenes,
+        has_map=True,
         required_scene_modalities=["box_detections_se3:any"],
     )
     executor = execution.ProcessPoolExecutor(max_workers=workers) if workers > 1 else execution.SequentialExecutor()
