@@ -8,7 +8,6 @@ The route pipeline is graph-constrained:
 5. Extend beyond GT to the map dead-end.
 """
 
-import logging
 from collections import deque
 from dataclasses import dataclass
 
@@ -16,9 +15,7 @@ import numpy as np
 from shapely import geometry as shapely_geom
 
 from bin_factory import puffer_types
-
-
-logger = logging.getLogger(__name__)
+from bin_factory.log_context import log
 
 
 LANE_WIDTH_THRESHOLD = 7.0  # meters — reject point-to-lane matches farther than this
@@ -28,7 +25,7 @@ MAX_CANDIDATES_PER_POINT = 7
 MAX_TRANSITION_HOPS = 3
 BACKWARD_PROGRESS_TOLERANCE = 2.0  # meters — allow small projection noise on same lane
 OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters — max lane distance for moving agents
-STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0  # meters — max lane distance for stationary agents
+STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 0.5  # meters — max lane distance for stationary agents
 MOVEMENT_THRESHOLD = 0.5  # meters — total displacement below this = stationary
 SKIPPED_POINT_COST = 50.0
 HOP_COST = 1.0
@@ -229,22 +226,22 @@ def compute_agent_route(
         route_check_timestep,
         min_route_valid_points,
     ):
-        logger.debug("agent=%d: skipping route computation (insufficient valid data or offroad start)", agent_id)
+        log.debug("agent=%d: skipping route computation (insufficient valid data or offroad start)", agent_id)
         return [], 0
 
     observations = _build_point_observations(agent_context, route_cache)
     if not observations:
-        logger.debug("agent=%d: no GT-supported lane candidates found", agent_id)
+        log.debug("agent=%d: no GT-supported lane candidates found", agent_id)
         return [], 0
 
     candidate_path = _select_candidate_path(observations, len(trajectory), route_cache)
     if not candidate_path:
-        logger.debug("agent=%d: no topologically valid lane path found", agent_id)
+        log.debug("agent=%d: no topologically valid lane path found", agent_id)
         return [], 0
 
     gt_route = _expand_candidate_path(candidate_path, route_cache)
     if not gt_route:
-        logger.debug("agent=%d: failed to reconstruct GT-supported route", agent_id)
+        log.debug("agent=%d: failed to reconstruct GT-supported route", agent_id)
         return [], 0
 
     route_gt_len = len(gt_route)

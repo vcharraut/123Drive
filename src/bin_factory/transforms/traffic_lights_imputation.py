@@ -16,18 +16,14 @@ Algorithm overview:
 from __future__ import annotations
 
 import enum
-import logging
 from dataclasses import dataclass, field
 
 import numpy as np
 
 from bin_factory import puffer_types, schema
+from bin_factory.log_context import log
 
 
-logger = logging.getLogger(__name__)
-
-
-_SUPPORTED_DATASET = "wod-motion"
 _LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}
 _LANE_SHORT_THRESHOLD = 2.0
 _POINT_CLOSE_THRESHOLD = 5.0
@@ -130,10 +126,6 @@ class _UnionFind:
 
 
 def impute_traffic_lights(scenario, extras) -> None:
-    dataset = str(scenario.metadata.dataset)
-    if dataset != _SUPPORTED_DATASET:
-        logger.debug("skipping traffic-light imputation (unsupported dataset)")
-        return
     if scenario.metadata.scenario_length <= 0:
         return
 
@@ -156,7 +148,7 @@ class _TrafficLightImputer:
         self._clean_lanes()
         signalized_intersections = self._find_signalized_intersections()
         if not signalized_intersections:
-            logger.debug("no signalized intersections found")
+            log.debug("no signalized intersections found")
             return
 
         lane_center_matrix, row_to_lane_id = self._form_lane_center_matrix()
@@ -182,11 +174,11 @@ class _TrafficLightImputer:
             updated_lanes += self._write_generated_states(intersection, tls_sequence, traffic_lights)
 
         if updated_lanes == 0:
-            logger.debug("traffic-light imputation produced no updates")
+            log.debug("traffic-light imputation produced no updates")
             return
 
         self.extras["traffic_lights"] = traffic_lights
-        logger.debug(
+        log.debug(
             "imputed traffic lights for %d lanes across %d intersections",
             updated_lanes,
             len(signalized_intersections),

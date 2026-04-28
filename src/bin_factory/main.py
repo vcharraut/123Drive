@@ -1,6 +1,5 @@
 import argparse
 import json
-import logging
 import os
 import pathlib
 import re
@@ -10,10 +9,7 @@ import joblib
 import tqdm
 
 from bin_factory import loader, serialize, transforms
-from bin_factory.log_context import bind, setup_logging, unbind
-
-
-logger = logging.getLogger(__name__)
+from bin_factory.log_context import bind, log, unbind
 
 
 def build_parser():
@@ -125,7 +121,7 @@ def _build_output_path(py123d_data, output_dir):
 
 
 def _worker_fn(py123d_data, output_dir, config):
-    setup_logging(config.log_level)
+    log.setLevel(config.log_level)
     scenario_id = _scenario_identity(py123d_data) or "unknown"
     dataset = getattr(py123d_data, "dataset", "unknown")
     log_name = getattr(py123d_data, "log_name", "")
@@ -136,10 +132,10 @@ def _worker_fn(py123d_data, output_dir, config):
         _convert_one(py123d_data, output_dir, config)
         return {"ok": True, **identity, "error": ""}
     except loader.ValidationError as ve:
-        logger.error("validation error: %s", ve)
+        log.error("validation error: %s", ve)
         return {"ok": False, **identity, "error": str(ve)}
     except Exception as e:
-        logger.exception("scenario failed")
+        log.exception("scenario failed")
         return {"ok": False, **identity, "error": str(e)}
     finally:
         unbind(tokens)
@@ -154,7 +150,7 @@ def _convert_one(py123d_data, output_dir, config) -> None:
         errors = loader.validate_scenario(scenario, extras=extras, level=config.validate_level)
         scenario_id = scenario.metadata.id
         for error in errors:
-            logger.error(f"{scenario_id}: {error}")
+            log.error(f"{scenario_id}: {error}")
         if errors:
             raise loader.ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
@@ -201,11 +197,11 @@ def _validate_args(args, parser):
         args.workers = max(1, int(cpu_count * 0.8))
 
     if args.num_scenes not in (None, 0) and args.num_scenes < args.workers:
-        logger.warning("num_scenes (%d) < workers (%d). Reducing workers.", args.num_scenes, args.workers)
+        log.warning("num_scenes (%d) < workers (%d). Reducing workers.", args.num_scenes, args.workers)
         args.workers = args.num_scenes
 
     if "opendrive" in (args.datasets or []) and not args.map_only:
-        logger.warning("Dataset 'opendrive' selected with --map_only=False. Forcing --map_only=True.")
+        log.warning("Dataset 'opendrive' selected with --map_only=False. Forcing --map_only=True.")
         args.map_only = True
 
     py123d_data_root = args.py123d_path or os.environ.get("PY123D_DATA_ROOT")
@@ -218,12 +214,12 @@ def main() -> int:
     parser = build_parser()
     args, py123d_data_root = _validate_args(parser.parse_args(), parser)
 
-    setup_logging(args.log_level)
+    log.setLevel(args.log_level)
 
     pathlib.Path(args.output).mkdir(parents=True, exist_ok=True)
 
-    logger.info("123Drive: %s -> %s", py123d_data_root, args.output)
-    logger.info(
+    log.info("123Drive: %s -> %s", py123d_data_root, args.output)
+    log.info(
         "Filters - datasets: %s, split_types: %s, split_names: %s, log_names: %s, duration_s: %s, map_only: %s",
         args.datasets,
         args.split_types,
@@ -246,13 +242,13 @@ def main() -> int:
         map_only=args.map_only,
     )
     if not scenes:
-        logger.info("No scenarios to process.")
+        log.info("No scenarios to process.")
         return 0
 
     output_dir = pathlib.Path(args.output)
     failures_path = output_dir / "failures.jsonl"
 
-    logger.info("Discovered %d scenarios. Starting conversion with %d workers.", len(scenes), args.workers)
+    log.info("Discovered %d scenarios. Starting conversion with %d workers.", len(scenes), args.workers)
 
     # Suppress the loky pool teardown warning that fires on normal completion.
     warnings.filterwarnings("ignore", message="A worker stopped while some jobs were given")
@@ -283,7 +279,7 @@ def main() -> int:
                     failure_handle.flush()
                 pbar.update(1)
 
-    logger.info("Conversion complete. %d/%d succeeded, %d failed.", succeeded, succeeded + failed, failed)
+    log.info("Conversion complete. %d/%d succeeded, %d failed.", succeeded, succeeded + failed, failed)
     return 1 if failed else 0
 
 

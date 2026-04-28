@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 import numpy as np
@@ -10,9 +9,8 @@ from py123d.datatypes import detections, map_objects
 
 from bin_factory import puffer_types, schema
 from bin_factory.loader import mapping
+from bin_factory.log_context import log
 
-
-logger = logging.getLogger(__name__)
 
 SCENE_MAP_RADIUS = 250.0  # Max distance from ego to map elements for non-map-only scenarios
 
@@ -164,12 +162,12 @@ def _extract_traffic_lights(
         for detection in traffic_lights:
             lane_id = int(detection.lane_id)
             if lane_id not in lane_ids:
-                logger.debug("TL detection references unknown lane %d, skipping", lane_id)
+                log.debug("TL detection references unknown lane %d, skipping", lane_id)
                 continue
             if lane_id not in elements:
                 lane = map_api.get_map_object_in_layer(lane_id, map_objects.MapLayer.LANE)
                 if lane is None or not isinstance(lane, map_objects.Lane) or len(lane.centerline.array) == 0:
-                    logger.debug("TL lane %d has no centerline, skipping", lane_id)
+                    log.debug("TL lane %d has no centerline, skipping", lane_id)
                     continue
 
                 elements[lane_id] = schema.TrafficLightTrack(
