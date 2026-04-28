@@ -22,6 +22,8 @@ Binary layout (all little-endian):
       int_list        — entry_lane IDs (predecessors)
       int_list        — exit_lane IDs (successors)
       float32         — speed_limit_mps (-1 if unknown)
+      float32         — total polyline length (meters)
+      float32[N]      — cumulative arc-length per polyline point (cum[0]=0, cum[-1]=length)
 
   TRAFFIC CONTROLS (repeated num_traffic_controls)
     int32 x2          — control_id, control_type (TCType enum)
@@ -39,7 +41,6 @@ Binary layout (all little-endian):
     int32             — N (number of lanes in graph; 0 = no graph)
     if N > 0:
       int32[N]        — lane_ids
-      float32[N]      — lane_lengths
       float32[N*N]    — pairwise distance matrix (row-major)
 
   METADATA
@@ -160,6 +161,8 @@ def scenario_to_binary(scenario):
                 if lane_list:
                     buf.extend(struct.pack(f"<{len(lane_list)}i", *map(int, lane_list)))
             buf.extend(struct.pack("<f", elem["speed_limit_mps"]))
+            buf.extend(struct.pack("<f", float(elem["length"])))
+            buf.extend(np.asarray(elem["cum_length"], dtype=np.float32).tobytes())
 
     struct.pack_into("<i", buf, 4, road_count)  # patch actual road count in header
 
@@ -199,7 +202,6 @@ def scenario_to_binary(scenario):
         n = len(lg["lane_ids"])
         buf.extend(struct.pack("<i", n))
         buf.extend(struct.pack(f"<{n}i", *lg["lane_ids"]))
-        buf.extend(np.asarray(lg["lane_lengths"], dtype=np.float32).tobytes())
         buf.extend(np.asarray(lg["distances"], dtype=np.float32).tobytes())
     else:
         buf.extend(struct.pack("<i", 0))

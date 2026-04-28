@@ -164,6 +164,7 @@ def _convert_one(py123d_data, output_dir, config) -> None:
     transforms.process_agent_routes(scenario, config.min_route_valid_points, config.route_check_timestep)
     if config.invalid_agent_overlap:
         transforms.invalid_agent_overlap(scenario)
+    transforms.compute_lane_lengths(scenario)
     scenario.lane_graph = transforms.build_lane_distance_matrix(scenario.map)
     if not config.no_reindex:
         transforms.reindex_scenario(scenario)

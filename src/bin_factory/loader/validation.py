@@ -5,8 +5,14 @@ Level 2 (semantic): NaN/Inf, cross-refs, physics.
 """
 
 import numpy as np
+from shapely.geometry import LineString, MultiPoint, Point
+from shapely.strtree import STRtree
 
 from bin_factory import puffer_types
+
+
+_Z_BRIDGE_MIN = 0.5
+_Z_BRIDGE_MAX = 4.0
 
 
 class ValidationError(Exception):
@@ -65,6 +71,7 @@ def validate_scenario(scenario, extras=None, level=1):
         _validate_agent_sizes(scenario.agents, "Agent", errors)
     if scenario.objects:
         _validate_agent_sizes(scenario.objects, "Object", errors)
+    _validate_road_edge_z_overlap(scenario.map, errors)
 
     return errors
 
@@ -193,3 +200,58 @@ def _validate_agent_sizes(items, prefix, errors) -> None:
             vals = getattr(ds, key)[valid]
             if np.any(vals <= 0):
                 errors.append(f"{prefix} {eid} has non-positive {key}")
+
+
+def _z_at_xy(polyline, point):
+    seg = np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1)
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    s = LineString(polyline[:, :2]).project(point)
+    i = int(np.clip(np.searchsorted(cum, s, side="right") - 1, 0, len(seg) - 1))
+    t = 0.0 if seg[i] == 0 else (s - cum[i]) / seg[i]
+    return polyline[i, 2] + t * (polyline[i + 1, 2] - polyline[i, 2])
+
+
+def _intersection_points(geom):
+    if geom.is_empty:
+        return []
+    if isinstance(geom, Point):
+        return [geom]
+    if isinstance(geom, MultiPoint):
+        return list(geom.geoms)
+    if hasattr(geom, "geoms"):
+        return [p for g in geom.geoms for p in _intersection_points(g)]
+    if isinstance(geom, LineString):
+        coords = list(geom.coords)
+        return [Point(coords[0]), Point(coords[-1])] if coords else []
+    return []
+
+
+def _validate_road_edge_z_overlap(map_data, errors) -> None:
+    edges = [
+        (eid, np.asarray(elem["polyline"]))
+        for eid, elem in map_data.items()
+        if puffer_types.is_road_edge(elem["type"])
+        and isinstance(elem.get("polyline"), np.ndarray)
+        and elem["polyline"].ndim == 2
+        and elem["polyline"].shape[0] >= 2
+        and elem["polyline"].shape[1] >= 3
+    ]
+    if len(edges) < 2:
+        return
+
+    lines = [LineString(p[:, :2]) for _, p in edges]
+    tree = STRtree(lines)
+
+    for i, (eid_a, poly_a) in enumerate(edges):
+        for j in tree.query(lines[i]):
+            j = int(j)
+            if j <= i:
+                continue
+            inter = lines[i].intersection(lines[j])
+            for p in _intersection_points(inter):
+                dz = abs(_z_at_xy(poly_a, p) - _z_at_xy(edges[j][1], p))
+                if _Z_BRIDGE_MIN < dz < _Z_BRIDGE_MAX:
+                    errors.append(
+                        f"Map edges {eid_a} and {edges[j][0]} cross in XY with |dz|={dz:.2f}m (sub-4m bridge)"
+                    )
+                    break

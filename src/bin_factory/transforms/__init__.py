@@ -1,5 +1,5 @@
 from .geometry import interpolate_all_polygons, process_polylines
-from .graph import build_lane_distance_matrix
+from .graph import build_lane_distance_matrix, compute_lane_lengths
 from .invalid_agents import invalid_agent_overlap
 from .reindex import reindex_scenario
 from .routes import process_agent_routes
@@ -10,6 +10,7 @@ from .traffic_lights_imputation import impute_traffic_lights
 
 __all__ = [
     "build_lane_distance_matrix",
+    "compute_lane_lengths",
     "impute_traffic_lights",
     "interpolate_all_polygons",
     "invalid_agent_overlap",

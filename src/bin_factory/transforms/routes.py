@@ -25,8 +25,8 @@ MAX_CANDIDATES_PER_POINT = 7
 MAX_TRANSITION_HOPS = 3
 BACKWARD_PROGRESS_TOLERANCE = 2.0  # meters — allow small projection noise on same lane
 OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters — max lane distance for moving agents
-STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 0.5  # meters — max lane distance for stationary agents
-MOVEMENT_THRESHOLD = 0.5  # meters — total displacement below this = stationary
+STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 0.3  # meters — max lane distance for stationary agents
+MOVEMENT_THRESHOLD = 1.0  # meters — spatial extent below this = stationary (noise-robust)
 SKIPPED_POINT_COST = 50.0
 HOP_COST = 1.0
 LANE_CHANGE_COST = 6.0
@@ -585,9 +585,9 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) 
     width = agent_context["widths"][route_check_timestep]
     trajectory = agent_context["trajectory"]
 
-    displacement = _compute_trajectory_displacement(trajectory)
+    extent = _compute_trajectory_extent(trajectory)
     distance_threshold = (
-        OFFROAD_DISTANCE_THRESHOLD if displacement > MOVEMENT_THRESHOLD else STATIONARY_OFFROAD_DISTANCE_THRESHOLD
+        OFFROAD_DISTANCE_THRESHOLD if extent > MOVEMENT_THRESHOLD else STATIONARY_OFFROAD_DISTANCE_THRESHOLD
     )
 
     min_distances = _points_to_polylines_distance(
@@ -623,7 +623,7 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) 
 def _compute_control_state(agent_data):
     if agent_data.route:
         return int(puffer_types.ControlState.CONTROLLABLE)
-    if _compute_trajectory_displacement(_valid_trajectory(agent_data.position, agent_data.valid)) > MOVEMENT_THRESHOLD:
+    if _compute_trajectory_extent(_valid_trajectory(agent_data.position, agent_data.valid)) > MOVEMENT_THRESHOLD:
         return int(puffer_types.ControlState.NON_CONTROLLABLE_MOVING)
     return int(puffer_types.ControlState.NON_CONTROLLABLE_STATIC)
 
@@ -633,10 +633,11 @@ def _valid_trajectory(positions, valid):
     return positions_2d[np.asarray(valid, dtype=bool)]
 
 
-def _compute_trajectory_displacement(trajectory):
+def _compute_trajectory_extent(trajectory):
     if len(trajectory) < 2:
         return 0.0
-    return float(np.sum(np.linalg.norm(np.diff(trajectory, axis=0), axis=1)))
+    center = np.median(trajectory, axis=0)
+    return float(np.linalg.norm(trajectory - center, axis=1).max())
 
 
 def _points_to_polylines_distance(
