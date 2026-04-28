@@ -75,6 +75,19 @@ uv run convert --py123d_path /path/to/123d --output ./output \
 uv run convert --py123d_path /path/to/123d --output ./output --map_only
 ```
 
+Converting nuplan mini maps into 10 second bins:
+```bash
+PY123D_DATA_ROOT=/home/pragnay/123Drive/py123d_output uv run convert --py123d_path py1
+23d_output --output ./nuplan_mini_val_10s_bins --workers 8 --duration_s 10 --split_names nuplan-mini_val
+```
+
+Classifying nuplan mini maps:
+```bash
+uv run classify --bins_dir ./nuplan_mini_train_10s_bins --nuplan_db_dir ./mini --py123d_data_root ./py123d_output --output nuplan_mini_scenario_labels_10s.json --duration_s 10 --output_bins_dir ./nuplan_mini_bins_classified
+```
+
+Do the same for val and test into the same output bins directory to accumulate all file classes.
+
 Core flags:
 
 | Flag | Default | Description |
