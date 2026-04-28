@@ -106,7 +106,7 @@ Geometry + route flags:
 |------|---------|-------------|
 | `--max_segment_length` | `10.0` | Max segment length for polyline interpolation |
 | `--area_threshold` | `0.1` | Polyline simplification threshold, `0` = off |
-| `--min_route_valid_points` | `0` | Min valid trajectory points for route computation |
+| `--min_route_valid_points` | `0.0` | Min valid trajectory percentage for route computation (`0`-`100`) |
 | `--route_check_timestep` | `0` | Timestep that must be valid for route computation |
 | `--no_reindex` | off | Skip reindexing element IDs to contiguous `range(0, n)` |
 | `--impute_tl` | off | Impute traffic light states from vehicle trajectories |

@@ -8,6 +8,7 @@ The route pipeline is graph-constrained:
 5. Extend beyond GT to the map dead-end.
 """
 
+import math
 from collections import deque
 from dataclasses import dataclass
 
@@ -40,7 +41,7 @@ class PointLaneCandidate:
     s: float
 
 
-def process_agent_routes(scenario, min_route_valid_points=0, route_check_timestep=0) -> None:
+def process_agent_routes(scenario, min_route_valid_points=0.0, route_check_timestep=0) -> None:
     """Compute a lane route per agent and assign it back onto ``scenario``.
 
     Routes are graph-constrained lane sequences. For each vehicle agent, the ground-truth
@@ -50,9 +51,10 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
     Arguments:
         scenario: PufferScenario whose ``agents`` and ``map`` are read; routes are written
             back onto each Track (``route``, ``route_gt_len``, ``control_state``).
-        min_route_valid_points: Minimum number of valid trajectory samples from
-            ``route_check_timestep`` onwards required to attempt route computation for a
-            non-ego agent. Below this threshold the agent gets an empty route.
+        min_route_valid_points: Minimum valid trajectory percentage of the scenario
+            length required from ``route_check_timestep`` onwards to attempt route
+            computation for a non-ego agent. Below this threshold the agent gets an
+            empty route.
         route_check_timestep: Timestep at which the agent must be valid (and on-road) for
             non-ego routes. Ego (vehicle id 0) bypasses this gate; failure on ego raises.
     """
@@ -61,6 +63,7 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
         raise ValueError(
             f"route_check_timestep={route_check_timestep} is out of range for scenario length {scenario_length}",
         )
+    min_route_valid_count = math.ceil(scenario_length * min_route_valid_points / 100)
 
     lane_data = _extract_lane_centers(scenario.map)
     route_cache = build_route_cache(scenario.map, lane_data)
@@ -85,7 +88,7 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
             is_ego=is_ego,
             route_cache=route_cache,
             route_check_timestep=route_check_timestep,
-            min_route_valid_points=min_route_valid_points,
+            min_route_valid_count=min_route_valid_count,
         )
         if is_ego and not route:
             raise ValueError(f"Route computation failed for ego vehicle (agent 0) in scenario {scenario.metadata.id}")
@@ -200,7 +203,7 @@ def compute_agent_route(
     is_ego,
     route_cache,
     route_check_timestep=0,
-    min_route_valid_points=0,
+    min_route_valid_count=0,
 ):
     """Return the best lane sequence for one agent, or an empty list."""
     positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
@@ -224,7 +227,7 @@ def compute_agent_route(
         route_cache,
         is_ego,
         route_check_timestep,
-        min_route_valid_points,
+        min_route_valid_count,
     ):
         log.debug("agent=%d: skipping route computation (insufficient valid data or offroad start)", agent_id)
         return [], 0
@@ -249,12 +252,12 @@ def compute_agent_route(
     return route, route_gt_len
 
 
-def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=0, min_route_valid_points=0) -> bool:
+def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=0, min_route_valid_count=0) -> bool:
     """Return True if a non-ego agent qualifies for route computation at ``route_check_timestep``.
 
     Ego always qualifies. A non-ego agent qualifies only if it has a trajectory, the map has
-    routable lanes, it is valid and on-road at the check timestep, and it has at least
-    ``min_route_valid_points`` valid samples from that timestep onwards.
+    routable lanes, it is valid and on-road at the check timestep, and it has enough valid
+    samples from that timestep onwards.
     """
     if is_ego:
         return True
@@ -268,7 +271,7 @@ def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=
     if not agent_context["valid"][route_check_timestep]:
         return False
 
-    if np.sum(agent_context["valid"][route_check_timestep:]) < min_route_valid_points:
+    if np.sum(agent_context["valid"][route_check_timestep:]) < min_route_valid_count:
         return False
 
     return not _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep)
