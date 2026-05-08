@@ -1831,7 +1831,7 @@ async function loadScenario(filename) {
     }
     stopPlay();
     reset3DDrag();
-    const resp = await fetch(`/api/scenario/${filename.split('/').map(encodeURIComponent).join('/')}`);
+    const resp = await fetch(`/api/scenario/${filename.split('/').map(encodeURIComponent).join('/')}`, {cache: 'no-store'});
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}`);
     }

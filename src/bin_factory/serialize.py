@@ -77,6 +77,26 @@ METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
 
 
+def _write_dynamic_states(buf, track):
+    """Write a per-track trajectory block (T + xyz + heading + velocity + bbox + valid). Returns xyz."""
+    xyz = np.asarray(track.position, dtype=np.float32)
+    buf.extend(struct.pack("<i", len(xyz)))
+    for col in [
+        xyz[:, 0],
+        xyz[:, 1],
+        xyz[:, 2],
+        track.heading,
+        track.velocity[:, 0],
+        track.velocity[:, 1],
+        track.length,
+        track.width,
+        track.height,
+    ]:
+        buf.extend(np.asarray(col, dtype=np.float32).tobytes())
+    buf.extend(np.asarray(track.valid, dtype=np.int32).tobytes())
+    return xyz
+
+
 def scenario_to_binary(scenario):
     """Serialize a PufferScenario into the PufferDrive .bin format.
 
@@ -97,23 +117,7 @@ def scenario_to_binary(scenario):
     # Agents: id, type, trajectory, route, route_gt_len, goal, control_state
     for eid, track in agents.items():
         buf.extend(struct.pack("<ii", int(eid), int(track.type)))
-
-        # Dynamic states
-        xyz = np.asarray(track.position, dtype=np.float32)
-        buf.extend(struct.pack("<i", len(xyz)))
-        for col in [
-            xyz[:, 0],
-            xyz[:, 1],
-            xyz[:, 2],
-            track.heading,
-            track.velocity[:, 0],
-            track.velocity[:, 1],
-            track.length,
-            track.width,
-            track.height,
-        ]:
-            buf.extend(np.asarray(col, dtype=np.float32).tobytes())
-        buf.extend(np.asarray(track.valid, dtype=np.int32).tobytes())
+        xyz = _write_dynamic_states(buf, track)
 
         # Route
         buf.extend(struct.pack("<i", len(track.route)))
@@ -181,21 +185,7 @@ def scenario_to_binary(scenario):
     # Objects: id, type, trajectory (same layout as agents but no route/goal)
     for eid, track in objects.items():
         buf.extend(struct.pack("<ii", int(eid), int(track.type)))
-        xyz = np.asarray(track.position, dtype=np.float32)
-        buf.extend(struct.pack("<i", len(xyz)))
-        for col in [
-            xyz[:, 0],
-            xyz[:, 1],
-            xyz[:, 2],
-            track.heading,
-            track.velocity[:, 0],
-            track.velocity[:, 1],
-            track.length,
-            track.width,
-            track.height,
-        ]:
-            buf.extend(np.asarray(col, dtype=np.float32).tobytes())
-        buf.extend(np.asarray(track.valid, dtype=np.int32).tobytes())
+        _write_dynamic_states(buf, track)
 
     # Lane graph: pairwise distance matrix between lanes (Dijkstra-precomputed)
     if lg := scenario.lane_graph:

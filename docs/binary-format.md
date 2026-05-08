@@ -52,13 +52,15 @@ Each agent is laid out sequentially:
 
 **Lane-only fields** (type 0–9):
 
-| Type | Field |
-|------|-------|
-| int32 | `n_entry_lanes` |
-| int32 × n_entry_lanes | `entry_lane_ids` |
-| int32 | `n_exit_lanes` |
-| int32 × n_exit_lanes | `exit_lane_ids` |
+| Type | Field | Notes |
+|------|-------|-------|
+| int32 | `n_entry_lanes` | |
+| int32 × n_entry_lanes | `entry_lane_ids` | |
+| int32 | `n_exit_lanes` | |
+| int32 × n_exit_lanes | `exit_lane_ids` | |
 | float32 | `speed_limit` | m/s, -1.0 if unknown |
+| float32 | `length` | Total polyline arc length (meters) |
+| float32 × N | `cum_length` | Per-point cumulative arc length, `cum[0]=0`, `cum[-1]=length` |
 
 ### Road element type ranges
 
@@ -110,7 +112,6 @@ All-pairs shortest lane-to-lane distances precomputed via Dijkstra on FREEWAY an
 |------|-------|-------|
 | int32 | `n_lanes_graph` | Number of lane nodes (0 = no graph data) |
 | int32 × n | `lane_ids` | Lane IDs in matrix row/col order |
-| float32 × n | `lane_lengths` | Arc length of each lane's polyline |
 | float32 × n² | `distances` | Row-major shortest path matrix |
 
 ## Metadata (tail of file)

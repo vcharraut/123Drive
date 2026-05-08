@@ -51,10 +51,9 @@ def process_agent_routes(scenario, min_route_valid_points=0.0, route_check_times
     Arguments:
         scenario: PufferScenario whose ``agents`` and ``map`` are read; routes are written
             back onto each Track (``route``, ``route_gt_len``, ``control_state``).
-        min_route_valid_points: Minimum valid trajectory percentage of the scenario
-            length required from ``route_check_timestep`` onwards to attempt route
-            computation for a non-ego agent. Below this threshold the agent gets an
-            empty route.
+        min_route_valid_points: Minimum valid trajectory percentage from
+            ``route_check_timestep`` onwards required to attempt route computation for a
+            non-ego agent. Below this threshold the agent gets an empty route.
         route_check_timestep: Timestep at which the agent must be valid (and on-road) for
             non-ego routes. Ego (vehicle id 0) bypasses this gate; failure on ego raises.
     """
@@ -63,7 +62,8 @@ def process_agent_routes(scenario, min_route_valid_points=0.0, route_check_times
         raise ValueError(
             f"route_check_timestep={route_check_timestep} is out of range for scenario length {scenario_length}",
         )
-    min_route_valid_count = math.ceil(scenario_length * min_route_valid_points / 100)
+    route_check_horizon = scenario_length - route_check_timestep
+    min_route_valid_count = math.ceil(route_check_horizon * min_route_valid_points / 100)
 
     lane_data = _extract_lane_centers(scenario.map)
     route_cache = build_route_cache(scenario.map, lane_data)
@@ -207,7 +207,6 @@ def compute_agent_route(
 ):
     """Return the best lane sequence for one agent, or an empty list."""
     positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
-    headings = headings
     valid = np.asarray(valid, dtype=bool)
     trajectory = positions_2d[valid]
     heading_valid = headings[valid]

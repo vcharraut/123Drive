@@ -1,6 +1,6 @@
 import numpy as np
 
-from bin_factory import puffer_types as puffer_types
+from bin_factory import puffer_types
 from bin_factory.log_context import log
 
 

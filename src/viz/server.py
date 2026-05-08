@@ -85,7 +85,11 @@ def get_scenario(filename: str):
     path = _resolve_scenario_path(filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Scenario not found")
-    return FileResponse(path, media_type="application/octet-stream")
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @app.post("/api/export/mp4")

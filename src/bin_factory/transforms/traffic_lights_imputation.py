@@ -251,9 +251,11 @@ class _TrafficLightImputer:
             lane.right_neighbors = self._clean_neighbors(lane, lane.right_neighbors)
 
     def _symmetrize_neighbors(self) -> None:
+        orig_left = {lid: list(lane.left_neighbors) for lid, lane in self.lanes.items()}
+        orig_right = {lid: list(lane.right_neighbors) for lid, lane in self.lanes.items()}
         for lane in self.lanes.values():
-            lane.left_neighbors = [ref for ref in lane.left_neighbors if lane.id in self.lanes[ref].right_neighbors]
-            lane.right_neighbors = [ref for ref in lane.right_neighbors if lane.id in self.lanes[ref].left_neighbors]
+            lane.left_neighbors = [ref for ref in lane.left_neighbors if lane.id in orig_right.get(ref, [])]
+            lane.right_neighbors = [ref for ref in lane.right_neighbors if lane.id in orig_left.get(ref, [])]
 
     def _compute_diverge_merge(self) -> None:
         for lane in self.lanes.values():
@@ -267,9 +269,11 @@ class _TrafficLightImputer:
                         self.lanes[left].diverge_lanes.add(right)
 
     def _symmetrize_diverge_merge(self) -> None:
+        orig_div = {lid: set(lane.diverge_lanes) for lid, lane in self.lanes.items()}
+        orig_mer = {lid: set(lane.merge_lanes) for lid, lane in self.lanes.items()}
         for lane in self.lanes.values():
-            lane.diverge_lanes = {ref for ref in lane.diverge_lanes if lane.id in self.lanes[ref].diverge_lanes}
-            lane.merge_lanes = {ref for ref in lane.merge_lanes if lane.id in self.lanes[ref].merge_lanes}
+            lane.diverge_lanes = {ref for ref in lane.diverge_lanes if lane.id in orig_div.get(ref, set())}
+            lane.merge_lanes = {ref for ref in lane.merge_lanes if lane.id in orig_mer.get(ref, set())}
 
     def _clean_neighbors(self, lane: _LaneRecord, neighbors: list[int]) -> list[int]:
         cleaned: list[int] = []
@@ -561,7 +565,9 @@ class _TLSGenerator:
         for index, approach in enumerate(intersection):
             for lane in approach:
                 for conn in lane.injunction_lanes:
-                    phase = next(candidate for candidate in raw_state[index] if conn.direction in candidate)
+                    phase = next((c for c in raw_state[index] if conn.direction in c), None)
+                    if phase is None:
+                        continue
                     for step in range(curr_step, max(0, curr_step - 10) - 1, -1):
                         state = conn.record_tls[step]
                         if state in {_TLS.ABSENT, _TLS.UNKNOWN} or raw_state[index][phase] is not None:
@@ -910,8 +916,12 @@ def _assign_vehicle_states_to_lanes(
     dt: float,
     horizon: int,
 ) -> dict[int, list[dict[int, _VehicleState]]]:
-    assignments_by_row = [[{} for _ in range(horizon)] for _ in range(len(row_to_lane_id))]
+    n_rows = len(row_to_lane_id)
+    assignments_by_row = [[{} for _ in range(horizon)] for _ in range(n_rows)]
+    if n_rows == 0:
+        return {row_to_lane_id[row]: assignments_by_row[row] for row in row_to_lane_id}
 
+    row_idx = np.arange(n_rows)
     for track_id, track in tracks.items():
         if track.type != puffer_types.AgentType.VEHICLE:
             continue
@@ -925,22 +935,25 @@ def _assign_vehicle_states_to_lanes(
                 continue
             position = positions[timestep]
             distances = np.linalg.norm(lane_center_matrix - position, axis=2)
-            min_distances = np.min(distances, axis=1)
             min_columns = np.argmin(distances, axis=1)
-            candidate_rows = [
-                row
-                for row in range(len(row_to_lane_id))
-                if _vehicle_matches_lane(
-                    lane_center_matrix[row],
-                    int(min_columns[row]),
-                    float(min_distances[row]),
-                    float(headings[timestep]),
-                )
-            ]
-            if not candidate_rows:
+            min_distances = distances[row_idx, min_columns]
+
+            lo_idx = np.maximum(min_columns - 1, 0)
+            hi_idx = lo_idx + 1
+            starts = lane_center_matrix[row_idx, lo_idx]
+            ends = lane_center_matrix[row_idx, hi_idx]
+            finite_mask = np.all(np.isfinite(starts), axis=1) & np.all(np.isfinite(ends), axis=1)
+            seg_xy = ends[:, :2] - starts[:, :2]
+            lane_headings = np.arctan2(seg_xy[:, 1], seg_xy[:, 0])
+            diff = np.abs(headings[timestep] - lane_headings) % (2 * np.pi)
+            angle = np.minimum(diff, 2 * np.pi - diff)
+            match_mask = (min_distances < _DISTANCE_CRITERIA) & finite_mask & (angle < _ANGLE_CRITERIA)
+
+            candidate_rows = np.flatnonzero(match_mask)
+            if candidate_rows.size == 0:
                 continue
 
-            best_row = min(candidate_rows, key=lambda row: distances[row, min_columns[row]])
+            best_row = int(candidate_rows[np.argmin(min_distances[candidate_rows])])
             best_col = int(min_columns[best_row])
             speed = float(np.linalg.norm(velocities[timestep, :2]))
             acceleration = 0.0
@@ -957,26 +970,6 @@ def _assign_vehicle_states_to_lanes(
             assignments_by_row[best_row][timestep][int(track_id)] = _VehicleState(best_col, speed, acceleration)
 
     return {row_to_lane_id[row]: assignments_by_row[row] for row in row_to_lane_id}
-
-
-def _vehicle_matches_lane(
-    lane_points: np.ndarray,
-    min_column: int,
-    min_distance: float,
-    heading: float,
-) -> bool:
-    if min_distance >= _DISTANCE_CRITERIA:
-        return False
-    if min_column == 0:
-        start = lane_points[min_column]
-        end = lane_points[min_column + 1]
-    else:
-        start = lane_points[min_column - 1]
-        end = lane_points[min_column]
-    if not np.isfinite(start).all() or not np.isfinite(end).all():
-        return False
-    lane_heading = _vector_heading(end[:2] - start[:2])
-    return _angle_of_headings(heading, lane_heading) < _ANGLE_CRITERIA
 
 
 def _group_lanes_into_ways(approaching_lanes: list[_ApproachingLane]) -> list[list[_ApproachingLane]]:

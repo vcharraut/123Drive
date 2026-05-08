@@ -84,6 +84,7 @@ Core flags:
 | `--workers` | `0` | Parallel workers (`0` = 80% of CPU cores) |
 | `--chunk_target_scenes` | `10000` | Scenarios per worker dispatch batch |
 | `--validate_level` | `1` | Validation strictness |
+| `--log_level` | `INFO` | Root logging level (`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`) |
 
 Failures are written to `failures.jsonl` under `--output`.
 
