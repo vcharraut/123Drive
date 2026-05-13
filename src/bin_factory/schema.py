@@ -5,6 +5,9 @@ import numpy as np
 from bin_factory import puffer_types
 
 
+MAP_REF_KEYS = ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor")
+
+
 @dataclasses.dataclass
 class ScenarioMetadata:
     id: str

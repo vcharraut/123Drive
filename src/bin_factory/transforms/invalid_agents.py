@@ -6,15 +6,12 @@ agent, checks per-timestep bbox overlap against every log-only agent; first
 intersection zeros the log agent's ``valid`` array.
 """
 
-import logging
-
 import numpy as np
 from shapely import geometry as shapely_geom
 
+from bin_factory.log_context import log
+
 from .routes import _compute_control_state
-
-
-logger = logging.getLogger(__name__)
 
 
 def invalid_agent_overlap(scenario) -> None:
@@ -72,7 +69,7 @@ def invalid_agent_overlap(scenario) -> None:
 
     flagged_ids = [agent_ids[i] for i in np.flatnonzero(flagged)]
     for aid in flagged_ids:
-        logger.debug("agent=%d: zeroing log agent due to overlap with active agent", aid)
+        log.debug("agent=%d: zeroing log agent due to overlap with active agent", aid)
         track = scenario.agents[aid]
         track.valid[:] = 0
         track.route = []
@@ -80,7 +77,7 @@ def invalid_agent_overlap(scenario) -> None:
         track.control_state = _compute_control_state(track)
 
     if flagged_ids:
-        logger.debug("zeroed %d overlapping log agents", len(flagged_ids))
+        log.debug("zeroed %d overlapping log agents", len(flagged_ids))
 
 
 def _compute_all_corners(tracks):

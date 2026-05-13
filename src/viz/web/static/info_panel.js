@@ -102,8 +102,10 @@
     const isEdge = data.type >= 20 && data.type <= 29;
     const showZ = hasZPositions(data);
 
+    const cum = data.cum_length || [];
+    const showCum = isLane && cum.length === data.xyz.length;
     const ptRows = data.xyz.slice(0, 30).map(([x, y, z = 0], i) =>
-      `<tr><td>${i}</td><td>${x.toFixed(2)}</td><td>${y.toFixed(2)}</td>${showZ ? `<td>${z.toFixed(2)}</td>` : ''}</tr>`).join('');
+      `<tr><td>${i}</td><td>${x.toFixed(2)}</td><td>${y.toFixed(2)}</td>${showZ ? `<td>${z.toFixed(2)}</td>` : ''}${showCum ? `<td>${cum[i].toFixed(2)}</td>` : ''}</tr>`).join('');
 
     let category = 'misc';
     if (isLane) category = 'lane';
@@ -120,15 +122,17 @@
       const entry = data.entry_lanes.length ? safeIdList(data.entry_lanes) : '—';
       const exit = data.exit_lanes.length ? safeIdList(data.exit_lanes) : '—';
       const sl = data.speed_limit ? data.speed_limit.toFixed(1) + ' m/s' : '—';
+      const len = (typeof data.length === 'number') ? data.length.toFixed(2) + ' m' : '—';
       html += `
       <div class="info-row"><span class="info-label">Entry</span><span class="info-val" style="font-size:9px">${entry}</span></div>
       <div class="info-row"><span class="info-label">Exit</span><span class="info-val" style="font-size:9px">${exit}</span></div>
-      <div class="info-row"><span class="info-label">Speed lim</span><span class="info-val">${escapeHtml(sl)}</span></div>`;
+      <div class="info-row"><span class="info-label">Speed lim</span><span class="info-val">${escapeHtml(sl)}</span></div>
+      <div class="info-row"><span class="info-label">Length</span><span class="info-val">${escapeHtml(len)}</span></div>`;
     }
 
     html += `
       <details><summary>Polyline</summary>
-        <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th>${showZ ? '<th>Z</th>' : ''}</tr></thead>
+        <table class="traj-table"><thead><tr><th>#</th><th>X</th><th>Y</th>${showZ ? '<th>Z</th>' : ''}${showCum ? '<th>Cum</th>' : ''}</tr></thead>
         <tbody>${ptRows}</tbody></table>
       </details>`;
 

@@ -1,4 +1,4 @@
-_MAP_LIST_REF_KEYS = ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor")
+from bin_factory.schema import MAP_REF_KEYS
 
 
 def reindex_scenario(scenario) -> None:
@@ -8,16 +8,13 @@ def reindex_scenario(scenario) -> None:
     traffic_control_id_map = _build_id_map([tc["id"] for tc in scenario.traffic_controls])
 
     scenario.map = {
-        map_id_map[element_id]: _remap_map_element(element, map_id_map, map_id_map[element_id])
-        for element_id, element in scenario.map.items()
+        map_id_map[element_id]: _remap_map_element(element, map_id_map) for element_id, element in scenario.map.items()
     }
     scenario.agents = {
-        agent_id_map[track_id]: _remap_track(track, map_id_map, agent_id_map[track_id])
-        for track_id, track in scenario.agents.items()
+        agent_id_map[track_id]: _remap_track(track, map_id_map) for track_id, track in scenario.agents.items()
     }
     scenario.objects = {
-        object_id_map[track_id]: _remap_track(track, map_id_map, object_id_map[track_id])
-        for track_id, track in scenario.objects.items()
+        object_id_map[track_id]: _remap_track(track, map_id_map) for track_id, track in scenario.objects.items()
     }
     scenario.traffic_controls = [
         _remap_traffic_control(tc, map_id_map, traffic_control_id_map[tc["id"]]) for tc in scenario.traffic_controls
@@ -32,21 +29,17 @@ def _build_id_map(ids):
     return {element_id: idx for idx, element_id in enumerate(ids)}
 
 
-def _remap_map_element(element, map_id_map, element_id):
+def _remap_map_element(element, map_id_map):
     remapped = {**element}
-    if "id" in remapped:
-        remapped["id"] = element_id
-    for key in _MAP_LIST_REF_KEYS:
+    for key in MAP_REF_KEYS:
         if key in remapped:
             remapped[key] = [map_id_map[ref_id] for ref_id in remapped[key] if ref_id in map_id_map]
     return remapped
 
 
-def _remap_track(track, map_id_map, track_id):
+def _remap_track(track, map_id_map):
     track.route = [map_id_map[ref_id] for ref_id in track.route if ref_id in map_id_map]
     track.route_gt_len = min(track.route_gt_len, len(track.route))
-    if hasattr(track, "id"):
-        track.id = track_id
     return track
 
 

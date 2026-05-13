@@ -8,7 +8,7 @@ The route pipeline is graph-constrained:
 5. Extend beyond GT to the map dead-end.
 """
 
-import logging
+import math
 from collections import deque
 from dataclasses import dataclass
 
@@ -16,9 +16,7 @@ import numpy as np
 from shapely import geometry as shapely_geom
 
 from bin_factory import puffer_types
-
-
-logger = logging.getLogger(__name__)
+from bin_factory.log_context import log
 
 
 LANE_WIDTH_THRESHOLD = 7.0  # meters — reject point-to-lane matches farther than this
@@ -28,8 +26,8 @@ MAX_CANDIDATES_PER_POINT = 7
 MAX_TRANSITION_HOPS = 3
 BACKWARD_PROGRESS_TOLERANCE = 2.0  # meters — allow small projection noise on same lane
 OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters — max lane distance for moving agents
-STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 1.0  # meters — max lane distance for stationary agents
-MOVEMENT_THRESHOLD = 0.5  # meters — total displacement below this = stationary
+STATIONARY_OFFROAD_DISTANCE_THRESHOLD = 0.3  # meters — max lane distance for stationary agents
+MOVEMENT_THRESHOLD = 1.0  # meters — spatial extent below this = stationary (noise-robust)
 SKIPPED_POINT_COST = 50.0
 HOP_COST = 1.0
 LANE_CHANGE_COST = 6.0
@@ -43,7 +41,7 @@ class PointLaneCandidate:
     s: float
 
 
-def process_agent_routes(scenario, min_route_valid_points=0, route_check_timestep=0) -> None:
+def process_agent_routes(scenario, min_route_valid_points=0.0, route_check_timestep=0) -> None:
     """Compute a lane route per agent and assign it back onto ``scenario``.
 
     Routes are graph-constrained lane sequences. For each vehicle agent, the ground-truth
@@ -53,7 +51,7 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
     Arguments:
         scenario: PufferScenario whose ``agents`` and ``map`` are read; routes are written
             back onto each Track (``route``, ``route_gt_len``, ``control_state``).
-        min_route_valid_points: Minimum number of valid trajectory samples from
+        min_route_valid_points: Minimum valid trajectory percentage from
             ``route_check_timestep`` onwards required to attempt route computation for a
             non-ego agent. Below this threshold the agent gets an empty route.
         route_check_timestep: Timestep at which the agent must be valid (and on-road) for
@@ -64,6 +62,8 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
         raise ValueError(
             f"route_check_timestep={route_check_timestep} is out of range for scenario length {scenario_length}",
         )
+    route_check_horizon = scenario_length - route_check_timestep
+    min_route_valid_count = math.ceil(route_check_horizon * min_route_valid_points / 100)
 
     lane_data = _extract_lane_centers(scenario.map)
     route_cache = build_route_cache(scenario.map, lane_data)
@@ -88,7 +88,7 @@ def process_agent_routes(scenario, min_route_valid_points=0, route_check_timeste
             is_ego=is_ego,
             route_cache=route_cache,
             route_check_timestep=route_check_timestep,
-            min_route_valid_points=min_route_valid_points,
+            min_route_valid_count=min_route_valid_count,
         )
         if is_ego and not route:
             raise ValueError(f"Route computation failed for ego vehicle (agent 0) in scenario {scenario.metadata.id}")
@@ -203,11 +203,10 @@ def compute_agent_route(
     is_ego,
     route_cache,
     route_check_timestep=0,
-    min_route_valid_points=0,
+    min_route_valid_count=0,
 ):
     """Return the best lane sequence for one agent, or an empty list."""
     positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
-    headings = headings
     valid = np.asarray(valid, dtype=bool)
     trajectory = positions_2d[valid]
     heading_valid = headings[valid]
@@ -227,24 +226,24 @@ def compute_agent_route(
         route_cache,
         is_ego,
         route_check_timestep,
-        min_route_valid_points,
+        min_route_valid_count,
     ):
-        logger.debug("agent=%d: skipping route computation (insufficient valid data or offroad start)", agent_id)
+        log.debug("agent=%d: skipping route computation (insufficient valid data or offroad start)", agent_id)
         return [], 0
 
     observations = _build_point_observations(agent_context, route_cache)
     if not observations:
-        logger.debug("agent=%d: no GT-supported lane candidates found", agent_id)
+        log.debug("agent=%d: no GT-supported lane candidates found", agent_id)
         return [], 0
 
     candidate_path = _select_candidate_path(observations, len(trajectory), route_cache)
     if not candidate_path:
-        logger.debug("agent=%d: no topologically valid lane path found", agent_id)
+        log.debug("agent=%d: no topologically valid lane path found", agent_id)
         return [], 0
 
     gt_route = _expand_candidate_path(candidate_path, route_cache)
     if not gt_route:
-        logger.debug("agent=%d: failed to reconstruct GT-supported route", agent_id)
+        log.debug("agent=%d: failed to reconstruct GT-supported route", agent_id)
         return [], 0
 
     route_gt_len = len(gt_route)
@@ -252,12 +251,12 @@ def compute_agent_route(
     return route, route_gt_len
 
 
-def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=0, min_route_valid_points=0) -> bool:
+def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=0, min_route_valid_count=0) -> bool:
     """Return True if a non-ego agent qualifies for route computation at ``route_check_timestep``.
 
     Ego always qualifies. A non-ego agent qualifies only if it has a trajectory, the map has
-    routable lanes, it is valid and on-road at the check timestep, and it has at least
-    ``min_route_valid_points`` valid samples from that timestep onwards.
+    routable lanes, it is valid and on-road at the check timestep, and it has enough valid
+    samples from that timestep onwards.
     """
     if is_ego:
         return True
@@ -271,7 +270,7 @@ def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=
     if not agent_context["valid"][route_check_timestep]:
         return False
 
-    if np.sum(agent_context["valid"][route_check_timestep:]) < min_route_valid_points:
+    if np.sum(agent_context["valid"][route_check_timestep:]) < min_route_valid_count:
         return False
 
     return not _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep)
@@ -588,9 +587,9 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) 
     width = agent_context["widths"][route_check_timestep]
     trajectory = agent_context["trajectory"]
 
-    displacement = _compute_trajectory_displacement(trajectory)
+    extent = _compute_trajectory_extent(trajectory)
     distance_threshold = (
-        OFFROAD_DISTANCE_THRESHOLD if displacement > MOVEMENT_THRESHOLD else STATIONARY_OFFROAD_DISTANCE_THRESHOLD
+        OFFROAD_DISTANCE_THRESHOLD if extent > MOVEMENT_THRESHOLD else STATIONARY_OFFROAD_DISTANCE_THRESHOLD
     )
 
     min_distances = _points_to_polylines_distance(
@@ -626,7 +625,7 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) 
 def _compute_control_state(agent_data):
     if agent_data.route:
         return int(puffer_types.ControlState.CONTROLLABLE)
-    if _compute_trajectory_displacement(_valid_trajectory(agent_data.position, agent_data.valid)) > MOVEMENT_THRESHOLD:
+    if _compute_trajectory_extent(_valid_trajectory(agent_data.position, agent_data.valid)) > MOVEMENT_THRESHOLD:
         return int(puffer_types.ControlState.NON_CONTROLLABLE_MOVING)
     return int(puffer_types.ControlState.NON_CONTROLLABLE_STATIC)
 
@@ -636,10 +635,11 @@ def _valid_trajectory(positions, valid):
     return positions_2d[np.asarray(valid, dtype=bool)]
 
 
-def _compute_trajectory_displacement(trajectory):
+def _compute_trajectory_extent(trajectory):
     if len(trajectory) < 2:
         return 0.0
-    return float(np.sum(np.linalg.norm(np.diff(trajectory, axis=0), axis=1)))
+    center = np.median(trajectory, axis=0)
+    return float(np.linalg.norm(trajectory - center, axis=1).max())
 
 
 def _points_to_polylines_distance(

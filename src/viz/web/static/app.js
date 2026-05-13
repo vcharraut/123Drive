@@ -598,7 +598,7 @@ function reconstructPath(scenario, srcId, dstId) {
     const exits = (lane.exit_lanes || []).filter(eid => idToIdx.has(eid));
     const next = exits.find(eid => {
       const eidx = idToIdx.get(eid);
-      return Math.abs(lg.lane_lengths[curIdx] + dist(eidx, dstIdx) - dist(curIdx, dstIdx)) < 0.01;
+      return Math.abs(lane.length + dist(eidx, dstIdx) - dist(curIdx, dstIdx)) < 0.01;
     });
     if (next === undefined) return null;
     path.push(next);
@@ -1831,7 +1831,7 @@ async function loadScenario(filename) {
     }
     stopPlay();
     reset3DDrag();
-    const resp = await fetch(`/api/scenario/${filename.split('/').map(encodeURIComponent).join('/')}`);
+    const resp = await fetch(`/api/scenario/${filename.split('/').map(encodeURIComponent).join('/')}`, {cache: 'no-store'});
     if (!resp.ok) {
       throw new Error(`HTTP ${resp.status}`);
     }

@@ -84,6 +84,7 @@ Core flags:
 | `--workers` | `0` | Parallel workers (`0` = 80% of CPU cores) |
 | `--chunk_target_scenes` | `10000` | Scenarios per worker dispatch batch |
 | `--validate_level` | `1` | Validation strictness |
+| `--log_level` | `INFO` | Root logging level (`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`) |
 
 Failures are written to `failures.jsonl` under `--output`.
 
@@ -106,10 +107,11 @@ Geometry + route flags:
 |------|---------|-------------|
 | `--max_segment_length` | `10.0` | Max segment length for polyline interpolation |
 | `--area_threshold` | `0.1` | Polyline simplification threshold, `0` = off |
-| `--min_route_valid_points` | `0` | Min valid trajectory points for route computation |
+| `--min_route_valid_points` | `0.0` | Min valid trajectory percentage for route computation (`0`-`100`) |
 | `--route_check_timestep` | `0` | Timestep that must be valid for route computation |
 | `--no_reindex` | off | Skip reindexing element IDs to contiguous `range(0, n)` |
 | `--impute_tl` | off | Impute traffic light states from vehicle trajectories |
+| `--invalid_agent_overlap` | off | Zero out log-only agents whose bbox overlaps an active agent during replay |
 
 Validation levels:
 

@@ -85,7 +85,11 @@ def get_scenario(filename: str):
     path = _resolve_scenario_path(filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Scenario not found")
-    return FileResponse(path, media_type="application/octet-stream")
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @app.post("/api/export/mp4")
@@ -124,9 +128,7 @@ async def export_mp4(request: Request, name: str = "scenario"):
         "+faststart",
         str(output_path),
     ]
-    proc = await asyncio.create_subprocess_exec(
-        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
+    proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     _, stderr = await proc.communicate()
     if proc.returncode != 0 or not output_path.exists():
         shutil.rmtree(tempdir, ignore_errors=True)

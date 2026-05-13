@@ -1,11 +1,7 @@
-import logging
-
 import numpy as np
 
-from bin_factory import puffer_types as puffer_types
-
-
-logger = logging.getLogger(__name__)
+from bin_factory import puffer_types
+from bin_factory.log_context import log
 
 
 def process_traffic_controls(scenario, extras) -> None:
@@ -21,7 +17,7 @@ def process_traffic_controls(scenario, extras) -> None:
     for element_id, traffic_light in extras.get("traffic_lights", {}).items():
         controlled_lane_id = traffic_light.controlled_lane
         if (controlled_lane := lanes_by_id.get(controlled_lane_id)) is None:
-            logger.debug(
+            log.debug(
                 "lane=%s tl=%s: controlled lane not in map, skipping",
                 controlled_lane_id,
                 element_id,
@@ -31,7 +27,7 @@ def process_traffic_controls(scenario, extras) -> None:
             heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
             stop_line = _stop_line_from_position(heading, controlled_lane_id, lanes_by_id)
         except ValueError as exc:
-            logger.warning("lane=%s tl=%s: malformed traffic light, skipping: %s", controlled_lane_id, element_id, exc)
+            log.warning("lane=%s tl=%s: malformed traffic light, skipping: %s", controlled_lane_id, element_id, exc)
             continue
         control_id = int(element_id)
 
@@ -61,7 +57,7 @@ def process_traffic_controls(scenario, extras) -> None:
 
         controlled_lane_id = controlled_lanes[0]
         if (controlled_lane := lanes_by_id.get(controlled_lane_id)) is None:
-            logger.debug(
+            log.debug(
                 "lane=%s: controlled lane for stop zone (type=%s) not in map, skipping",
                 controlled_lane_id,
                 stop_zone_type,
@@ -71,7 +67,7 @@ def process_traffic_controls(scenario, extras) -> None:
             heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
             stop_line = _stop_line_from_polygon(element_data["polygon"], heading)
         except ValueError as exc:
-            logger.warning("lane=%s: malformed stop zone, skipping: %s", controlled_lane_id, exc)
+            log.warning("lane=%s: malformed stop zone, skipping: %s", controlled_lane_id, exc)
             continue
 
         if stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT:

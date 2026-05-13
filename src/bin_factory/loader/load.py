@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import logging
 import pathlib
 
 from py123d import api as py123d_api
 from py123d.api.map.arrow import arrow_map_api
 from py123d.common import execution
-
-
-logger = logging.getLogger(__name__)
 
 
 def discover_scenes(

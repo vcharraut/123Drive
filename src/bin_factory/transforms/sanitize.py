@@ -1,7 +1,5 @@
 from bin_factory import puffer_types
-
-
-_MAP_REF_KEYS = ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor")
+from bin_factory.schema import MAP_REF_KEYS
 
 
 def prune_invalid_map_elements(scenario, extras=None) -> None:
@@ -53,7 +51,7 @@ def _filter_map_refs(element, valid_ids):
         **element,
         **{
             key: [ref_id for ref_id in element.get(key, []) if ref_id in valid_ids]
-            for key in _MAP_REF_KEYS
+            for key in MAP_REF_KEYS
             if key in element
         },
     }

@@ -1,8 +1,6 @@
 import numpy as np
 from shapely import geometry as shapely_geom
 
-from bin_factory import puffer_types
-
 
 # ── Interpolate polygons to ensure they are all the same spacing ───────────────────────
 

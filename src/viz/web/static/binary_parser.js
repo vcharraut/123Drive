@@ -10,7 +10,7 @@
  *              goal_x(f32), goal_y(f32), goal_z(f32), control_state(i32)
  *   Roads[]:   id(i32), type(i32), S(i32),
  *              x[S](f32), y[S](f32), z[S](f32), heading[S](f32),
- *              [if lane (type 0-9): n_entry(i32), entry[](i32), n_exit(i32), exit[](i32), speed_limit(f32)]
+ *              [if lane (type 0-9): n_entry(i32), entry[](i32), n_exit(i32), exit[](i32), speed_limit(f32), length(f32), cum_length[S](f32)]
  *   Traffic[]: id(i32), type(i32), stop_line(6xf32), heading(f32),
  *              n_states(i32), states[](i32), n_ctrl(i32), ctrl[](i32)
  *   Objects[]: id(i32), type(i32), T(i32),
@@ -18,7 +18,7 @@
  *              heading[T](f32), vx[T](f32), vy[T](f32),
  *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32)
  *   LaneGraph: n_lanes_graph(i32),
- *              [if n>0: lane_ids[n](i32), lane_lengths[n](f32), distances[n*n](f32)]
+ *              [if n>0: lane_ids[n](i32), distances[n*n](f32)]
  *   Metadata:  id(char[128]), dataset(char[32]),
  *              scenario_length(i32), dt(f32),
  *              n_ooi(i32), ooi[](i32), n_ttp(i32), ttp[](i32)
@@ -130,14 +130,16 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       const zArr = f32arr(S);
       const heading = Array.from(f32arr(S));
 
-      let entry_lanes = [], exit_lanes = [], speed_limit = 0;
+      let entry_lanes = [], exit_lanes = [], speed_limit = 0, length = 0, cum_length = [];
       if (type >= TYPES.LANE_RANGE[0] && type <= TYPES.LANE_RANGE[1]) {
         entry_lanes = intList();
         exit_lanes = intList();
         speed_limit = f32();
+        length = f32();
+        cum_length = Array.from(f32arr(S));
       }
 
-      road_map_elements[r] = { id, type, xyz: colsToRows([xArr, yArr, zArr]), heading, entry_lanes, exit_lanes, speed_limit };
+      road_map_elements[r] = { id, type, xyz: colsToRows([xArr, yArr, zArr]), heading, entry_lanes, exit_lanes, speed_limit, length, cum_length };
     }
 
     // --- Traffic ---
@@ -168,9 +170,8 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     let lane_graph = null;
     if (nGraphLanes > 0) {
       const graphLaneIds = Array.from(i32arr(nGraphLanes));
-      const laneLengths = Array.from(f32arr(nGraphLanes));
       const distances = f32arr(nGraphLanes * nGraphLanes);
-      lane_graph = { lane_ids: graphLaneIds, lane_lengths: laneLengths, distances, n: nGraphLanes };
+      lane_graph = { lane_ids: graphLaneIds, distances, n: nGraphLanes };
     }
 
     // --- Metadata ---
