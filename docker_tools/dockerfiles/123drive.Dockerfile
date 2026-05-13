@@ -1,4 +1,4 @@
-ARG PYTHON_VERSION=3.12
+ARG PYTHON_VERSION=3.13
 FROM python:${PYTHON_VERSION}-slim
 
 COPY --from=ghcr.io/astral-sh/uv:0.8.21 /uv /uvx /bin/

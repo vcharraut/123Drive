@@ -99,7 +99,7 @@ def build_parser():
     return parser
 
 
-_IDENTITY_ATTRS = ("scene_uuid", "scenario_id", "log_name", "location", "map_id")
+_IDENTITY_ATTRS = ("log_name", "scene_uuid", "location")
 
 
 def _scenario_identity(py123d_data) -> str | None:

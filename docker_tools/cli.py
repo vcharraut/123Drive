@@ -53,6 +53,8 @@ def cmd_123drive(args):
         "docker",
         "build",
         *(["--no-cache"] if args.no_cache else []),
+        "--build-arg",
+        f"PYTHON_VERSION={DEFAULT_PY_VERSION}",
         "-f",
         str(DOCKERFILES / "123drive.Dockerfile"),
         "-t",
