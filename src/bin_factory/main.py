@@ -82,14 +82,22 @@ def build_parser():
     return parser
 
 
-_IDENTITY_ATTRS = ("log_name", "scene_uuid", "location")
-
-
 def _scenario_identity(py123d_data) -> str | None:
-    for attr in _IDENTITY_ATTRS:
-        if value := getattr(py123d_data, attr, None):
-            return str(value)
-    return None
+    dataset = str(getattr(py123d_data, "dataset", "") or "")
+    if dataset.startswith("nuplan"):
+        preferred_attr = "scene_uuid"
+    elif dataset.startswith("opendrive"):
+        preferred_attr = "location"
+    else:
+        preferred_attr = "log_name"
+
+    scenario_id = str(getattr(py123d_data, preferred_attr, ""))
+    if scenario_id == "":
+        raise ValueError(
+            f"Cannot derive scenario id from py123d_data attributes: missing {preferred_attr} for dataset {dataset}"
+        )
+
+    return scenario_id
 
 
 def _build_output_path(py123d_data, output_dir):
@@ -107,9 +115,6 @@ def _build_output_path(py123d_data, output_dir):
         return re.sub(r"[^A-Za-z0-9._-]+", "_", v.strip()).strip("._-") or "scenario"
 
     source_id = _scenario_identity(py123d_data)
-    if not source_id:
-        raise ValueError("Cannot derive scenario identity from py123d_data attributes: " + ", ".join(_IDENTITY_ATTRS))
-
     dataset = getattr(py123d_data, "dataset", "") or ""
 
     if not dataset:
