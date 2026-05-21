@@ -2,6 +2,16 @@
 
 Generated from tags on `main`.
 
+## v0.3.1 - 2026-05-21
+
+Compared with `v0.3`.
+Source: `v0.3..v0.3.1` - 2 commits, 2 files changed.
+
+### Changed
+
+- Scenario output filenames now derive identity from dataset-specific fields:
+  `scene_uuid` for nuPlan, `location` for OpenDRIVE, and `log_name` otherwise.
+
 ## v0.3 - 2026-05-13
 
 Compared with `v0.2`.
