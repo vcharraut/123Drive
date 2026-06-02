@@ -110,7 +110,7 @@ Geometry + route flags:
 | `--min_route_valid_points` | `0.0` | Min valid trajectory percentage for route computation (`0`-`100`) |
 | `--route_check_timestep` | `0` | Timestep that must be valid for route computation |
 | `--no_reindex` | off | Skip reindexing element IDs to contiguous `range(0, n)` |
-| `--impute_tl` | off | Impute traffic light states from vehicle trajectories |
+| `--interpolate_tl` | off | Interpolate traffic light states from vehicle trajectories |
 | `--invalid_agent_overlap` | off | Zero out log-only agents whose bbox overlaps an active agent during replay |
 
 Validation levels:

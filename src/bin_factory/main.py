@@ -64,9 +64,10 @@ def build_parser():
         "--no_reindex", action="store_true", help="Skip reindexing element IDs to contiguous range(0, n)"
     )
     parser.add_argument(
+        "--interpolate_tl",
         "--impute_tl",
         action="store_true",
-        help="Impute/correct traffic light states from vehicle trajectories (Yan et al. 2025)",
+        help="Interpolate/correct traffic light states from vehicle trajectories (Yan et al. 2025)",
     )
     parser.add_argument(
         "--invalid_agent_overlap",
@@ -159,20 +160,8 @@ def _convert_one(py123d_data, output_dir, config) -> None:
         if errors:
             raise loader.ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
 
-    # 3. Process scenario
-    if config.impute_tl:
-        transforms.impute_traffic_lights(scenario, extras)  # Yan et al. 2025
-    transforms.process_polylines(scenario, config.max_segment_length, config.area_threshold)
-    transforms.interpolate_all_polygons(scenario)
-    transforms.prune_invalid_map_elements(scenario, extras)
-    transforms.process_traffic_controls(scenario, extras)
-    transforms.process_agent_routes(scenario, config.min_route_valid_points, config.route_check_timestep)
-    if config.invalid_agent_overlap:
-        transforms.invalid_agent_overlap(scenario)
-    transforms.compute_lane_lengths(scenario)
-    scenario.lane_graph = transforms.build_lane_distance_matrix(scenario.map)
-    if not config.no_reindex:
-        transforms.reindex_scenario(scenario)
+    # 3. Process scenario (ordered transform pipeline; see transforms/pipeline.py)
+    transforms.run(scenario, extras, config)
 
     # 4. Serialize to binary and save
     binary_data = serialize.scenario_to_binary(scenario)

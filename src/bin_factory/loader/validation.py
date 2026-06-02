@@ -8,7 +8,7 @@ import numpy as np
 from shapely.geometry import LineString, MultiPoint, Point
 from shapely.strtree import STRtree
 
-from bin_factory import puffer_types
+from bin_factory import schema
 
 
 _Z_BRIDGE_MIN = 0.5
@@ -38,9 +38,9 @@ def validate_scenario(scenario, extras=None, level=1):
     if level <= 0:
         return []
 
-    extras = extras or {}
-    traffic_lights = extras.get("traffic_lights", {})
-    stop_zones = extras.get("stop_zones", [])
+    extras = extras or schema.ExtractionExtras()
+    traffic_lights = extras.traffic_lights
+    stop_zones = extras.stop_zones
 
     errors = []
     meta = scenario.metadata
@@ -63,7 +63,7 @@ def validate_scenario(scenario, extras=None, level=1):
 
     # ── Semantic ──
     _validate_no_nan_inf(scenario, errors)
-    lane_ids = {eid for eid, e in scenario.map.items() if puffer_types.is_road_lane(e["type"])}
+    lane_ids = {eid for eid, e in scenario.map.items() if e.is_lane}
     _validate_lane_topology(scenario.map, lane_ids, errors)
     _validate_tl_lane_refs(traffic_lights, lane_ids, errors)
     if scenario.agents:
@@ -93,7 +93,7 @@ def _validate_dynamic_states(items, prefix, length, errors) -> None:
 
 
 def _validate_geometry(elem, key, label, min_points, errors):
-    geom = elem.get(key)
+    geom = getattr(elem, key, None)
     if geom is None:
         errors.append(f"{label} missing {key}")
     elif not isinstance(geom, np.ndarray) or geom.ndim != 2 or geom.shape[1] < 2:
@@ -104,22 +104,21 @@ def _validate_geometry(elem, key, label, min_points, errors):
 
 def _validate_map_elements(map_data, errors) -> None:
     for eid, elem in map_data.items():
-        t = elem["type"]
-        if puffer_types.is_road_lane(t) or puffer_types.is_road_line(t) or puffer_types.is_road_edge(t):
+        if elem.uses_polyline:
             _validate_geometry(elem, "polyline", f"Map {eid}", 2, errors)
-            if puffer_types.is_road_lane(t):
+            if elem.is_lane:
                 for key in ("entry_lanes", "exit_lanes"):
-                    if not isinstance(elem.get(key), list):
+                    if not isinstance(getattr(elem, key, None), list):
                         errors.append(f"Map {eid} missing or invalid {key}")
 
-        elif puffer_types.is_crosswalk(t):
+        elif elem.is_crosswalk:
             _validate_geometry(elem, "polygon", f"Map {eid}", 3, errors)
 
 
 def _validate_stop_zones(stop_zones, errors) -> None:
     for i, sz in enumerate(stop_zones):
         _validate_geometry(sz, "polygon", f"StopZone {i}", 3, errors)
-        if not isinstance(sz.get("controlled_lanes"), list):
+        if not isinstance(getattr(sz, "controlled_lanes", None), list):
             errors.append(f"StopZone {i} missing or invalid controlled_lanes")
 
 
@@ -146,7 +145,11 @@ def _validate_no_nan_inf(scenario, errors) -> None:
 
     for eid, elem in scenario.map.items():
         for key in ("polyline", "polygon"):
-            if (arr := elem.get(key)) is not None and isinstance(arr, np.ndarray) and not np.all(np.isfinite(arr)):
+            if (
+                (arr := getattr(elem, key, None)) is not None
+                and isinstance(arr, np.ndarray)
+                and not np.all(np.isfinite(arr))
+            ):
                 errors.append(f"Map {eid} {key} contains NaN or Inf")
 
 
@@ -177,10 +180,10 @@ def _validate_ego(agents, length, errors) -> None:
 
 def _validate_lane_topology(map_data, lane_ids, errors) -> None:
     for eid, elem in map_data.items():
-        if not puffer_types.is_road_lane(elem["type"]):
+        if not elem.is_lane:
             continue
         for key in ("entry_lanes", "exit_lanes"):
-            for ref in elem.get(key, []):
+            for ref in getattr(elem, key):
                 if ref not in lane_ids:
                     errors.append(f"Lane {eid} {key} references non-existent lane {ref}")
 
@@ -228,13 +231,13 @@ def _intersection_points(geom):
 
 def _validate_road_edge_z_overlap(map_data, errors) -> None:
     edges = [
-        (eid, np.asarray(elem["polyline"]))
+        (eid, np.asarray(elem.polyline))
         for eid, elem in map_data.items()
-        if puffer_types.is_road_edge(elem["type"])
-        and isinstance(elem.get("polyline"), np.ndarray)
-        and elem["polyline"].ndim == 2
-        and elem["polyline"].shape[0] >= 2
-        and elem["polyline"].shape[1] >= 3
+        if elem.is_edge
+        and isinstance(elem.polyline, np.ndarray)
+        and elem.polyline.ndim == 2
+        and elem.polyline.shape[0] >= 2
+        and elem.polyline.shape[1] >= 3
     ]
     if len(edges) < 2:
         return

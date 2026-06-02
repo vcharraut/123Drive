@@ -85,7 +85,7 @@ def extract_scenario(
         objects=objects,
         metadata=metadata,
     )
-    extras = {"traffic_lights": traffic_lights, "stop_zones": stop_zones}
+    extras = schema.ExtractionExtras(traffic_lights=traffic_lights, stop_zones=stop_zones)
     return scenario, extras
 
 
@@ -188,10 +188,10 @@ def _extract_map(
     map_api: py123d_api.MapAPI,
     centroid: np.ndarray,
     map_only: bool = False,
-) -> tuple[dict[int, dict[str, Any]], list[dict[str, Any]], set[int]]:
+) -> tuple[dict[int, schema.MapElement], list[schema.StopZone], set[int]]:
     """Extract static map elements from a 123D MapAPI. Returns (elements, stop_zones, lane_ids)."""
-    result: dict[int, dict[str, Any]] = {}
-    stop_zones: list[dict[str, Any]] = []
+    result: dict[int, schema.MapElement] = {}
+    stop_zones: list[schema.StopZone] = []
     non_lane_objects: list[Any] = []
     undefined_lane: list[int] = []
     layers = [layer for layer in map_api.available_map_layers if layer in mapping.SUPPORTED_MAP_LAYERS]
@@ -239,8 +239,8 @@ def _extract_map(
 # ── Writer functions ───────────────────────
 
 
-def _write_map_object(map_object: Any, centroid: np.ndarray) -> dict[str, Any] | None:
-    """Convert 123D map object to unified static element dict with puffer types."""
+def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElement | schema.StopZone | None:
+    """Convert 123D map object to a MapElement (or StopZone) with puffer types."""
     layer = map_object.layer
     if mapping.MAP_TYPE_MAP.get(layer) is None:
         return None
@@ -249,43 +249,43 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> dict[str, Any] |
         puffer_type = mapping.LANE_TYPE_MAP.get(map_object.lane_type)
         if puffer_type is None:
             return None
-        return {
-            "type": puffer_type,
-            "polyline": _centered_array(map_object.centerline_3d.array, centroid),
-            "speed_limit_mps": _speed_limit(map_object.speed_limit_mps),
-            "entry_lanes": map_object.predecessor_ids,
-            "exit_lanes": map_object.successor_ids,
-            "left_boundary": _centered_array(map_object.left_boundary_3d.array, centroid),
-            "right_boundary": _centered_array(map_object.right_boundary_3d.array, centroid),
-            "left_neighbor": _optional_id_list(getattr(map_object, "left_lane_id", None)),
-            "right_neighbor": _optional_id_list(getattr(map_object, "right_lane_id", None)),
-        }
+        return schema.MapElement(
+            type=puffer_type,
+            polyline=_centered_array(map_object.centerline_3d.array, centroid),
+            speed_limit_mps=_speed_limit(map_object.speed_limit_mps),
+            entry_lanes=map_object.predecessor_ids,
+            exit_lanes=map_object.successor_ids,
+            left_boundary=_centered_array(map_object.left_boundary_3d.array, centroid),
+            right_boundary=_centered_array(map_object.right_boundary_3d.array, centroid),
+            left_neighbor=_optional_id_list(getattr(map_object, "left_lane_id", None)),
+            right_neighbor=_optional_id_list(getattr(map_object, "right_lane_id", None)),
+        )
 
     if layer in (map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE):
         type_attr = "road_line_type" if layer == map_objects.MapLayer.ROAD_LINE else "road_edge_type"
         puffer_type = mapping.MAP_TYPE_MAP[layer].get(getattr(map_object, type_attr))
         if puffer_type is None:
             return None
-        return {
-            "type": puffer_type,
-            "polyline": _centered_array(map_object.polyline_3d.array, centroid),
-        }
+        return schema.MapElement(
+            type=puffer_type,
+            polyline=_centered_array(map_object.polyline_3d.array, centroid),
+        )
 
     if layer == map_objects.MapLayer.CROSSWALK:
-        return {
-            "type": mapping.CROSSWALK_TYPE,
-            "polygon": _centered_array(map_object.outline_3d.array, centroid),
-        }
+        return schema.MapElement(
+            type=mapping.CROSSWALK_TYPE,
+            polygon=_centered_array(map_object.outline_3d.array, centroid),
+        )
 
     if layer == map_objects.MapLayer.STOP_ZONE:
         puffer_type = mapping.STOP_ZONE_TYPE_MAP.get(map_object.stop_zone_type)
         if puffer_type is None:
             return None
-        return {
-            "type": puffer_type,
-            "polygon": _centered_array(map_object.outline_3d.array, centroid),
-            "controlled_lanes": map_object.lane_ids,
-        }
+        return schema.StopZone(
+            type=puffer_type,
+            polygon=_centered_array(map_object.outline_3d.array, centroid),
+            controlled_lanes=map_object.lane_ids,
+        )
 
     return None
 
@@ -366,8 +366,9 @@ def _zero_all_z(agents, objects, traffic_lights, map_elements, stop_zones):
         tl.position[2] = 0.0
     for element in [*map_elements.values(), *stop_zones]:
         for key in ("polyline", "left_boundary", "right_boundary", "polygon"):
-            if key in element:
-                element[key][:, 2] = 0.0
+            arr = getattr(element, key, None)
+            if arr is not None:
+                arr[:, 2] = 0.0
 
 
 def _fix_lane_topology(
@@ -379,40 +380,40 @@ def _fix_lane_topology(
     for lane_id, lane in lanes.items():
         if lane_id in undefined_lane_ids:
             connected_types = {
-                lanes[nid]["type"] for key in ("entry_lanes", "exit_lanes") for nid in lane.get(key, []) if nid in lanes
+                lanes[nid].type for key in ("entry_lanes", "exit_lanes") for nid in getattr(lane, key) if nid in lanes
             }
             if len(connected_types) == 1:
-                lane["type"] = connected_types.pop()
+                lane.type = connected_types.pop()
 
-        lane_start, lane_end = lane["polyline"][0], lane["polyline"][-1]
+        lane_start, lane_end = lane.polyline[0], lane.polyline[-1]
 
         new_entry, new_exit = [], []
-        for entry_id in lane.get("entry_lanes", []):
-            if entry_id not in lanes or "polyline" not in lanes[entry_id]:
+        for entry_id in lane.entry_lanes:
+            if entry_id not in lanes or lanes[entry_id].polyline is None:
                 new_entry.append(entry_id)
                 continue
-            entry_end = lanes[entry_id]["polyline"][-1]
+            entry_end = lanes[entry_id].polyline[-1]
             if np.linalg.norm(entry_end - lane_start) > np.linalg.norm(entry_end - lane_end):
                 new_exit.append(entry_id)
             else:
                 new_entry.append(entry_id)
 
-        for exit_id in lane.get("exit_lanes", []):
-            if exit_id not in lanes or "polyline" not in lanes[exit_id]:
+        for exit_id in lane.exit_lanes:
+            if exit_id not in lanes or lanes[exit_id].polyline is None:
                 new_exit.append(exit_id)
                 continue
-            exit_start = lanes[exit_id]["polyline"][0]
+            exit_start = lanes[exit_id].polyline[0]
             if np.linalg.norm(exit_start - lane_end) > np.linalg.norm(exit_start - lane_start):
                 new_entry.append(exit_id)
             else:
                 new_exit.append(exit_id)
 
-        lane["entry_lanes"] = new_entry
-        lane["exit_lanes"] = new_exit
+        lane.entry_lanes = new_entry
+        lane.exit_lanes = new_exit
 
     for element in lanes.values():
-        element["entry_lanes"] = [lid for lid in element["entry_lanes"] if lid in valid_lane_ids]
-        element["exit_lanes"] = [lid for lid in element["exit_lanes"] if lid in valid_lane_ids]
+        element.entry_lanes = [lid for lid in element.entry_lanes if lid in valid_lane_ids]
+        element.exit_lanes = [lid for lid in element.exit_lanes if lid in valid_lane_ids]
 
 
 def _centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:

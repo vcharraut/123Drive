@@ -1,3 +1,5 @@
+import dataclasses
+
 from bin_factory.schema import MAP_REF_KEYS
 
 
@@ -30,11 +32,13 @@ def _build_id_map(ids):
 
 
 def _remap_map_element(element, map_id_map):
-    remapped = {**element}
-    for key in MAP_REF_KEYS:
-        if key in remapped:
-            remapped[key] = [map_id_map[ref_id] for ref_id in remapped[key] if ref_id in map_id_map]
-    return remapped
+    return dataclasses.replace(
+        element,
+        **{
+            key: [map_id_map[ref_id] for ref_id in getattr(element, key) if ref_id in map_id_map]
+            for key in MAP_REF_KEYS
+        },
+    )
 
 
 def _remap_track(track, map_id_map):

@@ -1,4 +1,7 @@
-"""Traffic light state imputation from vehicle trajectories (Yan et al. 2025).
+"""Traffic light interpolation from vehicle trajectories (Yan et al. 2025).
+
+Creates the traffic-light signals for an already-existing intersection by interpolating the
+signal phases from how vehicles move through it.
 
 Algorithm overview:
 1. Build lane graph and assign observed TL states to lanes.
@@ -7,10 +10,10 @@ Algorithm overview:
 4. For each intersection and timestep:
    a. raw_state: directly observed TL detections (from dataset).
    b. estimated_state: inferred from vehicle kinematics (speed/acceleration near stop line).
-   c. imputed_state: merge raw + estimated with confidence weighting.
+   c. interpolated_state: merge raw + estimated with confidence weighting.
    d. Select closest feasible phase pattern (physically valid signal combination).
 5. Smooth short spurious phase flips, insert yellow transitions.
-6. Write imputed states back to traffic_lights extras dict.
+6. Write interpolated states back to traffic_lights extras dict.
 """
 
 from __future__ import annotations
@@ -22,6 +25,7 @@ import numpy as np
 
 from bin_factory import puffer_types, schema
 from bin_factory.log_context import log
+from bin_factory.transforms.geometry import polyline_length
 
 
 _LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}
@@ -125,15 +129,15 @@ class _UnionFind:
         return [sorted(items) for items in root_to_items.values()]
 
 
-def impute_traffic_lights(scenario, extras) -> None:
+def interpolate_traffic_lights(scenario, extras) -> None:
     if scenario.metadata.scenario_length <= 0:
         return
 
-    imputer = _TrafficLightImputer(scenario, extras)
-    imputer.impute()
+    interpolator = _TrafficLightInterpolator(scenario, extras)
+    interpolator.interpolate()
 
 
-class _TrafficLightImputer:
+class _TrafficLightInterpolator:
     def __init__(self, scenario, extras) -> None:
         self.scenario = scenario
         self.extras = extras
@@ -141,7 +145,7 @@ class _TrafficLightImputer:
         self.dt = max(float(scenario.metadata.dt), 1e-3)
         self.lanes = self._build_lanes()
 
-    def impute(self) -> None:
+    def interpolate(self) -> None:
         if len(self.lanes) < 4:
             return
 
@@ -160,7 +164,7 @@ class _TrafficLightImputer:
             self.length,
         )
 
-        traffic_lights = dict(self.extras.get("traffic_lights", {}))
+        traffic_lights = dict(self.extras.traffic_lights)
         generator = _TLSGenerator(self.length)
         updated_lanes = 0
 
@@ -174,12 +178,12 @@ class _TrafficLightImputer:
             updated_lanes += self._write_generated_states(intersection, tls_sequence, traffic_lights)
 
         if updated_lanes == 0:
-            log.debug("traffic-light imputation produced no updates")
+            log.debug("traffic-light interpolation produced no updates")
             return
 
-        self.extras["traffic_lights"] = traffic_lights
+        self.extras.traffic_lights = traffic_lights
         log.debug(
-            "imputed traffic lights for %d lanes across %d intersections",
+            "interpolated traffic lights for %d lanes across %d intersections",
             updated_lanes,
             len(signalized_intersections),
         )
@@ -187,22 +191,22 @@ class _TrafficLightImputer:
     def _build_lanes(self) -> dict[int, _LaneRecord]:
         lanes: dict[int, _LaneRecord] = {}
         for lane_id, element in self.scenario.map.items():
-            if element.get("type") not in _LANE_TYPES:
+            if element.type not in _LANE_TYPES:
                 continue
-            polyline = _as_xyz_array(element.get("polyline"))
+            polyline = _as_xyz_array(element.polyline)
             if len(polyline) < 2:
                 continue
             lanes[int(lane_id)] = _LaneRecord(
                 id=int(lane_id),
                 polyline=polyline,
-                entry_lanes=[int(ref) for ref in element.get("entry_lanes", [])],
-                exit_lanes=[int(ref) for ref in element.get("exit_lanes", [])],
-                left_neighbors=[int(ref) for ref in element.get("left_neighbor", [])],
-                right_neighbors=[int(ref) for ref in element.get("right_neighbor", [])],
+                entry_lanes=[int(ref) for ref in element.entry_lanes],
+                exit_lanes=[int(ref) for ref in element.exit_lanes],
+                left_neighbors=[int(ref) for ref in element.left_neighbor],
+                right_neighbors=[int(ref) for ref in element.right_neighbor],
                 record_tls=[_TLS.ABSENT for _ in range(self.length)],
             )
 
-        for traffic_light in self.extras.get("traffic_lights", {}).values():
+        for traffic_light in self.extras.traffic_lights.values():
             lane_id = int(traffic_light.controlled_lane)
             lane = lanes.get(lane_id)
             if lane is None:
@@ -225,7 +229,7 @@ class _TrafficLightImputer:
             lane_id
             for lane_id, lane in self.lanes.items()
             if (len(lane.entry_lanes) == 0 or len(lane.exit_lanes) == 0)
-            and _polyline_length(lane.polyline) < _LANE_SHORT_THRESHOLD
+            and polyline_length(lane.polyline) < _LANE_SHORT_THRESHOLD
         ]
         for lane_id in to_delete:
             del self.lanes[lane_id]
@@ -435,7 +439,7 @@ class _TrafficLightImputer:
 
     def _is_tail_lane(self, lane_id: int) -> bool:
         lane = self.lanes.get(lane_id)
-        if lane is None or _polyline_length(lane.polyline) >= _TAIL_LANE_LENGTH_THRESHOLD:
+        if lane is None or polyline_length(lane.polyline) >= _TAIL_LANE_LENGTH_THRESHOLD:
             return False
         if len(lane.entry_lanes) != 1:
             return False
@@ -443,7 +447,7 @@ class _TrafficLightImputer:
         entry_lane = self.lanes.get(lane.entry_lanes[0])
         if entry_lane is None or len(entry_lane.exit_lanes) != 1:
             return False
-        if _polyline_length(entry_lane.polyline) <= _TAIL_ENTRY_LENGTH_THRESHOLD:
+        if polyline_length(entry_lane.polyline) <= _TAIL_ENTRY_LENGTH_THRESHOLD:
             return False
 
         lane_vector = lane.polyline[-1, :2] - lane.polyline[0, :2]
@@ -1052,8 +1056,8 @@ def _real_neighbor_type(
 ) -> str:
     start_close = _distance(polyline1[0], polyline2[0]) < point_close_threshold
     end_close = _distance(polyline1[-1], polyline2[-1]) < point_close_threshold
-    length1 = _polyline_length(polyline1)
-    length2 = _polyline_length(polyline2)
+    length1 = polyline_length(polyline1)
+    length2 = polyline_length(polyline2)
     polyline1_longer = length2 + length_difference_threshold < length1
     if start_close and end_close:
         return "complete"
@@ -1066,12 +1070,6 @@ def _real_neighbor_type(
 
 def _distance(point1: np.ndarray, point2: np.ndarray) -> float:
     return float(np.linalg.norm(np.asarray(point1, dtype=np.float64) - np.asarray(point2, dtype=np.float64)))
-
-
-def _polyline_length(polyline: np.ndarray) -> float:
-    if len(polyline) < 2:
-        return 0.0
-    return float(np.sum(np.linalg.norm(np.diff(polyline, axis=0), axis=1)))
 
 
 def _two_lines_parallel(line1: np.ndarray, line2: np.ndarray) -> bool:

@@ -2,13 +2,33 @@ import numpy as np
 from shapely import geometry as shapely_geom
 
 
+# ── Polyline length primitives ──────────────────────────────────────────────────────────
+
+
+def arc_length(polyline):
+    """Cumulative arc-length per point. cum[0]=0, cum[-1]=total length. Norms over all columns."""
+    polyline = np.asarray(polyline)
+    if len(polyline) < 2:
+        return np.zeros(len(polyline), dtype=np.float64)
+    seg = np.linalg.norm(np.diff(polyline, axis=0), axis=1)
+    return np.concatenate([[0.0], np.cumsum(seg)]).astype(np.float64)
+
+
+def polyline_length(polyline):
+    """Total arc-length of a polyline (sum of segment norms over all columns)."""
+    polyline = np.asarray(polyline)
+    if len(polyline) < 2:
+        return 0.0
+    return float(np.sum(np.linalg.norm(np.diff(polyline, axis=0), axis=1)))
+
+
 # ── Interpolate polygons to ensure they are all the same spacing ───────────────────────
 
 
 def interpolate_all_polygons(scenario, spacing=3.0) -> None:
     for element_data in scenario.map.values():
-        if "polygon" in element_data:
-            element_data["polygon"] = _interpolate_polygon(element_data["polygon"], spacing)
+        if element_data.polygon is not None:
+            element_data.polygon = _interpolate_polygon(element_data.polygon, spacing)
 
 
 def _interpolate_polygon(xyz, spacing):
@@ -46,10 +66,10 @@ def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1) -> N
         return
 
     for element in map_elements.values():
-        if "polyline" not in element:
+        if element.polyline is None:
             continue
 
-        polyline = element["polyline"]
+        polyline = element.polyline
 
         if len(polyline) < 2:
             continue
@@ -62,7 +82,7 @@ def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1) -> N
         if max_segment_length > 0:
             polyline = _distance_based_interpolate(polyline, max_segment_length)
 
-        element["polyline"] = polyline
+        element.polyline = polyline
 
 
 def _remove_duplicate_points(polyline, tol=1e-9):

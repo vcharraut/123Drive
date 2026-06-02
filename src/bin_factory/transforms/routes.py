@@ -105,11 +105,11 @@ def _extract_lane_centers(static_map_elements):
     max_points = 0
 
     for element_id, element_data in static_map_elements.items():
-        element_type = element_data["type"]
+        element_type = element_data.type
         if element_type not in (puffer_types.LaneType.SURFACE_STREET, puffer_types.LaneType.FREEWAY):
             continue
 
-        polyline = element_data["polyline"]
+        polyline = element_data.polyline
         if len(polyline) == 0:
             continue
 
@@ -119,8 +119,8 @@ def _extract_lane_centers(static_map_elements):
         lane_lengths_list.append(len(polyline_2d))
         max_points = max(max_points, len(polyline_2d))
         lane_metadata[element_id] = {
-            "entry_lanes": element_data["entry_lanes"],
-            "exit_lanes": element_data["exit_lanes"],
+            "entry_lanes": element_data.entry_lanes,
+            "exit_lanes": element_data.exit_lanes,
         }
 
     if not lane_ids:
@@ -723,10 +723,10 @@ def _get_lane_directions_at_indices_batch(polylines, indices):
 
 
 def _extract_road_edge(element):
-    if not puffer_types.is_road_edge(element["type"]):
+    if not element.is_edge:
         return None
 
-    polyline = element.get("polyline")
+    polyline = element.polyline
     if polyline is None or len(polyline) < 2:
         return None
 

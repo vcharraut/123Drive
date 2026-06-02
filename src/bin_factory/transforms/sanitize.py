@@ -1,4 +1,5 @@
-from bin_factory import puffer_types
+import dataclasses
+
 from bin_factory.schema import MAP_REF_KEYS
 
 
@@ -20,41 +21,25 @@ def prune_invalid_map_elements(scenario, extras=None) -> None:
     if extras is None:
         return
 
-    extras["traffic_lights"] = {
-        element_id: light
-        for element_id, light in extras.get("traffic_lights", {}).items()
-        if light.controlled_lane in valid_ids
+    extras.traffic_lights = {
+        element_id: light for element_id, light in extras.traffic_lights.items() if light.controlled_lane in valid_ids
     }
-    extras["stop_zones"] = [
-        {**zone, "controlled_lanes": [lane_id for lane_id in zone["controlled_lanes"] if lane_id in valid_ids]}
-        for zone in extras.get("stop_zones", [])
+    extras.stop_zones = [
+        dataclasses.replace(zone, controlled_lanes=[lid for lid in zone.controlled_lanes if lid in valid_ids])
+        for zone in extras.stop_zones
     ]
 
 
 def _is_serializable_map_element(element):
-    geometry_key = "polyline" if _uses_polyline(element["type"]) else "polygon"
-    geometry = element.get(geometry_key)
-    min_points = 2 if geometry_key == "polyline" else 3
-    return geometry is not None and len(geometry) >= min_points
-
-
-def _uses_polyline(element_type):
-    return (
-        puffer_types.is_road_lane(element_type)
-        or puffer_types.is_road_line(element_type)
-        or puffer_types.is_road_edge(element_type)
-    )
+    geometry = element.geometry
+    return geometry is not None and len(geometry) >= element.min_points
 
 
 def _filter_map_refs(element, valid_ids):
-    return {
-        **element,
-        **{
-            key: [ref_id for ref_id in element.get(key, []) if ref_id in valid_ids]
-            for key in MAP_REF_KEYS
-            if key in element
-        },
-    }
+    return dataclasses.replace(
+        element,
+        **{key: [ref_id for ref_id in getattr(element, key) if ref_id in valid_ids] for key in MAP_REF_KEYS},
+    )
 
 
 def _filter_track_route(track, valid_ids):
