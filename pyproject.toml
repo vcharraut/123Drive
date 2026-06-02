@@ -27,7 +27,7 @@ dependencies = [
   "joblib",
   "scipy",
   "shapely",
-  "py123d==0.2.1",
+  "py123d==0.5.1",
 ]
 
 [project.optional-dependencies]
