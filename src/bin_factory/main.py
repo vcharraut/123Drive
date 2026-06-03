@@ -33,6 +33,7 @@ def build_parser():
     parser.add_argument("--log_names", nargs="+", help="Log names to include")
     parser.add_argument("--scene_uuids", nargs="+", help="Scene UUIDs to include (for debugging specific scenarios)")
     parser.add_argument("--duration_s", type=float, default=0.0, help="Duration of scenario in seconds")
+    parser.add_argument("--dt", type=float, default=0.1, help="Iteration timestep in seconds (e.g. 0.1 = 10 Hz)")
     parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios (no logs)")
     parser.add_argument(
         "--chunk_target_scenes",
@@ -236,6 +237,7 @@ def main() -> int:
         log_names=args.log_names,
         scene_uuids=args.scene_uuids,
         duration_s=None if args.duration_s == 0.0 else args.duration_s,
+        dt=args.dt,
         map_only=args.map_only,
     )
     if not scenes:

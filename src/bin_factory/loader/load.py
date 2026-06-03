@@ -17,6 +17,7 @@ def discover_scenes(
     log_names: list[str] | None = None,
     scene_uuids: list[str] | None = None,
     duration_s: float | None = None,
+    dt: float = 0.1,
     map_only: bool = False,
 ) -> list:
     data_root = pathlib.Path(py123d_data_root)
@@ -29,7 +30,9 @@ def discover_scenes(
         split_names=split_names,
         log_names=log_names,
         scene_uuids=scene_uuids,
+        target_iteration_duration_s=dt,
         future_duration_s=duration_s,
+        timestamp_threshold_s=duration_s,
         max_num_scenes=num_scenes,
         required_scene_modalities=["box_detections_se3:any"],
     )
