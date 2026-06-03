@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+import shapely
 from py123d import api as py123d_api
-from py123d import geometry as py123d_geometry
 from py123d.datatypes import detections, map_objects
 
 from bin_factory import puffer_types, schema
@@ -12,7 +12,7 @@ from bin_factory.loader import mapping
 from bin_factory.log_context import log
 
 
-SCENE_MAP_RADIUS = 250.0  # Max distance from ego to map elements for non-map-only scenarios
+SCENE_MAP_MARGIN = 250.0  # Lateral buffer (m) around the ego path for non-map-only scenarios
 
 
 def extract_scenario(
@@ -54,8 +54,11 @@ def extract_scenario(
         else None
     )
 
+    if not map_only and ego_states is None:
+        raise ValueError("Ego states are required to convert scenario with SceneAPI")
+
     centroid = _compute_centroid(ego_states, map_api)
-    map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, map_only)
+    map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, ego_states, map_only)
 
     if scene_api is not None and ego_states is not None:
         dt = round(scene_api.scene_metadata.iteration_duration_s, 3)
@@ -210,6 +213,7 @@ def _extract_traffic_lights(
 def _extract_map(
     map_api: py123d_api.MapAPI,
     centroid: np.ndarray,
+    ego_states: list[Any] | None = None,
     map_only: bool = False,
 ) -> tuple[dict[int, schema.MapElement], list[schema.StopZone], set[int]]:
     """Extract static map elements from a 123D MapAPI. Returns (elements, stop_zones, lane_ids)."""
@@ -222,11 +226,8 @@ def _extract_map(
     if map_only or map_api.map_is_per_log:
         map_objs = map_api.get_all_map_objects_in_layers(layers)
     else:
-        map_objects_by_layer = map_api.get_map_objects_in_radius(
-            py123d_geometry.Point3D(centroid[0], centroid[1], centroid[2]),
-            radius=SCENE_MAP_RADIUS,
-            layers=layers,
-        )
+        corridor = shapely.LineString([(s.center_se3.x, s.center_se3.y) for s in ego_states]).buffer(SCENE_MAP_MARGIN)
+        map_objects_by_layer = map_api.query(corridor, layers, predicate="intersects")
         map_objs = [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])]
 
     # Lanes first — other elements reference lane IDs
