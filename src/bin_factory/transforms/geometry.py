@@ -57,6 +57,15 @@ def _interpolate_polygon(xyz, spacing):
     return np.vstack([interpolated, interpolated[0:1]])
 
 
+# ── Reverse road-edge heading  ─────────────────────────────────────────────────────────
+
+
+def reverse_road_edges(scenario) -> None:
+    for element in scenario.map.values():
+        if element.is_edge and element.polyline is not None:
+            element.polyline = element.polyline[::-1]
+
+
 # ── Downsample and simplify polylines ──────────────────────────────────────────────────
 
 

@@ -13,7 +13,7 @@ Ordering is load-bearing:
 - ``reindex`` must run last.
 """
 
-from .geometry import interpolate_all_polygons, process_polylines
+from .geometry import interpolate_all_polygons, process_polylines, reverse_road_edges
 from .graph import build_lane_distance_matrix, compute_lane_lengths
 from .invalid_agents import invalid_agent_overlap
 from .reindex import reindex_scenario
@@ -25,6 +25,10 @@ from .traffic_light_interpolation import interpolate_traffic_lights
 
 def _interpolate_traffic_lights(scenario, extras, config) -> None:
     interpolate_traffic_lights(scenario, extras)
+
+
+def _reverse_road_edges(scenario, extras, config) -> None:
+    reverse_road_edges(scenario)
 
 
 def _process_polylines(scenario, extras, config) -> None:
