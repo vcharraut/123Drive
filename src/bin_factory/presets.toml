@@ -1,0 +1,21 @@
+# Per-dataset reproducible presets for `convert`.
+# Keys mirror convert's CLI args; explicit CLI flags override these values.
+# A preset pins the dataset family only; pick a split with --split_names
+# (e.g. --preset nuplan --split_names nuplan-mini_val for nuPlan mini).
+# Usage:  uv run convert --preset <name> --py123d_path <data> --output <out>
+
+[av2]
+datasets = ["av2-sensor"]
+
+[kitti360]
+datasets = ["kitti360"]
+
+[nuplan]
+datasets = ["nuplan"]
+reverse_road_edges = true
+
+[nuscenes]
+datasets = ["nuscenes"]
+
+[wod-motion]
+datasets = ["wod-motion"]

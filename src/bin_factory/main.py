@@ -3,6 +3,8 @@ import json
 import os
 import pathlib
 import re
+import sys
+import tomllib
 import warnings
 
 import joblib
@@ -27,6 +29,11 @@ def build_parser():
         ),
     )
     parser.add_argument("--num_scenes", type=int, default=None, help="Maximum number of scenes to process")
+    parser.add_argument(
+        "--preset",
+        type=str,
+        help="Apply a dataset preset from presets.toml (e.g. nuplan, wod-motion). CLI flags override preset values.",
+    )
     parser.add_argument("--datasets", nargs="+", help="Dataset names to include (e.g. nuplan, wod-motion)")
     parser.add_argument("--split_types", nargs="+", help="Split types to include (e.g. train, val, test)")
     parser.add_argument("--split_names", nargs="+", help="Split names to include (e.g. nuplan-mini_val)")
@@ -76,12 +83,31 @@ def build_parser():
         help="Zero out log-only agent trajectories that overlap with active agents during replay",
     )
     parser.add_argument(
+        "--reverse_road_edges",
+        action="store_true",
+        help="Reverse road-edge polyline order (Waymo convention) for nuplan/carla/opendrive",
+    )
+    parser.add_argument(
         "--log_level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Root logging level (default: INFO)",
     )
     return parser
+
+
+def _apply_preset(parser, argv):
+    # Make preset values argparse defaults so explicit CLI flags still override them.
+    # Note: store_true flags set by a preset cannot be turned back off from the CLI.
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--preset")
+    name = pre.parse_known_args(argv)[0].preset
+    if not name:
+        return
+    presets = tomllib.loads((pathlib.Path(__file__).parent / "presets.toml").read_text())
+    if name not in presets:
+        parser.error(f"Unknown preset '{name}'. Available: {', '.join(sorted(presets))}")
+    parser.set_defaults(**presets[name])
 
 
 def _scenario_identity(py123d_data) -> str | None:
@@ -210,7 +236,9 @@ def _validate_args(args, parser):
 
 def main() -> int:
     parser = build_parser()
-    args, py123d_data_root = _validate_args(parser.parse_args(), parser)
+    argv = sys.argv[1:]
+    _apply_preset(parser, argv)
+    args, py123d_data_root = _validate_args(parser.parse_args(argv), parser)
 
     log.setLevel(args.log_level)
 

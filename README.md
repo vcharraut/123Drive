@@ -75,10 +75,27 @@ uv run convert --py123d_path /path/to/123d --output ./output \
 uv run convert --py123d_path /path/to/123d --output ./output --map_only
 ```
 
+### Presets
+
+Presets bundle the right defaults to reproduce a dataset with one command. Each
+pins a dataset family; pick a split on top with `--split_names`. Explicit CLI
+flags always override preset values. Defined in `src/bin_factory/presets.toml`.
+
+```bash
+uv run convert --preset nuplan --py123d_path /path/to/123d --output ./output
+
+# narrow to a split / override anything inline
+uv run convert --preset nuplan --split_names nuplan-mini_val \
+  --py123d_path /path/to/123d --output ./output --num_scenes 100
+```
+
+Available: `av2`, `kitti360`, `nuplan`, `nuscenes`, `wod-motion`
+
 Core flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--preset` | none | Apply a dataset preset (`av2`/`kitti360`/`nuplan`/`nuscenes`/`nureasoning`/`wod-motion`) |
 | `--py123d_path` | `PY123D_DATA_ROOT` or required | Path to 123D dataset with `logs/` and `maps/` |
 | `--output` | `./output` | Directory for `.bin` files |
 | `--workers` | `0` | Parallel workers (`0` = 80% of CPU cores) |

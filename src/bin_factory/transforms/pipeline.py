@@ -72,6 +72,8 @@ def build_stages(config) -> list:
     stages = []
     if config.interpolate_tl:
         stages.append(_interpolate_traffic_lights)
+    if config.reverse_road_edges:
+        stages.append(_reverse_road_edges)
     stages += [
         _process_polylines,
         _interpolate_polygons,
