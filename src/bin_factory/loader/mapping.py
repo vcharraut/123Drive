@@ -18,7 +18,7 @@ AGENT_TYPE_MAP = {
     detections.DefaultBoxDetectionLabel.EGO: puffer_types.AgentType.VEHICLE,
     detections.DefaultBoxDetectionLabel.VEHICLE: puffer_types.AgentType.VEHICLE,
     detections.DefaultBoxDetectionLabel.PERSON: puffer_types.AgentType.PEDESTRIAN,
-    detections.DefaultBoxDetectionLabel.BICYCLE: puffer_types.AgentType.CYCLIST,
+    detections.DefaultBoxDetectionLabel.TWO_WHEELER: puffer_types.AgentType.CYCLIST,
 }
 
 OBJECT_TYPE_MAP = {
