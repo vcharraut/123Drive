@@ -48,8 +48,8 @@ Binary layout (all little-endian):
     char[32]          — dataset name (utf-8, null-padded)
     int32             — scenario_length (number of timesteps)
     float32           — dt (seconds per timestep)
-    int_list          — objects_of_interest (currently empty)
-    int_list          — tracks_to_predict (currently empty)
+    int_list          — objects_of_interest (agent IDs of interest)
+    int_list          — tracks_to_predict (agent IDs to predict)
 
   Sub-structures:
 
@@ -196,7 +196,9 @@ def scenario_to_binary(scenario):
     )
     buf.extend(struct.pack("<i", int(scenario.metadata.scenario_length)))
     buf.extend(struct.pack("<f", float(scenario.metadata.dt)))
-    buf.extend(struct.pack("<i", 0))  # objects_of_interest (empty)
-    buf.extend(struct.pack("<i", 0))  # tracks_to_predict (empty)
+    for int_list in [scenario.metadata.objects_of_interest, scenario.metadata.tracks_to_predict]:
+        buf.extend(struct.pack("<i", len(int_list)))
+        if int_list:
+            buf.extend(struct.pack(f"<{len(int_list)}i", *map(int, int_list)))
 
     return bytes(buf)

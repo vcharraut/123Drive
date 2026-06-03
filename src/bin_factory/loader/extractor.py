@@ -62,7 +62,7 @@ def extract_scenario(
         if dt <= 0:
             raise ValueError(f"Invalid time step dt={dt} computed from scene metadata")
 
-        all_objects = _extract_objects(scene_api, centroid, ego_states)
+        all_objects, tokens_to_object_id = _extract_objects(scene_api, centroid, ego_states)
         for oid, obj in all_objects.items():
             label = obj.type
             if label in mapping.AGENT_TYPE_MAP:
@@ -71,6 +71,8 @@ def extract_scenario(
             elif label in mapping.OBJECT_TYPE_MAP:
                 obj.type = mapping.OBJECT_TYPE_MAP[label]
                 objects[oid] = obj
+
+        _extract_prediction_targets(scene_api, tokens_to_object_id, agents, metadata)
 
         traffic_lights = _extract_traffic_lights(scene_api, map_api, centroid, map_lane_ids)
         metadata.scenario_length = scene_api.number_of_iterations
@@ -96,7 +98,7 @@ def _extract_objects(
     scene_api: py123d_api.SceneAPI,
     centroid: np.ndarray,
     ego_states: list[Any],
-) -> dict[int, schema.Track]:
+) -> tuple[dict[int, schema.Track], dict[str, int]]:
     """Extract dynamic objects from 123D box detections and ego state."""
     episode_length = scene_api.number_of_iterations
     objects: dict[int, schema.Track] = {0: _make_empty_track(episode_length, detections.DefaultBoxDetectionLabel.EGO)}
@@ -142,7 +144,28 @@ def _extract_objects(
             if detection.velocity_3d is not None:
                 obj.velocity[frame_idx] = [float(detection.velocity_3d.x), float(detection.velocity_3d.y)]
 
-    return objects
+    return objects, tokens_to_object_id
+
+
+def _extract_prediction_targets(
+    scene_api: py123d_api.SceneAPI,
+    tokens_to_object_id: dict[str, int],
+    agents: dict[int, schema.Track],
+    metadata: schema.ScenarioMetadata,
+) -> None:
+    """Populate metadata objects_of_interest / tracks_to_predict from the WOD-Motion aux modality."""
+    aux = scene_api.get_all_custom_modality_metadatas().get("aux")
+    if aux is None:
+        return
+    meta = aux.metadata
+    idx2tok = meta["track_index_to_token"]
+
+    def _resolve(track_indices):
+        ids = (tokens_to_object_id.get(idx2tok.get(idx)) for idx in track_indices)
+        return [oid for oid in ids if oid in agents]
+
+    metadata.objects_of_interest = _resolve(meta["objects_of_interest"])
+    metadata.tracks_to_predict = _resolve(entry["track_index"] for entry in meta["tracks_to_predict"])
 
 
 def _extract_traffic_lights(

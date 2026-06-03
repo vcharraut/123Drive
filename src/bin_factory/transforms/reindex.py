@@ -25,6 +25,12 @@ def reindex_scenario(scenario) -> None:
         scenario.lane_graph["lane_ids"] = [
             map_id_map[lid] for lid in scenario.lane_graph["lane_ids"] if lid in map_id_map
         ]
+    scenario.metadata.objects_of_interest = [
+        agent_id_map[i] for i in scenario.metadata.objects_of_interest if i in agent_id_map
+    ]
+    scenario.metadata.tracks_to_predict = [
+        agent_id_map[i] for i in scenario.metadata.tracks_to_predict if i in agent_id_map
+    ]
 
 
 def _build_id_map(ids):

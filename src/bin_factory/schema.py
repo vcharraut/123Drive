@@ -15,6 +15,8 @@ class ScenarioMetadata:
     scenario_length: int
     dt: float
     location: str = ""
+    objects_of_interest: list = dataclasses.field(default_factory=list)
+    tracks_to_predict: list = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
