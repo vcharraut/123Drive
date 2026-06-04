@@ -89,8 +89,6 @@ uv run convert --preset nuplan --split_names nuplan-mini_val \
   --py123d_path /path/to/123d --output ./output --num_scenes 100
 ```
 
-Available: `av2`, `kitti360`, `nuplan`, `nuscenes`, `wod-motion`
-
 Core flags:
 
 | Flag | Default | Description |

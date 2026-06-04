@@ -16,6 +16,15 @@ reverse_road_edges = true
 
 [nuscenes]
 datasets = ["nuscenes"]
+reverse_road_edges = true
 
 [wod-motion]
 datasets = ["wod-motion"]
+
+[carla]
+datasets = ["carla"]
+reverse_road_edges = true
+
+[opendrive]
+datasets = ["opendrive"]
+reverse_road_edges = true
