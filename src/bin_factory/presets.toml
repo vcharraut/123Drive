@@ -7,8 +7,9 @@
 [av2]
 datasets = ["av2-sensor"]
 
-[kitti360]
-datasets = ["kitti360"]
+[carla]
+datasets = ["carla"]
+reverse_road_edges = true
 
 [nuplan]
 datasets = ["nuplan"]
@@ -18,13 +19,9 @@ reverse_road_edges = true
 datasets = ["nuscenes"]
 reverse_road_edges = true
 
-[wod-motion]
-datasets = ["wod-motion"]
-
-[carla]
-datasets = ["carla"]
-reverse_road_edges = true
-
 [opendrive]
 datasets = ["opendrive"]
 reverse_road_edges = true
+
+[wod-motion]
+datasets = ["wod-motion"]
