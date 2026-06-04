@@ -25,7 +25,7 @@ def polyline_length(polyline):
 # ── Interpolate polygons to ensure they are all the same spacing ───────────────────────
 
 
-def interpolate_all_polygons(scenario, spacing=3.0) -> None:
+def interpolate_all_polygons(scenario, spacing=5.0) -> None:
     for element_data in scenario.map.values():
         if element_data.polygon is not None:
             element_data.polygon = _interpolate_polygon(element_data.polygon, spacing)
@@ -35,26 +35,12 @@ def _interpolate_polygon(xyz, spacing):
     if xyz is None or len(xyz) == 0:
         return np.zeros((0, 3), dtype=np.float64)
 
+    xyz = np.asarray(xyz, dtype=np.float64)
     if not np.allclose(xyz[0], xyz[-1]):
         xyz = np.vstack([xyz, xyz[0:1]])
 
-    diffs = np.diff(xyz, axis=0)
-    seg_lengths = np.linalg.norm(diffs[:, :2], axis=1)
-    total_length = seg_lengths.sum()
-
-    if total_length < spacing:
-        return xyz
-
-    cum_lengths = np.concatenate([[0], np.cumsum(seg_lengths)])
-    num_points = max(int(total_length / spacing), 2)
-    target_dists = np.linspace(0, total_length, num_points, endpoint=False)
-
-    idx = np.clip(np.searchsorted(cum_lengths[1:], target_dists, side="right"), 0, len(seg_lengths) - 1)
-    safe_lengths = np.where(seg_lengths[idx] > 0, seg_lengths[idx], 1.0)
-    t = ((target_dists - cum_lengths[idx]) / safe_lengths)[:, np.newaxis]
-    interpolated = xyz[idx] + t * diffs[idx]
-
-    return np.vstack([interpolated, interpolated[0:1]])
+    densified = shapely_geom.LineString(xyz).segmentize(spacing)
+    return np.asarray(densified.coords, dtype=np.float64)
 
 
 # ── Reverse road-edge heading  ─────────────────────────────────────────────────────────
