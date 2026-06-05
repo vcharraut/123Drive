@@ -6,6 +6,7 @@ from bin_factory.transforms import pipeline
 def _config(**overrides):
     base = {
         "interpolate_tl": False,
+        "reverse_road_edges": False,
         "invalid_agent_overlap": False,
         "no_reindex": False,
         "max_segment_length": 10.0,
@@ -37,6 +38,12 @@ def test_default_stage_order():
 def test_interpolate_tl_prepends_interpolation():
     assert _names(_config(interpolate_tl=True))[0] == "_interpolate_traffic_lights"
     assert "_interpolate_traffic_lights" not in _names(_config(interpolate_tl=False))
+
+
+def test_reverse_road_edges_runs_before_polylines():
+    names = _names(_config(reverse_road_edges=True))
+    assert names.index("_reverse_road_edges") == names.index("_process_polylines") - 1
+    assert "_reverse_road_edges" not in _names(_config(reverse_road_edges=False))
 
 
 def test_invalid_agent_overlap_runs_right_after_routes():
