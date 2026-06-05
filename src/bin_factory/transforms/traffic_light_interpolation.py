@@ -422,9 +422,8 @@ class _TrafficLightInterpolator:
                     for conn in lane.injunction_lanes:
                         conn.new_tls[timestep] = state
                         track = traffic_lights.get(conn.id)
-                        if track is None:
-                            if self._is_tail_lane(conn.id):
-                                continue
+                        if track is None and self._is_tail_lane(conn.id):
+                            continue
                         if track is None or len(track.states) != self.length:
                             track = schema.TrafficLightTrack(
                                 position=conn.shape[0].astype(np.float64, copy=True),
@@ -782,7 +781,7 @@ class _TLSGenerator:
             trajectories.setdefault(veh_id, []).append((pos_idx, speed, acceleration))
 
         start = max(0, curr_step - self.delta_t)
-        end = min(self.horizon, curr_step + self.delta_t + 1)
+        end = min(self.horizon, curr_step + self.delta_t)
         for timestep in range(start, end):
             for lane in selected_lanes:
                 for veh_id, record in lane.record_vehs[timestep].items():
@@ -961,14 +960,13 @@ def _assign_vehicle_states_to_lanes(
             best_col = int(min_columns[best_row])
             speed = float(np.linalg.norm(velocities[timestep, :2]))
             acceleration = 0.0
-            for prev_step in range(timestep - 1, max(-1, timestep - 6), -1):
-                if prev_step < 0 or not valid[prev_step]:
-                    continue
-                prev_speed = float(np.linalg.norm(velocities[prev_step, :2]))
-                delta_t = (timestep - prev_step) * dt
-                if delta_t > 0:
-                    acceleration = (speed - prev_speed) / delta_t
-                break
+            prev_step = timestep - 5
+            while prev_step >= 0:
+                if valid[prev_step]:
+                    prev_speed = float(np.linalg.norm(velocities[prev_step, :2]))
+                    acceleration = (speed - prev_speed) / ((timestep - prev_step) * dt)
+                    break
+                prev_step -= 1
             if abs(acceleration) > _ACCELERATION_MAXLIMIT:
                 acceleration = 0.0
             assignments_by_row[best_row][timestep][int(track_id)] = _VehicleState(best_col, speed, acceleration)
@@ -1040,7 +1038,7 @@ def _neighbor_type(polyline1: np.ndarray, polyline2: np.ndarray) -> str:
     if parallel:
         if "low" in levels:
             return "bifurcated-parallel" if levels[0] == "low" else "merged-parallel"
-        return "other"
+        return "real"
     if levels[0] in {"low", "mid"}:
         return "bifurcated"
     if levels[1] in {"low", "mid"}:

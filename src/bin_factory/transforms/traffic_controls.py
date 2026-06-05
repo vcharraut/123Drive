@@ -23,6 +23,13 @@ def process_traffic_controls(scenario, extras) -> None:
                 element_id,
             )
             continue
+        if controlled_lane.type == puffer_types.LaneType.BIKE_LANE:
+            log.debug(
+                "lane=%s tl=%s: controlled lane is a bike lane, skipping",
+                controlled_lane_id,
+                element_id,
+            )
+            continue
         try:
             heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
             stop_line = _stop_line_from_position(heading, controlled_lane_id, lanes_by_id)

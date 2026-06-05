@@ -307,7 +307,7 @@ def main() -> int:
                 pbar.update(1)
 
     log.info("Conversion complete. %d/%d succeeded, %d failed.", succeeded, succeeded + failed, failed)
-    return 1 if failed else 0
+    return 0 if succeeded else 1  # tolerate partial failures; fail only if nothing converted
 
 
 if __name__ == "__main__":
