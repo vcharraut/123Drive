@@ -7,8 +7,6 @@ import struct
 
 import numpy as np
 
-from bin_factory import puffer_types
-
 
 METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
@@ -74,13 +72,8 @@ def scenario_to_binary(scenario):
     # Road map: id, type, geometry, heading; lanes get topology + speed limit
     road_count = 0
     for eid, elem in road_map.items():
-        road_type = elem["type"]
-        is_line = (
-            puffer_types.is_road_lane(road_type)
-            or puffer_types.is_road_line(road_type)
-            or puffer_types.is_road_edge(road_type)
-        )
-        xyz = elem.get("polyline" if is_line else "polygon")
+        road_type = elem.type
+        xyz = elem.geometry
         if xyz is None or len(xyz) <= 1:
             continue
         road_count += 1
@@ -96,14 +89,14 @@ def scenario_to_binary(scenario):
             buf.extend(col.tobytes())
         buf.extend(heading.tobytes())
 
-        if puffer_types.is_road_lane(road_type):
-            for lane_list in [elem["entry_lanes"], elem["exit_lanes"]]:
+        if elem.is_lane:
+            for lane_list in [elem.entry_lanes, elem.exit_lanes]:
                 buf.extend(struct.pack("<i", len(lane_list)))
                 if lane_list:
                     buf.extend(struct.pack(f"<{len(lane_list)}i", *map(int, lane_list)))
-            buf.extend(struct.pack("<f", elem["speed_limit_mps"]))
-            buf.extend(struct.pack("<f", float(elem["length"])))
-            buf.extend(np.asarray(elem["cum_length"], dtype=np.float32).tobytes())
+            buf.extend(struct.pack("<f", elem.speed_limit_mps))
+            buf.extend(struct.pack("<f", float(elem.length)))
+            buf.extend(np.asarray(elem.cum_length, dtype=np.float32).tobytes())
 
     struct.pack_into("<i", buf, 4, road_count)  # patch actual road count in header
 
@@ -140,7 +133,9 @@ def scenario_to_binary(scenario):
     )
     buf.extend(struct.pack("<i", int(scenario.metadata.scenario_length)))
     buf.extend(struct.pack("<f", float(scenario.metadata.dt)))
-    buf.extend(struct.pack("<i", 0))  # objects_of_interest (empty)
-    buf.extend(struct.pack("<i", 0))  # tracks_to_predict (empty)
+    for int_list in [scenario.metadata.objects_of_interest, scenario.metadata.tracks_to_predict]:
+        buf.extend(struct.pack("<i", len(int_list)))
+        if int_list:
+            buf.extend(struct.pack(f"<{len(int_list)}i", *map(int, int_list)))
 
     return bytes(buf)
