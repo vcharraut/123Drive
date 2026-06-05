@@ -6,6 +6,8 @@
 
 [av2]
 datasets = ["av2-sensor"]
+duration_s = 15
+invalid_agent_overlap = true
 
 [carla]
 datasets = ["carla"]
@@ -14,10 +16,13 @@ reverse_road_edges = true
 [nuplan]
 datasets = ["nuplan"]
 reverse_road_edges = true
+duration_s = 20
+invalid_agent_overlap = true
 
 [nuscenes]
 datasets = ["nuscenes"]
 reverse_road_edges = true
+invalid_agent_overlap = true
 
 [opendrive]
 datasets = ["opendrive"]
@@ -25,3 +30,4 @@ reverse_road_edges = true
 
 [wod-motion]
 datasets = ["wod-motion"]
+invalid_agent_overlap = true
