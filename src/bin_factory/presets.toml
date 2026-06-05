@@ -31,3 +31,4 @@ reverse_road_edges = true
 [wod-motion]
 datasets = ["wod-motion"]
 invalid_agent_overlap = true
+interpolate_tl = true
