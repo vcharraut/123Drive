@@ -17,19 +17,21 @@ SCENE_MAP_MARGIN = 250.0  # Lateral buffer (m) around the ego path for non-map-o
 
 def extract_scenario(
     py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI,
+    scenario_id_field: str = "scene_uuid",
 ) -> tuple[schema.PufferScenario, dict[str, Any]]:
     """Convert 123D SceneAPI or MapAPI to (PufferScenario, extras).
 
+    scenario_id_field picks the py123d attribute used as metadata.id (scene_uuid|log_name|location).
     extras = {"traffic_lights": ..., "stop_zones": ...} — consumed by traffic_controls processor.
     """
     if isinstance(py123_arrow, py123d_api.MapAPI):
         scene_api = None
         map_api = py123_arrow
-        scenario_id = py123_arrow.location
+        scenario_id = py123_arrow.location  # map-only objects only expose `location`
     else:
         scene_api = py123_arrow
         map_api = scene_api.get_map_api()
-        scenario_id = scene_api.scene_uuid
+        scenario_id = getattr(scene_api, scenario_id_field)
 
     if map_api is None:
         raise ValueError("Map API is required to convert scenario")

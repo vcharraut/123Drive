@@ -16,6 +16,9 @@ Source: `v0.3.1..v0.3.2` - 19 commits, 53 files changed.
   discovery as `target_iteration_duration_s` and `timestamp_threshold_s`.
 - `--reverse_road_edges` flag and transform reversing road-edge polyline order
   (Waymo convention) for nuplan/carla/opendrive.
+- `--scenario_id_field` flag (`scene_uuid`/`log_name`/`location`, default
+  `scene_uuid`) selecting the py123d attribute used as the scenario id for both
+  `metadata.id` and the output filename; each preset pins a per-dataset default.
 - Prediction targets: extract `objects_of_interest` and `tracks_to_predict` from the
   WOD-Motion `aux` modality into `ScenarioMetadata`, remap them during reindex, and
   serialize them into binary metadata (previously hard-coded empty lists).
@@ -47,6 +50,10 @@ Source: `v0.3.1..v0.3.2` - 19 commits, 53 files changed.
 - Lane arc-length consolidated: `compute_lane_arc_lengths` removed in favor of the
   shared `geometry.arc_length`.
 - `_convert_one` now delegates all processing to `transforms.run`.
+- Scenario id derivation is driven by `--scenario_id_field` (and per-preset
+  defaults) instead of the hard-coded dataset-specific fields added in v0.3.1;
+  `metadata.id` now matches the output filename, and map-only scenarios use
+  `location`.
 - Conversion tolerates partial failures: exit `0` if any scenario converted, `1`
   only if none did (was `1` whenever any scenario failed).
 - Docker entrypoint exports `PY123D_DATA_ROOT=/input` so convert workers resolve maps.

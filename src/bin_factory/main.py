@@ -39,6 +39,12 @@ def build_parser():
     parser.add_argument("--split_names", nargs="+", help="Split names to include (e.g. nuplan-mini_val)")
     parser.add_argument("--log_names", nargs="+", help="Log names to include")
     parser.add_argument("--scene_uuids", nargs="+", help="Scene UUIDs to include (for debugging specific scenarios)")
+    parser.add_argument(
+        "--scenario_id_field",
+        choices=["scene_uuid", "log_name", "location"],
+        default="scene_uuid",
+        help="py123d attribute used as the scenario id (metadata.id + output filename). Map-only scenarios use 'location'.",
+    )
     parser.add_argument("--duration_s", type=float, default=0.0, help="Duration of scenario in seconds")
     parser.add_argument("--dt", type=float, default=0.1, help="Iteration timestep in seconds (e.g. 0.1 = 10 Hz)")
     parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios (no logs)")
@@ -110,30 +116,23 @@ def _apply_preset(parser, argv):
     parser.set_defaults(**presets[name])
 
 
-def _scenario_identity(py123d_data) -> str | None:
-    dataset = str(getattr(py123d_data, "dataset", "") or "")
-    if dataset.startswith("nuplan"):
-        preferred_attr = "scene_uuid"
-    elif dataset.startswith("opendrive"):
-        preferred_attr = "location"
-    else:
-        preferred_attr = "log_name"
-
-    scenario_id = str(getattr(py123d_data, preferred_attr, ""))
+def _scenario_identity(py123d_data, field: str) -> str:
+    if not hasattr(py123d_data, field):  # map-only objects only expose `location`
+        field = "location"
+    scenario_id = str(getattr(py123d_data, field) or "")
     if scenario_id == "":
-        raise ValueError(
-            f"Cannot derive scenario id from py123d_data attributes: missing {preferred_attr} for dataset {dataset}"
-        )
-
+        dataset = getattr(py123d_data, "dataset", "")
+        raise ValueError(f"Cannot derive scenario id from py123d_data: missing {field} for dataset {dataset}")
     return scenario_id
 
 
-def _build_output_path(py123d_data, output_dir):
+def _build_output_path(py123d_data, output_dir, field):
     """Derive output path for a given scenario based on its metadata attributes.
 
     Arguments:
         py123d_data: py123d scenario data object
         output_dir: Base directory to save the output file
+        field: py123d attribute used as the scenario id
 
     Returns:
         A pathlib.Path object representing the output file path, e.g. <dataset>__<source_id>.bin
@@ -142,7 +141,7 @@ def _build_output_path(py123d_data, output_dir):
     def sanitize(v):
         return re.sub(r"[^A-Za-z0-9._-]+", "_", v.strip()).strip("._-") or "scenario"
 
-    source_id = _scenario_identity(py123d_data)
+    source_id = _scenario_identity(py123d_data, field)
     dataset = getattr(py123d_data, "dataset", "") or ""
 
     if not dataset:
@@ -155,7 +154,7 @@ def _build_output_path(py123d_data, output_dir):
 
 def _worker_fn(py123d_data, output_dir, config):
     log.setLevel(config.log_level)
-    scenario_id = _scenario_identity(py123d_data) or "unknown"
+    scenario_id = _scenario_identity(py123d_data, config.scenario_id_field) or "unknown"
     dataset = getattr(py123d_data, "dataset", "unknown")
     log_name = getattr(py123d_data, "log_name", "")
     identity = {"dataset": dataset, "log_name": log_name, "scenario_id": scenario_id}
@@ -176,7 +175,7 @@ def _worker_fn(py123d_data, output_dir, config):
 
 def _convert_one(py123d_data, output_dir, config) -> None:
     # 1. Load and convert 123D scenario to PufferDrive format
-    scenario, extras = loader.extract_scenario(py123d_data)
+    scenario, extras = loader.extract_scenario(py123d_data, config.scenario_id_field)
 
     # 2. Validate scenario
     if config.validate_level > 0:
@@ -192,7 +191,7 @@ def _convert_one(py123d_data, output_dir, config) -> None:
 
     # 4. Serialize to binary and save
     binary_data = serialize.scenario_to_binary(scenario)
-    output_path = _build_output_path(py123d_data, output_dir)
+    output_path = _build_output_path(py123d_data, output_dir, config.scenario_id_field)
     with output_path.open("wb") as f:
         f.write(binary_data)
 

@@ -8,27 +8,33 @@
 datasets = ["av2-sensor"]
 duration_s = 15
 invalid_agent_overlap = true
+scenario_id_field = "log_name"
 
 [carla]
 datasets = ["carla"]
 reverse_road_edges = true
+scenario_id_field = "log_name"
 
 [nuplan]
 datasets = ["nuplan"]
 reverse_road_edges = true
 duration_s = 20
 invalid_agent_overlap = true
+scenario_id_field = "scene_uuid"
 
 [nuscenes]
 datasets = ["nuscenes"]
 reverse_road_edges = true
 invalid_agent_overlap = true
+scenario_id_field = "scene_uuid"
 
 [opendrive]
 datasets = ["opendrive"]
 reverse_road_edges = true
+scenario_id_field = "location"
 
 [wod-motion]
 datasets = ["wod-motion"]
 invalid_agent_overlap = true
 interpolate_tl = true
+scenario_id_field = "log_name"
