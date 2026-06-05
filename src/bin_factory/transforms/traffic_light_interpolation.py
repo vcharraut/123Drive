@@ -1,4 +1,7 @@
-"""Traffic light interpolation from vehicle trajectories (Yan et al. 2025).
+"""Traffic light interpolation from vehicle trajectories.
+
+This module implements the traffic-light interpolation algorithm described in the paper
+Improving Traffic Signal Data Quality for the Waymo Open Motion Dataset (Yan et al. 2025).
 
 Creates the traffic-light signals for an already-existing intersection by interpolating the
 signal phases from how vehicles move through it.
