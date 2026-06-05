@@ -165,5 +165,4 @@ Images are portable - run them however you want (`docker run`, Kubernetes, etc.)
 ## Docs
 
 - Binary format: `docs/binary-format.md`
-- Supported data surface: `docs/data.md`
 - Route search notes: `docs/route-algorithm.md`

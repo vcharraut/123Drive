@@ -17,3 +17,6 @@
 .vscode/
 .venv/
 .ruff_cache/
+
+# Real-data test fixtures (committed despite *.arrow rule above)
+!tests/py123d_data/**/*.arrow
