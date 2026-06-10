@@ -47,9 +47,7 @@ def _process(log_name, **cfg_overrides):
 
 
 def _discover_map(location):
-    maps = loader.discover_scenes(
-        py123d_data_root=str(DATA_ROOT), workers=1, map_only=True, datasets=["opendrive"]
-    )
+    maps = loader.discover_scenes(py123d_data_root=str(DATA_ROOT), workers=1, map_only=True, datasets=["opendrive"])
     match = [m for m in maps if m.location == location]
     assert len(match) == 1, f"expected one opendrive map for {location}, got {len(match)}"
     return match[0]
@@ -108,8 +106,14 @@ def _parse(data):
         r.floats(3)  # goal
         (control_state,) = r.ints(1)
         agents.append(
-            {"id": eid, "type": _type, "n_points": n_points, "route": route,
-             "route_gt_len": route_gt_len, "cs": control_state}
+            {
+                "id": eid,
+                "type": _type,
+                "n_points": n_points,
+                "route": route,
+                "route_gt_len": route_gt_len,
+                "cs": control_state,
+            }
         )
 
     roads = []
@@ -126,8 +130,7 @@ def _parse(data):
             r.floats(npts)  # cum_length
         else:
             entry, exit_ = [], []
-        roads.append({"id": eid, "type": road_type, "npts": npts, "lane": is_lane,
-                      "entry": entry, "exit": exit_})
+        roads.append({"id": eid, "type": road_type, "npts": npts, "lane": is_lane, "entry": entry, "exit": exit_})
 
     tcs = []
     for _ in range(n_tc):
@@ -158,10 +161,18 @@ def _parse(data):
 
     return {
         "counts": (n_agents, n_road, n_tc, n_objects),
-        "agents": agents, "roads": roads, "tcs": tcs, "objects": objects,
+        "agents": agents,
+        "roads": roads,
+        "tcs": tcs,
+        "objects": objects,
         "lane_graph_ids": lane_graph_ids,
-        "id": meta_id, "dataset": meta_dataset, "scenario_length": scenario_length,
-        "dt": dt, "ooi": ooi, "ttp": ttp, "consumed": r.off,
+        "id": meta_id,
+        "dataset": meta_dataset,
+        "scenario_length": scenario_length,
+        "dt": dt,
+        "ooi": ooi,
+        "ttp": ttp,
+        "consumed": r.off,
     }
 
 
@@ -194,7 +205,10 @@ def test_header_counts_match_processed_scenario(log_name):
     parsed = _parse(serialize.scenario_to_binary(scenario))
     n_road = sum(1 for e in scenario.map.values() if e.geometry is not None and len(e.geometry) > 1)
     assert parsed["counts"] == (
-        len(scenario.agents), n_road, len(scenario.traffic_controls), len(scenario.objects),
+        len(scenario.agents),
+        n_road,
+        len(scenario.traffic_controls),
+        len(scenario.objects),
     )
 
 
@@ -319,9 +333,7 @@ def test_convert_one_writes_parseable_bin(tmp_path, log_name):
 
 
 def test_discovers_opendrive_maps():
-    maps = loader.discover_scenes(
-        py123d_data_root=str(DATA_ROOT), workers=1, map_only=True, datasets=["opendrive"]
-    )
+    maps = loader.discover_scenes(py123d_data_root=str(DATA_ROOT), workers=1, map_only=True, datasets=["opendrive"])
     assert {m.location for m in maps} == set(MAP_LOCATIONS)
     assert all(m.dataset == "opendrive" for m in maps)
 

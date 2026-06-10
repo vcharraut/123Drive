@@ -8,8 +8,7 @@ def reindex_scenario(scenario) -> None:
     traffic_control_id_map = _build_id_map([tc["id"] for tc in scenario.traffic_controls])
 
     scenario.map = {
-        map_id_map[element_id]: remap_element_refs(element, map_id_map)
-        for element_id, element in scenario.map.items()
+        map_id_map[element_id]: remap_element_refs(element, map_id_map) for element_id, element in scenario.map.items()
     }
     scenario.agents = {
         agent_id_map[track_id]: _remap_track(track, map_id_map) for track_id, track in scenario.agents.items()

@@ -16,29 +16,29 @@ import pytest
 
 from bin_factory import puffer_types, schema
 from bin_factory.transforms.traffic_light_interpolation import (
-    _ApproachingLane,
-    _Direction,
-    _InJunctionLane,
     _TLS,
-    _TLSGenerator,
-    _TrafficLightInterpolator,
-    _UnionFind,
-    _VehicleState,
     _angle_of_headings,
     _angle_of_two_vectors,
+    _ApproachingLane,
     _as_xyz_array,
     _assign_vehicle_states_to_lanes,
     _classify_direction,
     _copy_state,
+    _Direction,
     _distance,
     _from_puffer_tls,
     _group_lanes_into_ways,
     _group_vectors_by_angles,
+    _InJunctionLane,
     _neighbor_type,
     _real_neighbor_type,
+    _TLSGenerator,
     _to_puffer_tls,
+    _TrafficLightInterpolator,
     _two_lines_parallel,
+    _UnionFind,
     _vector_heading,
+    _VehicleState,
     interpolate_traffic_lights,
 )
 
@@ -293,9 +293,7 @@ def test_group_vectors_by_angles_merges_near_parallel():
 
 
 def _heading_lane(start, end):
-    return _ApproachingLane(
-        id=0, shape=np.array([start, end], float), record_vehs=[], injunction_lanes=[]
-    )
+    return _ApproachingLane(id=0, shape=np.array([start, end], float), record_vehs=[], injunction_lanes=[])
 
 
 def test_group_lanes_into_ways_4way_sorted_by_heading():
@@ -405,7 +403,7 @@ def test_gen_state_container_splits_phases_across_lanes():
 
 
 def _single_green(template, way):
-    return [{phase: (_TLS.GREEN if i == way else _TLS.RED) for phase in template[i]} for i in range(len(template))]
+    return [dict.fromkeys(template[i], _TLS.GREEN if i == way else _TLS.RED) for i in range(len(template))]
 
 
 def test_feasible_states_4way_single_greens_present():
@@ -422,12 +420,8 @@ def test_feasible_states_4way_left_straight_split():
     gen.container_template = [{L: None, SR: None} for _ in range(4)]
     feasible = gen._get_feasible_states()
 
-    left_only = [
-        {L: _TLS.GREEN, SR: _TLS.RED} if i in (0, 2) else {L: _TLS.RED, SR: _TLS.RED} for i in range(4)
-    ]
-    straight_only = [
-        {L: _TLS.RED, SR: _TLS.GREEN} if i in (0, 2) else {L: _TLS.RED, SR: _TLS.RED} for i in range(4)
-    ]
+    left_only = [{L: _TLS.GREEN, SR: _TLS.RED} if i in (0, 2) else {L: _TLS.RED, SR: _TLS.RED} for i in range(4)]
+    straight_only = [{L: _TLS.RED, SR: _TLS.GREEN} if i in (0, 2) else {L: _TLS.RED, SR: _TLS.RED} for i in range(4)]
     assert left_only in feasible
     assert straight_only in feasible
 

@@ -37,7 +37,9 @@ def test_prune_filters_extras_against_surviving_lanes():
             7: schema.TrafficLightTrack(position=np.zeros(3), states=[], controlled_lane=2),
             8: schema.TrafficLightTrack(position=np.zeros(3), states=[], controlled_lane=1),
         },
-        stop_zones=[schema.StopZone(type=int(puffer_types.TCType.STOP_SIGN), polygon=np.zeros((4, 3)), controlled_lanes=[1, 2])],
+        stop_zones=[
+            schema.StopZone(type=int(puffer_types.TCType.STOP_SIGN), polygon=np.zeros((4, 3)), controlled_lanes=[1, 2])
+        ],
     )
 
     prune_invalid_map_elements(scenario, extras)

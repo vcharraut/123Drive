@@ -1,10 +1,10 @@
 import numpy as np
 
 from bin_factory.transforms.traffic_light_interpolation import (
+    _TLS,
     _ApproachingLane,
     _Direction,
     _InJunctionLane,
-    _TLS,
     _TLSGenerator,
 )
 
