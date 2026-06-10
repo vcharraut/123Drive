@@ -27,6 +27,7 @@ dependencies = [
   "joblib",
   "scipy",
   "shapely",
+  "pyyaml",
   "py123d==0.5.1",
 ]
 
@@ -45,6 +46,7 @@ all = [
 
 [project.scripts]
 convert = "bin_factory.main:main"
+augment-carla-maps = "bin_factory.augment_carla_maps:main"
 build = "docker_tools.cli:main"
 web = "viz.server:main"
 
@@ -53,7 +55,7 @@ where = ["src", "."]
 include = ["bin_factory", "bin_factory.*", "viz", "viz.*", "docker_tools", "docker_tools.*"]
 
 [tool.setuptools.package-data]
-bin_factory = ["presets.toml"]
+bin_factory = ["presets.toml", "configs/*.yaml"]
 viz = ["web/static/*"]
 docker_tools = ["dockerfiles/*", "*.py"]
 

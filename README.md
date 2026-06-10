@@ -39,6 +39,7 @@ Open `http://localhost:8080`.
 ## CLIs
 
 - `convert`: py123d output root (`logs/` + `maps/`) -> PufferDrive `.bin`
+- `augment-carla-maps`: affine variants of static CARLA map `.bin` files
 - `build`: build Docker images for the extraction/conversion pipeline
 - `web`: browser viewer for `.bin` files
 
@@ -135,6 +136,34 @@ Validation levels:
 | `0` | Skip validation |
 | `1` | Schema checks: required keys, container types, array shapes, and length consistency |
 | `2` | Semantic checks: schema plus topology refs, finite values, valid traffic-light states, and ego-only temporal sanity |
+
+## Static CARLA Map Augmentation
+
+The `augment-carla-maps` CLI generates static CARLA map variants from `.bin` map files.
+
+```bash
+uv run augment-carla-maps \
+  --config src/bin_factory/configs/carla_map_transforms_affine_balanced.yaml \
+  --input-dir data/data_carla \
+  --output-dir data/data_carla_affine
+```
+
+Pass a YAML config explicitly. The config contains only `limit` and `transforms`;
+input/output directories are required CLI arguments, and original maps are always copied.
+
+| Preset | Config | Output | Count |
+|--------|--------|--------|-------|
+| Balanced affine | `src/bin_factory/configs/carla_map_transforms_affine_balanced.yaml` | `data/data_carla_affine` | 8 maps x (1 original + 15 transforms) = 128 |
+| FlipX only | `src/bin_factory/configs/carla_map_transforms_flipx_only.yaml` | `data/data_carla_flipx` | 8 maps x (1 original + 1 flip) = 16 |
+
+Use the flip-only preset explicitly:
+
+```bash
+uv run augment-carla-maps \
+  --config src/bin_factory/configs/carla_map_transforms_flipx_only.yaml \
+  --input-dir data/data_carla \
+  --output-dir data/data_carla_flipx
+```
 
 ## Web Viewer
 
