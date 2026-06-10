@@ -126,7 +126,7 @@ def validate_transform_catalog(catalog: dict[str, np.ndarray]) -> None:
             raise ValueError(f"Transform {name!r} must be invertible")
 
 
-def augment_first_carla_maps(
+def augment_first_static_maps(
     input_dir: Path,
     output_dir: Path,
     limit: int,
@@ -261,7 +261,7 @@ def _yaml_config_path(value: str) -> Path:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generate affine-augmented static CARLA map binaries")
+    parser = argparse.ArgumentParser(description="Generate affine-augmented static map binaries")
     parser.add_argument(
         "--config",
         type=_yaml_config_path,
@@ -272,7 +272,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--input-dir",
         type=Path,
         required=True,
-        help="Directory containing CARLA .bin files",
+        help="Directory containing static map .bin files",
     )
     parser.add_argument(
         "--output-dir",
@@ -297,7 +297,7 @@ def main() -> int:
         1,
         transforms_per_map,
     )
-    written = augment_first_carla_maps(
+    written = augment_first_static_maps(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
         limit=config.limit,

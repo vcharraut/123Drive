@@ -46,7 +46,7 @@ all = [
 
 [project.scripts]
 convert = "bin_factory.main:main"
-augment-carla-maps = "bin_factory.augment_carla_maps:main"
+augment-static-maps = "bin_factory.augment_static_maps:main"
 build = "docker_tools.cli:main"
 web = "viz.server:main"
 
