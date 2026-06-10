@@ -8,6 +8,14 @@ from bin_factory import puffer_types
 MAP_REF_KEYS = ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor")
 
 
+def remap_element_refs(element, id_map):
+    """Copy a MapElement with every MAP_REF_KEYS id passed through ``id_map`` (unknown ids dropped)."""
+    return dataclasses.replace(
+        element,
+        **{key: [id_map[ref] for ref in getattr(element, key) if ref in id_map] for key in MAP_REF_KEYS},
+    )
+
+
 @dataclasses.dataclass
 class ScenarioMetadata:
     id: str

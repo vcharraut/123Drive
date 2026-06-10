@@ -109,10 +109,12 @@ class _UnionFind:
         self.rank = dict.fromkeys(items, 1)
 
     def find(self, item: int) -> int:
-        parent = self.parent[item]
-        if parent != item:
-            self.parent[item] = self.find(parent)
-        return self.parent[item]
+        root = item
+        while self.parent[root] != root:
+            root = self.parent[root]
+        while self.parent[item] != root:
+            self.parent[item], item = root, self.parent[item]
+        return root
 
     def union(self, left: int, right: int) -> None:
         root_left = self.find(left)
@@ -434,7 +436,6 @@ class _TrafficLightInterpolator:
                                 controlled_lane=conn.id,
                             )
                             traffic_lights[conn.id] = track
-                        track.position = conn.shape[0].astype(np.float64, copy=True)
                         track.states[timestep] = _to_puffer_tls(state)
                         updated_lanes.add(conn.id)
         return len(updated_lanes)
@@ -480,24 +481,16 @@ class _TLSGenerator:
     def gen_period(
         self,
         intersection: list[list[_ApproachingLane]],
-        start_step: int = 0,
-        end_step: int | None = None,
     ) -> list[list[dict[tuple[_Direction, ...], _TLS]]]:
         if len(intersection) not in (2, 3, 4) or self.horizon == 0:
             return []
 
-        end_step = self.horizon if end_step is None else min(end_step, self.horizon)
-        if end_step <= start_step:
-            return []
-
-        generated_steps = list(range(max(start_step, self.delta_t), min(end_step, self.horizon - self.delta_t)))
-        tl_state_buff: list[list[dict[tuple[_Direction, ...], _TLS]] | None] = [None for _ in range(self.horizon)]
-
+        generated_steps = list(range(self.delta_t, self.horizon - self.delta_t))
         if not generated_steps:
-            step = min(max(start_step, 0), self.horizon - 1)
-            state = self.gen_one_moment(intersection, step)
+            state = self.gen_one_moment(intersection, 0)
             return [_copy_state(state) for _ in range(self.horizon)]
 
+        tl_state_buff: list[list[dict[tuple[_Direction, ...], _TLS]] | None] = [None for _ in range(self.horizon)]
         prev_state = None
         for step in generated_steps:
             current = self.gen_one_moment(intersection, step, prev_state)
@@ -506,22 +499,12 @@ class _TLSGenerator:
 
         first_step = generated_steps[0]
         last_step = generated_steps[-1]
-        for step in range(start_step, first_step):
+        for step in range(first_step):
             tl_state_buff[step] = _copy_state(tl_state_buff[first_step])
-        for step in range(first_step, last_step + 1):
-            if tl_state_buff[step] is None:
-                tl_state_buff[step] = _copy_state(tl_state_buff[step - 1])
-        for step in range(last_step + 1, end_step):
-            tl_state_buff[step] = _copy_state(tl_state_buff[last_step])
-        for step in range(start_step):
-            tl_state_buff[step] = _copy_state(tl_state_buff[first_step])
-        for step in range(end_step, self.horizon):
+        for step in range(last_step + 1, self.horizon):
             tl_state_buff[step] = _copy_state(tl_state_buff[last_step])
 
-        final = [state for state in tl_state_buff if state is not None]
-        final[start_step:end_step] = self._smooth_sequence(final[start_step:end_step])
-        final[start_step:end_step] = self._add_yellow_light(final[start_step:end_step])
-        return final
+        return self._add_yellow_light(self._smooth_sequence(tl_state_buff))
 
     def gen_one_moment(
         self,

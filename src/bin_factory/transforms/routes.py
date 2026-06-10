@@ -175,7 +175,6 @@ def build_route_cache(static_map_elements, lane_data):
     )
 
     return {
-        "lane_ids": lane_ids,
         "lane_id_array": lane_id_array,
         "lane_polylines": lane_polylines,
         "lane_lengths": lane_lengths,
@@ -261,7 +260,7 @@ def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=
     if is_ego:
         return True
 
-    if len(agent_context["trajectory"]) == 0 or len(route_cache["lane_ids"]) == 0:
+    if len(agent_context["trajectory"]) == 0 or len(route_cache["lane_id_array"]) == 0:
         return False
 
     if route_check_timestep >= len(agent_context["valid"]):
@@ -292,8 +291,7 @@ def _build_point_observations(agent_context, route_cache):
     min_distances_all, closest_indices_all, closest_t_all = _points_to_polylines_distance(
         trajectory,
         candidate_polylines,
-        polyline_lengths=candidate_lengths,
-        return_t=True,
+        candidate_lengths,
     )
     lane_directions_all = _get_lane_directions_at_indices_batch(candidate_polylines, closest_indices_all)
     agent_dirs = np.stack([np.cos(agent_context["heading_valid"]), np.sin(agent_context["heading_valid"])], axis=1)
@@ -372,6 +370,8 @@ def _select_candidate_path(observations, total_points, route_cache):
     if not observations:
         return []
 
+    # Full-history backward scan: O(T^2 * C^2) over observations x candidates. Kept exact
+    # because SKIPPED_POINT_COST dominates long gaps; windowing would need real-data parity checks.
     costs = []
     backrefs = []
 
@@ -523,7 +523,7 @@ def _extend_route_to_dead_end(route, route_cache):
 
     lane_graph = route_cache["lane_graph"]
     visited = set(route)
-    max_length = max(1, len(route_cache["lane_ids"]))
+    max_length = max(1, len(route_cache["lane_id_array"]))
 
     while len(route) < max_length:
         current_lane_id = route[-1]
@@ -592,11 +592,10 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) 
         OFFROAD_DISTANCE_THRESHOLD if extent > MOVEMENT_THRESHOLD else STATIONARY_OFFROAD_DISTANCE_THRESHOLD
     )
 
-    min_distances = _points_to_polylines_distance(
+    min_distances, _, _ = _points_to_polylines_distance(
         position.reshape(1, 2),
         route_cache["lane_polylines"],
-        polyline_lengths=route_cache["lane_lengths"],
-        return_indices=False,
+        route_cache["lane_lengths"],
     )
     if np.min(min_distances) > distance_threshold:
         return True
@@ -642,38 +641,25 @@ def _compute_trajectory_extent(trajectory):
     return float(np.linalg.norm(trajectory - center, axis=1).max())
 
 
-def _points_to_polylines_distance(
-    points,
-    polylines,
-    polyline_lengths=None,
-    return_indices=True,
-    return_t=False,
-):
+def _points_to_polylines_distance(points, polylines, polyline_lengths):
+    """Returns (min_distances, closest_indices, closest_t), each shaped (n_points, n_lanes)."""
     n_points = len(points)
     n_lanes = len(polylines)
     max_segments = polylines.shape[1] - 1 if n_lanes > 0 else 0
 
     if n_points == 0 or n_lanes == 0 or max_segments <= 0:
-        empty_distances = np.zeros((n_points, n_lanes), dtype=np.float64)
-        empty_indices = np.zeros((n_points, n_lanes), dtype=np.int64)
-        empty_t = np.zeros((n_points, n_lanes), dtype=np.float64)
-        if not return_indices and not return_t:
-            return empty_distances
-        if return_indices and return_t:
-            return empty_distances, empty_indices, empty_t
-        return (empty_distances, empty_indices) if return_indices else (empty_distances, empty_t)
+        return (
+            np.zeros((n_points, n_lanes), dtype=np.float64),
+            np.zeros((n_points, n_lanes), dtype=np.int64),
+            np.zeros((n_points, n_lanes), dtype=np.float64),
+        )
 
     seg_starts = polylines[:, :-1, :]
     seg_ends = polylines[:, 1:, :]
 
-    if polyline_lengths is not None:
-        polyline_lengths = np.asarray(polyline_lengths, dtype=np.int64)
-        if len(polyline_lengths) != n_lanes:
-            raise ValueError("polyline_lengths must match number of polylines")
-        seg_counts = np.clip(polyline_lengths - 1, 0, max_segments)
-        valid_segs = np.arange(max_segments)[np.newaxis, :] < seg_counts[:, np.newaxis]
-    else:
-        valid_segs = np.any(seg_starts != 0, axis=2) & np.any(seg_ends != 0, axis=2)
+    polyline_lengths = np.asarray(polyline_lengths, dtype=np.int64)
+    seg_counts = np.clip(polyline_lengths - 1, 0, max_segments)
+    valid_segs = np.arange(max_segments)[np.newaxis, :] < seg_counts[:, np.newaxis]
 
     seg_vecs = seg_ends - seg_starts
     seg_lens_sq = np.einsum("ijk,ijk->ij", seg_vecs, seg_vecs)
@@ -695,20 +681,11 @@ def _points_to_polylines_distance(
     distances_sq = np.where(valid_segs.reshape(1, n_lanes, max_segments), distances_sq, np.inf)
 
     closest_indices = np.argmin(distances_sq, axis=2).astype(np.int64)
-    min_distances_sq = np.min(distances_sq, axis=2)
-    min_distances = np.sqrt(min_distances_sq)
+    min_distances = np.sqrt(np.min(distances_sq, axis=2))
 
-    if not return_indices and not return_t:
-        return min_distances
-
-    if return_t:
-        lane_axis = np.arange(n_lanes)[np.newaxis, :]
-        closest_t = t[np.arange(n_points)[:, np.newaxis], lane_axis, closest_indices]
-        if return_indices:
-            return min_distances, closest_indices, closest_t
-        return min_distances, closest_t
-
-    return min_distances, closest_indices
+    lane_axis = np.arange(n_lanes)[np.newaxis, :]
+    closest_t = t[np.arange(n_points)[:, np.newaxis], lane_axis, closest_indices]
+    return min_distances, closest_indices, closest_t
 
 
 def _get_lane_directions_at_indices_batch(polylines, indices):

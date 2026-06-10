@@ -33,7 +33,7 @@ _DYNAMIC_STATE_SPECS = {
 def validate_scenario(scenario, extras=None, level=1):
     """Returns list of error strings. Empty = valid.
 
-    extras: {"traffic_lights": ..., "stop_zones": ...} from extraction.
+    extras: ExtractionExtras (traffic_lights, stop_zones) from extraction.
     """
     if level <= 0:
         return []

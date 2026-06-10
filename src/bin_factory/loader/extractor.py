@@ -18,11 +18,11 @@ SCENE_MAP_MARGIN = 250.0  # Lateral buffer (m) around the ego path for non-map-o
 def extract_scenario(
     py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI,
     scenario_id_field: str = "scene_uuid",
-) -> tuple[schema.PufferScenario, dict[str, Any]]:
+) -> tuple[schema.PufferScenario, schema.ExtractionExtras]:
     """Convert 123D SceneAPI or MapAPI to (PufferScenario, extras).
 
     scenario_id_field picks the py123d attribute used as metadata.id (scene_uuid|log_name|location).
-    extras = {"traffic_lights": ..., "stop_zones": ...} — consumed by traffic_controls processor.
+    extras is an ExtractionExtras (traffic_lights, stop_zones) — consumed by the traffic_controls processor.
     """
     if isinstance(py123_arrow, py123d_api.MapAPI):
         scene_api = None
@@ -268,7 +268,7 @@ def _extract_map(
 def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElement | schema.StopZone | None:
     """Convert 123D map object to a MapElement (or StopZone) with puffer types."""
     layer = map_object.layer
-    if mapping.MAP_TYPE_MAP.get(layer) is None:
+    if layer not in mapping.SUPPORTED_MAP_LAYERS:
         return None
 
     if layer == map_objects.MapLayer.LANE:
@@ -288,8 +288,10 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
         )
 
     if layer in (map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE):
-        type_attr = "road_line_type" if layer == map_objects.MapLayer.ROAD_LINE else "road_edge_type"
-        puffer_type = mapping.MAP_TYPE_MAP[layer].get(getattr(map_object, type_attr))
+        if layer == map_objects.MapLayer.ROAD_LINE:
+            puffer_type = mapping.ROAD_LINE_TYPE_MAP.get(map_object.road_line_type)
+        else:
+            puffer_type = mapping.ROAD_EDGE_TYPE_MAP.get(map_object.road_edge_type)
         if puffer_type is None:
             return None
         return schema.MapElement(
@@ -398,7 +400,7 @@ def _zero_all_z(agents, objects, traffic_lights, map_elements, stop_zones):
 
 
 def _fix_lane_topology(
-    lanes: dict[int, dict[str, Any]],
+    lanes: dict[int, schema.MapElement],
     undefined_lane_ids: list[int],
     valid_lane_ids: set[int],
 ) -> None:

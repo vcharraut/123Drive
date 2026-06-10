@@ -31,7 +31,7 @@ def build_lane_distance_matrix(map_elements):
     id_to_idx = {lid: i for i, lid in enumerate(lane_ids)}
     n = len(lanes)
 
-    lane_lengths = [e.length if e.cum_length is not None else float(arc_length(e.polyline)[-1]) for _, e in lanes]
+    lane_lengths = [e.length for _, e in lanes]
 
     rows, cols, weights = [], [], []
     for eid, element in lanes:

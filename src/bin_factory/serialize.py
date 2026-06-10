@@ -35,10 +35,9 @@ def _write_dynamic_states(buf, track):
 def scenario_to_binary(scenario):
     """Serialize a PufferScenario into the PufferDrive .bin format.
 
-    See the module docstring for the full binary layout. Road elements with fewer than
-    two polyline points are skipped during serialization, so the header's road-element
-    count is written as a placeholder and patched in-place once all elements have been
-    emitted.
+    See the module docstring for the full binary layout. Map elements must already be
+    serializable (>= min_points geometry) — transforms.sanitize.prune_invalid_map_elements
+    guarantees this before reindexing.
 
     Returns:
         ``bytes`` containing the serialized scenario.
@@ -46,8 +45,7 @@ def scenario_to_binary(scenario):
     buf = bytearray()
     agents, road_map, tcs, objects = scenario.agents, scenario.map, scenario.traffic_controls, scenario.objects
 
-    # Header — road_count is a placeholder at offset 4; patched after filtering undersized polylines.
-    buf.extend(struct.pack("<iiii", len(agents), 0, len(tcs), len(objects)))
+    buf.extend(struct.pack("<iiii", len(agents), len(road_map), len(tcs), len(objects)))
 
     # Agents: id, type, trajectory, route, route_gt_len, goal, control_state
     for eid, track in agents.items():
@@ -70,13 +68,9 @@ def scenario_to_binary(scenario):
         buf.extend(struct.pack("<i", int(track.control_state)))
 
     # Road map: id, type, geometry, heading; lanes get topology + speed limit
-    road_count = 0
     for eid, elem in road_map.items():
         road_type = elem.type
         xyz = elem.geometry
-        if xyz is None or len(xyz) <= 1:
-            continue
-        road_count += 1
 
         xyz_f = np.asarray(xyz, dtype=np.float32)
         pts = np.asarray(xyz, dtype=np.float64)
@@ -97,8 +91,6 @@ def scenario_to_binary(scenario):
             buf.extend(struct.pack("<f", elem.speed_limit_mps))
             buf.extend(struct.pack("<f", float(elem.length)))
             buf.extend(np.asarray(elem.cum_length, dtype=np.float32).tobytes())
-
-    struct.pack_into("<i", buf, 4, road_count)  # patch actual road count in header
 
     # Traffic controls: id, type, stop line endpoints, heading, states, controlled lanes
     for tc in tcs:

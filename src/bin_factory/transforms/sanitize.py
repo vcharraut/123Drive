@@ -1,6 +1,6 @@
 import dataclasses
 
-from bin_factory.schema import MAP_REF_KEYS
+from bin_factory.schema import remap_element_refs
 
 
 def prune_invalid_map_elements(scenario, extras=None) -> None:
@@ -8,8 +8,9 @@ def prune_invalid_map_elements(scenario, extras=None) -> None:
     if len(valid_ids) == len(scenario.map):
         return
 
+    identity_map = {element_id: element_id for element_id in valid_ids}
     scenario.map = {
-        element_id: _filter_map_refs(element, valid_ids)
+        element_id: remap_element_refs(element, identity_map)
         for element_id, element in scenario.map.items()
         if element_id in valid_ids
     }
@@ -33,13 +34,6 @@ def prune_invalid_map_elements(scenario, extras=None) -> None:
 def _is_serializable_map_element(element):
     geometry = element.geometry
     return geometry is not None and len(geometry) >= element.min_points
-
-
-def _filter_map_refs(element, valid_ids):
-    return dataclasses.replace(
-        element,
-        **{key: [ref_id for ref_id in getattr(element, key) if ref_id in valid_ids] for key in MAP_REF_KEYS},
-    )
 
 
 def _filter_track_route(track, valid_ids):

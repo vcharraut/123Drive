@@ -93,7 +93,7 @@ Core flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--preset` | none | Apply a dataset preset (`av2`/`kitti360`/`nuplan`/`nuscenes`/`nureasoning`/`wod-motion`) |
+| `--preset` | none | Apply a dataset preset (`av2`/`carla`/`nuplan`/`nuscenes`/`opendrive`/`wod-motion`) |
 | `--py123d_path` | `PY123D_DATA_ROOT` or required | Path to 123D dataset with `logs/` and `maps/` |
 | `--output` | `./output` | Directory for `.bin` files |
 | `--workers` | `0` | Parallel workers (`0` = 80% of CPU cores) |

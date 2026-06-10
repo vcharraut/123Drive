@@ -113,6 +113,10 @@ def _apply_preset(parser, argv):
     presets = tomllib.loads((pathlib.Path(__file__).parent / "presets.toml").read_text())
     if name not in presets:
         parser.error(f"Unknown preset '{name}'. Available: {', '.join(sorted(presets))}")
+    known_dests = {action.dest for action in parser._actions}
+    unknown = sorted(set(presets[name]) - known_dests)
+    if unknown:
+        parser.error(f"Preset '{name}' has unknown keys: {', '.join(unknown)}")
     parser.set_defaults(**presets[name])
 
 
@@ -154,13 +158,14 @@ def _build_output_path(py123d_data, output_dir, field):
 
 def _worker_fn(py123d_data, output_dir, config):
     log.setLevel(config.log_level)
-    scenario_id = _scenario_identity(py123d_data, config.scenario_id_field) or "unknown"
     dataset = getattr(py123d_data, "dataset", "unknown")
     log_name = getattr(py123d_data, "log_name", "")
-    identity = {"dataset": dataset, "log_name": log_name, "scenario_id": scenario_id}
-    tokens = bind(dataset=dataset, scenario=scenario_id)
+    identity = {"dataset": dataset, "log_name": log_name, "scenario_id": "unknown"}
+    tokens = bind(dataset=dataset)
 
     try:
+        identity["scenario_id"] = _scenario_identity(py123d_data, config.scenario_id_field)
+        bind(dataset=dataset, scenario=identity["scenario_id"])
         _convert_one(py123d_data, output_dir, config)
         return {"ok": True, **identity, "error": ""}
     except loader.ValidationError as ve:
@@ -202,8 +207,8 @@ def _validate_args(args, parser):
         cleaned = [v.strip() for v in (values or []) if v and v.strip()] or None
         setattr(args, attr, cleaned)
 
-    if args.num_scenes is not None and args.num_scenes < 0:
-        parser.error("--num_scenes must be >= 0")
+    if args.num_scenes is not None and args.num_scenes <= 0:
+        parser.error("--num_scenes must be > 0")
     if args.chunk_target_scenes <= 0:
         parser.error("--chunk_target_scenes must be > 0")
     if args.route_check_timestep < 0:
@@ -219,7 +224,7 @@ def _validate_args(args, parser):
     elif args.workers == 0:
         args.workers = max(1, int(cpu_count * 0.8))
 
-    if args.num_scenes not in (None, 0) and args.num_scenes < args.workers:
+    if args.num_scenes is not None and args.num_scenes < args.workers:
         log.warning("num_scenes (%d) < workers (%d). Reducing workers.", args.num_scenes, args.workers)
         args.workers = args.num_scenes
 

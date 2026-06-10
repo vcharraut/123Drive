@@ -59,7 +59,6 @@ def _build_scenario():
         11: _lane(puffer_types.LaneType.FREEWAY, 2, entry=[10]),
         12: _lane(puffer_types.RoadLineType.SOLID_SINGLE_WHITE, 3),
         13: crosswalk,
-        14: _lane(puffer_types.RoadLineType.SOLID_SINGLE_WHITE, 1),  # degenerate: must be skipped
     }
     objects = {0: _track(3, puffer_types.ObjectType.GENERIC_OBJECT, [1, 1, 1])}
     traffic_controls = [
@@ -178,7 +177,7 @@ def test_round_trip_high_level_fields():
     data = serialize.scenario_to_binary(_build_scenario())
     parsed = _parse(data)
 
-    # Header counts; element 14 (1 point) is dropped, so road count is 4 not 5.
+    # Header counts: agents, road elements, traffic controls, objects.
     assert parsed["counts"] == (2, 4, 1, 1)
 
     ego = next(a for a in parsed["agents"] if a["id"] == 0)

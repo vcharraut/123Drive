@@ -71,20 +71,6 @@ ROAD_LINE_TYPE_MAP = {
     map_objects.RoadLineType.SOLID_BLUE: int(puffer_types.RoadLineType.SOLID_SINGLE_WHITE),
 }
 
-MAP_TYPE_MAP = {
-    map_objects.MapLayer.LANE: LANE_TYPE_MAP,
-    map_objects.MapLayer.LANE_GROUP: None,  # Not Supported
-    map_objects.MapLayer.INTERSECTION: None,  # Not Supported
-    map_objects.MapLayer.CROSSWALK: {None: CROSSWALK_TYPE},
-    map_objects.MapLayer.WALKWAY: None,  # Not Supported
-    map_objects.MapLayer.CARPARK: None,  # Not Supported
-    map_objects.MapLayer.GENERIC_DRIVABLE: None,  # Not Supported
-    map_objects.MapLayer.STOP_ZONE: STOP_ZONE_TYPE_MAP,
-    map_objects.MapLayer.ROAD_EDGE: ROAD_EDGE_TYPE_MAP,
-    map_objects.MapLayer.ROAD_LINE: ROAD_LINE_TYPE_MAP,
-}
-
-
 TL_STATE_MAP = {
     detections.TrafficLightStatus.GREEN: puffer_types.TLState.GREEN,
     detections.TrafficLightStatus.YELLOW: puffer_types.TLState.YELLOW,
