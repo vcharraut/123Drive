@@ -8,7 +8,7 @@ scenario_var = contextvars.ContextVar("scenario", default="-")
 _FORMAT = "%(levelname)s bin_factory%(context)s: %(message)s"
 
 
-def _inject(record):
+def _inject(record: logging.LogRecord) -> bool:
     dataset = dataset_var.get()
     scenario = scenario_var.get()
     record.context = f" dataset={dataset} scenario={scenario}" if (dataset != "-" or scenario != "-") else ""
@@ -24,10 +24,10 @@ _h.addFilter(_inject)
 log.addHandler(_h)
 
 
-def bind(dataset="-", scenario="-"):
+def bind(dataset: str = "-", scenario: str = "-") -> tuple[contextvars.Token, contextvars.Token]:
     return dataset_var.set(dataset), scenario_var.set(scenario)
 
 
-def unbind(tokens):
+def unbind(tokens: tuple[contextvars.Token, contextvars.Token]) -> None:
     dataset_var.reset(tokens[0])
     scenario_var.reset(tokens[1])

@@ -5,6 +5,7 @@ import asyncio
 import re
 import shutil
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -15,6 +16,7 @@ try:
     from fastapi.staticfiles import StaticFiles
     from starlette.background import BackgroundTask
     from starlette.middleware.base import BaseHTTPMiddleware
+    from starlette.responses import Response
 except ImportError as exc:  # pragma: no cover - import guard
     raise SystemExit("Install viz dependencies first: uv sync --extra viz") from exc
 
@@ -26,7 +28,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 class NoCacheStaticMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
         response = await call_next(request)
         if request.url.path.endswith((".js", ".css", ".html")):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -69,19 +71,19 @@ def _sanitize_export_name(name: str) -> str:
 
 
 @app.get("/api/types")
-def get_types():
+def get_types() -> dict:
     return as_json_dict()
 
 
 @app.get("/api/scenarios")
-def list_scenarios():
+def list_scenarios() -> list[str]:
     scenario_dir = _require_scenario_dir()
     files = sorted(scenario_dir.rglob("*.bin"))
     return [str(p.relative_to(scenario_dir)) for p in files]
 
 
 @app.get("/api/scenario/{filename:path}")
-def get_scenario(filename: str):
+def get_scenario(filename: str) -> FileResponse:
     path = _resolve_scenario_path(filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Scenario not found")
@@ -93,7 +95,7 @@ def get_scenario(filename: str):
 
 
 @app.post("/api/export/mp4")
-async def export_mp4(request: Request, name: str = "scenario"):
+async def export_mp4(request: Request, name: str = "scenario") -> FileResponse:
     if shutil.which("ffmpeg") is None:
         raise HTTPException(status_code=500, detail="ffmpeg is not available on the server")
 

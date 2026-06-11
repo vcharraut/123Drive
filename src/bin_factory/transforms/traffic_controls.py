@@ -1,24 +1,31 @@
 import numpy as np
 
-from bin_factory import puffer_types
+from bin_factory import puffer_types, schema
 from bin_factory.log_context import log
 
 
-def process_traffic_controls(scenario, extras) -> None:
+def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
     map_data = scenario.map
     scenario_length = scenario.metadata.scenario_length
 
-    lanes_by_id = {eid: edata for eid, edata in map_data.items() if puffer_types.is_road_lane(edata["type"])}
+    lanes_by_id = {eid: edata for eid, edata in map_data.items() if edata.is_lane}
 
-    elements = []
-    covered_lanes = set()
-    used_ids = set()
+    elements: list[dict] = []
+    covered_lanes: set[int] = set()
+    used_ids: set[int] = set()
 
-    for element_id, traffic_light in extras.get("traffic_lights", {}).items():
+    for element_id, traffic_light in extras.traffic_lights.items():
         controlled_lane_id = traffic_light.controlled_lane
         if (controlled_lane := lanes_by_id.get(controlled_lane_id)) is None:
             log.debug(
                 "lane=%s tl=%s: controlled lane not in map, skipping",
+                controlled_lane_id,
+                element_id,
+            )
+            continue
+        if controlled_lane.type == puffer_types.LaneType.BIKE_LANE:
+            log.debug(
+                "lane=%s tl=%s: controlled lane is a bike lane, skipping",
                 controlled_lane_id,
                 element_id,
             )
@@ -46,12 +53,12 @@ def process_traffic_controls(scenario, extras) -> None:
 
     next_id = max(used_ids, default=-1) + 1
 
-    for element_data in extras.get("stop_zones", []):
-        stop_zone_type = element_data["type"]
+    for element_data in extras.stop_zones:
+        stop_zone_type = element_data.type
         if stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT and scenario_length > 0:
             continue  # Skip stop zones if traffic lights are already defined, to avoid duplicates
 
-        controlled_lanes = [lid for lid in element_data["controlled_lanes"] if lid not in covered_lanes]
+        controlled_lanes = [lid for lid in element_data.controlled_lanes if lid not in covered_lanes]
         if not controlled_lanes:
             continue
 
@@ -65,7 +72,7 @@ def process_traffic_controls(scenario, extras) -> None:
             continue
         try:
             heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
-            stop_line = _stop_line_from_polygon(element_data["polygon"], heading)
+            stop_line = _stop_line_from_polygon(element_data.polygon, heading)
         except ValueError as exc:
             log.warning("lane=%s: malformed stop zone, skipping: %s", controlled_lane_id, exc)
             continue
@@ -90,16 +97,16 @@ def process_traffic_controls(scenario, extras) -> None:
     scenario.traffic_controls = elements
 
 
-def _stop_line_from_position(heading, lane_id, lanes_by_id):
+def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int, schema.MapElement]) -> np.ndarray:
     lane = lanes_by_id.get(lane_id)
     if lane is None:
         raise ValueError("controlled lane is missing")
-    polyline = np.asarray(lane.get("polyline"), dtype=np.float64)
+    polyline = np.asarray(lane.polyline, dtype=np.float64)
     if polyline.ndim != 2 or len(polyline) == 0:
         raise ValueError("controlled lane polyline is empty")
     center = polyline[0]
-    left_boundary = np.asarray(lane.get("left_boundary", []), dtype=np.float64)
-    right_boundary = np.asarray(lane.get("right_boundary", []), dtype=np.float64)
+    left_boundary = np.asarray(lane.left_boundary if lane.left_boundary is not None else [], dtype=np.float64)
+    right_boundary = np.asarray(lane.right_boundary if lane.right_boundary is not None else [], dtype=np.float64)
     width = _lane_width_from_boundaries(left_boundary, right_boundary)
     lane_vector = np.array([np.cos(heading), np.sin(heading), 0.0])
     return np.array(
@@ -111,20 +118,20 @@ def _stop_line_from_position(heading, lane_id, lanes_by_id):
     )
 
 
-def _compute_heading_from_incoming_lanes(lane, lanes_by_id):
+def _compute_heading_from_incoming_lanes(lane: schema.MapElement, lanes_by_id: dict[int, schema.MapElement]) -> float:
     headings = []
-    for entry_id in lane.get("entry_lanes", []):
+    for entry_id in lane.entry_lanes:
         entry_lane = lanes_by_id.get(entry_id)
         if entry_lane is None:
             continue
-        polyline = np.asarray(entry_lane.get("polyline"), dtype=np.float64)
+        polyline = np.asarray(entry_lane.polyline, dtype=np.float64)
         if polyline.ndim != 2 or len(polyline) < 2:
             continue
         dxy = polyline[-1] - polyline[-2]
         headings.append(np.arctan2(dxy[1], dxy[0]))
 
     if not headings:
-        polyline = np.asarray(lane.get("polyline"), dtype=np.float64)
+        polyline = np.asarray(lane.polyline, dtype=np.float64)
         if polyline.ndim != 2 or len(polyline) < 2:
             raise ValueError("lane polyline needs at least two points")
         dxy = polyline[1] - polyline[0]
@@ -133,7 +140,7 @@ def _compute_heading_from_incoming_lanes(lane, lanes_by_id):
     return float(np.arctan2(np.mean(np.sin(headings)), np.mean(np.cos(headings))))
 
 
-def _lane_width_from_boundaries(left_boundary, right_boundary):
+def _lane_width_from_boundaries(left_boundary: np.ndarray, right_boundary: np.ndarray) -> float:
     if left_boundary.ndim != 2 or right_boundary.ndim != 2:
         return 3.5
     if len(left_boundary) == 0 or len(right_boundary) == 0:
@@ -144,7 +151,7 @@ def _lane_width_from_boundaries(left_boundary, right_boundary):
     return width
 
 
-def _stop_line_from_polygon(polygon, heading):
+def _stop_line_from_polygon(polygon: np.ndarray, heading: float) -> np.ndarray:
     polygon = np.asarray(polygon, dtype=np.float64)
     if polygon.ndim != 2 or len(polygon) < 2:
         raise ValueError("stop zone polygon needs at least two points")

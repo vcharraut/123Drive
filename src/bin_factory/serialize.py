@@ -1,83 +1,20 @@
 """Serialize a PufferScenario to PufferDrive binary format.
 
-Binary layout (all little-endian):
-
-  HEADER
-    int32 x4  — counts: [num_agents, num_road_elements, num_traffic_controls, num_objects]
-
-  AGENTS (repeated num_agents)
-    int32 x2          — agent_id, agent_type (AgentType enum)
-    DYNAMIC_STATES    — trajectory block (see below)
-    int_list          — lane route (ordered lane IDs the agent follows)
-    int32             — route_gt_len (number of leading route lanes supported by GT)
-    float32 x3        — goal position (x, y, z) from last valid frame
-    int32             — control_state (0=controllable, 1=background_moving, 2=background_static)
-
-  ROAD MAP ELEMENTS (repeated num_road_elements)
-    int32 x2          — element_id, road_type (LaneType/RoadLineType/RoadEdgeType/MiscRoadType)
-    int32             — num_points
-    float32[N] x3     — x, y, z columns (polyline for lines/edges, polygon for crosswalks)
-    float32[N]        — per-point heading (radians, from segment tangent)
-    if road_type is lane:
-      int_list        — entry_lane IDs (predecessors)
-      int_list        — exit_lane IDs (successors)
-      float32         — speed_limit_mps (-1 if unknown)
-      float32         — total polyline length (meters)
-      float32[N]      — cumulative arc-length per polyline point (cum[0]=0, cum[-1]=length)
-
-  TRAFFIC CONTROLS (repeated num_traffic_controls)
-    int32 x2          — control_id, control_type (TCType enum)
-    float32 x3        — stop_line start point (x, y, z)
-    float32 x3        — stop_line end point (x, y, z)
-    float32           — heading (radians)
-    int_list          — per-frame states (TLState ints; empty for non-light controls)
-    int_list          — controlled_lane IDs
-
-  OBJECTS (repeated num_objects)
-    int32 x2          — object_id, object_type (ObjectType enum)
-    DYNAMIC_STATES    — trajectory block
-
-  LANE GRAPH
-    int32             — N (number of lanes in graph; 0 = no graph)
-    if N > 0:
-      int32[N]        — lane_ids
-      float32[N*N]    — pairwise distance matrix (row-major)
-
-  METADATA
-    char[128]         — scenario_id (utf-8, null-padded)
-    char[32]          — dataset name (utf-8, null-padded)
-    int32             — scenario_length (number of timesteps)
-    float32           — dt (seconds per timestep)
-    int_list          — objects_of_interest (currently empty)
-    int_list          — tracks_to_predict (currently empty)
-
-  Sub-structures:
-
-  DYNAMIC_STATES — per-track trajectory over T timesteps:
-    int32             — T (trajectory length)
-    float32[T] x3     — x, y, z position columns
-    float32[T]        — heading
-    float32[T] x2     — velocity_x, velocity_y
-    float32[T]        — length, width, height (per-frame bounding box)
-    int32[T]          — valid mask (1 = observed, 0 = missing)
-
-  int_list — length-prefixed int32 array:
-    int32             — N (count)
-    int32[N]          — values
+Full binary layout is specified in ``docs/binary-format.md``; enum values are in ``puffer_types.py``.
 """
 
 import struct
 
 import numpy as np
 
-from bin_factory import puffer_types
+from bin_factory import schema
 
 
 METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
 
 
-def _write_dynamic_states(buf, track):
+def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
     """Write a per-track trajectory block (T + xyz + heading + velocity + bbox + valid). Returns xyz."""
     xyz = np.asarray(track.position, dtype=np.float32)
     buf.extend(struct.pack("<i", len(xyz)))
@@ -97,13 +34,12 @@ def _write_dynamic_states(buf, track):
     return xyz
 
 
-def scenario_to_binary(scenario):
+def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
     """Serialize a PufferScenario into the PufferDrive .bin format.
 
-    See the module docstring for the full binary layout. Road elements with fewer than
-    two polyline points are skipped during serialization, so the header's road-element
-    count is written as a placeholder and patched in-place once all elements have been
-    emitted.
+    See the module docstring for the full binary layout. Map elements must already be
+    serializable (>= min_points geometry) — transforms.sanitize.prune_invalid_map_elements
+    guarantees this before reindexing.
 
     Returns:
         ``bytes`` containing the serialized scenario.
@@ -111,8 +47,7 @@ def scenario_to_binary(scenario):
     buf = bytearray()
     agents, road_map, tcs, objects = scenario.agents, scenario.map, scenario.traffic_controls, scenario.objects
 
-    # Header — road_count is a placeholder at offset 4; patched after filtering undersized polylines.
-    buf.extend(struct.pack("<iiii", len(agents), 0, len(tcs), len(objects)))
+    buf.extend(struct.pack("<iiii", len(agents), len(road_map), len(tcs), len(objects)))
 
     # Agents: id, type, trajectory, route, route_gt_len, goal, control_state
     for eid, track in agents.items():
@@ -135,18 +70,9 @@ def scenario_to_binary(scenario):
         buf.extend(struct.pack("<i", int(track.control_state)))
 
     # Road map: id, type, geometry, heading; lanes get topology + speed limit
-    road_count = 0
     for eid, elem in road_map.items():
-        road_type = elem["type"]
-        is_line = (
-            puffer_types.is_road_lane(road_type)
-            or puffer_types.is_road_line(road_type)
-            or puffer_types.is_road_edge(road_type)
-        )
-        xyz = elem.get("polyline" if is_line else "polygon")
-        if xyz is None or len(xyz) <= 1:
-            continue
-        road_count += 1
+        road_type = elem.type
+        xyz = elem.geometry
 
         xyz_f = np.asarray(xyz, dtype=np.float32)
         pts = np.asarray(xyz, dtype=np.float64)
@@ -159,16 +85,14 @@ def scenario_to_binary(scenario):
             buf.extend(col.tobytes())
         buf.extend(heading.tobytes())
 
-        if puffer_types.is_road_lane(road_type):
-            for lane_list in [elem["entry_lanes"], elem["exit_lanes"]]:
+        if elem.is_lane:
+            for lane_list in [elem.entry_lanes, elem.exit_lanes]:
                 buf.extend(struct.pack("<i", len(lane_list)))
                 if lane_list:
                     buf.extend(struct.pack(f"<{len(lane_list)}i", *map(int, lane_list)))
-            buf.extend(struct.pack("<f", elem["speed_limit_mps"]))
-            buf.extend(struct.pack("<f", float(elem["length"])))
-            buf.extend(np.asarray(elem["cum_length"], dtype=np.float32).tobytes())
-
-    struct.pack_into("<i", buf, 4, road_count)  # patch actual road count in header
+            buf.extend(struct.pack("<f", elem.speed_limit_mps))
+            buf.extend(struct.pack("<f", float(elem.length)))
+            buf.extend(np.asarray(elem.cum_length, dtype=np.float32).tobytes())
 
     # Traffic controls: id, type, stop line endpoints, heading, states, controlled lanes
     for tc in tcs:
@@ -203,7 +127,9 @@ def scenario_to_binary(scenario):
     )
     buf.extend(struct.pack("<i", int(scenario.metadata.scenario_length)))
     buf.extend(struct.pack("<f", float(scenario.metadata.dt)))
-    buf.extend(struct.pack("<i", 0))  # objects_of_interest (empty)
-    buf.extend(struct.pack("<i", 0))  # tracks_to_predict (empty)
+    for int_list in [scenario.metadata.objects_of_interest, scenario.metadata.tracks_to_predict]:
+        buf.extend(struct.pack("<i", len(int_list)))
+        if int_list:
+            buf.extend(struct.pack(f"<{len(int_list)}i", *map(int, int_list)))
 
     return bytes(buf)

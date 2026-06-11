@@ -6,9 +6,10 @@ Level 2 (semantic): NaN/Inf, cross-refs, physics.
 
 import numpy as np
 from shapely.geometry import LineString, MultiPoint, Point
+from shapely.geometry.base import BaseGeometry
 from shapely.strtree import STRtree
 
-from bin_factory import puffer_types
+from bin_factory import schema
 
 
 _Z_BRIDGE_MIN = 0.5
@@ -30,19 +31,23 @@ _DYNAMIC_STATE_SPECS = {
 }
 
 
-def validate_scenario(scenario, extras=None, level=1):
+def validate_scenario(
+    scenario: schema.PufferScenario,
+    extras: schema.ExtractionExtras | None = None,
+    level: int = 1,
+) -> list[str]:
     """Returns list of error strings. Empty = valid.
 
-    extras: {"traffic_lights": ..., "stop_zones": ...} from extraction.
+    extras: ExtractionExtras (traffic_lights, stop_zones) from extraction.
     """
     if level <= 0:
         return []
 
-    extras = extras or {}
-    traffic_lights = extras.get("traffic_lights", {})
-    stop_zones = extras.get("stop_zones", [])
+    extras = extras or schema.ExtractionExtras()
+    traffic_lights = extras.traffic_lights
+    stop_zones = extras.stop_zones
 
-    errors = []
+    errors: list[str] = []
     meta = scenario.metadata
     length = meta.scenario_length
 
@@ -63,7 +68,7 @@ def validate_scenario(scenario, extras=None, level=1):
 
     # ── Semantic ──
     _validate_no_nan_inf(scenario, errors)
-    lane_ids = {eid for eid, e in scenario.map.items() if puffer_types.is_road_lane(e["type"])}
+    lane_ids = {eid for eid, e in scenario.map.items() if e.is_lane}
     _validate_lane_topology(scenario.map, lane_ids, errors)
     _validate_tl_lane_refs(traffic_lights, lane_ids, errors)
     if scenario.agents:
@@ -76,7 +81,7 @@ def validate_scenario(scenario, extras=None, level=1):
     return errors
 
 
-def _validate_dynamic_states(items, prefix, length, errors) -> None:
+def _validate_dynamic_states(items: dict[int, schema.Track], prefix: str, length: int, errors: list[str]) -> None:
     for eid, ds in items.items():
         for field, (ndim, dim1) in _DYNAMIC_STATE_SPECS.items():
             arr = getattr(ds, field)
@@ -92,8 +97,8 @@ def _validate_dynamic_states(items, prefix, length, errors) -> None:
                 errors.append(f"{prefix} {eid} {field} length {arr.shape[0]} != scenario_length {length}")
 
 
-def _validate_geometry(elem, key, label, min_points, errors):
-    geom = elem.get(key)
+def _validate_geometry(elem: object, key: str, label: str, min_points: int, errors: list[str]) -> None:
+    geom = getattr(elem, key, None)
     if geom is None:
         errors.append(f"{label} missing {key}")
     elif not isinstance(geom, np.ndarray) or geom.ndim != 2 or geom.shape[1] < 2:
@@ -102,28 +107,32 @@ def _validate_geometry(elem, key, label, min_points, errors):
         errors.append(f"{label} {key} needs >= {min_points} points, got {len(geom)}")
 
 
-def _validate_map_elements(map_data, errors) -> None:
+def _validate_map_elements(map_data: dict[int, schema.MapElement], errors: list[str]) -> None:
     for eid, elem in map_data.items():
-        t = elem["type"]
-        if puffer_types.is_road_lane(t) or puffer_types.is_road_line(t) or puffer_types.is_road_edge(t):
+        if elem.uses_polyline:
             _validate_geometry(elem, "polyline", f"Map {eid}", 2, errors)
-            if puffer_types.is_road_lane(t):
+            if elem.is_lane:
                 for key in ("entry_lanes", "exit_lanes"):
-                    if not isinstance(elem.get(key), list):
+                    if not isinstance(getattr(elem, key, None), list):
                         errors.append(f"Map {eid} missing or invalid {key}")
 
-        elif puffer_types.is_crosswalk(t):
+        elif elem.is_crosswalk:
             _validate_geometry(elem, "polygon", f"Map {eid}", 3, errors)
 
 
-def _validate_stop_zones(stop_zones, errors) -> None:
+def _validate_stop_zones(stop_zones: list[schema.StopZone], errors: list[str]) -> None:
     for i, sz in enumerate(stop_zones):
         _validate_geometry(sz, "polygon", f"StopZone {i}", 3, errors)
-        if not isinstance(sz.get("controlled_lanes"), list):
+        if not isinstance(getattr(sz, "controlled_lanes", None), list):
             errors.append(f"StopZone {i} missing or invalid controlled_lanes")
 
 
-def _validate_traffic_lights(tl_data, length, map_data, errors) -> None:
+def _validate_traffic_lights(
+    tl_data: dict[int, schema.TrafficLightTrack],
+    length: int,
+    map_data: dict[int, schema.MapElement],
+    errors: list[str],
+) -> None:
     for eid, tl in tl_data.items():
         if not isinstance(tl.position, np.ndarray) or tl.position.shape != (3,):
             errors.append(f"TL {eid} position must be shape (3,), got {getattr(tl.position, 'shape', None)}")
@@ -136,7 +145,7 @@ def _validate_traffic_lights(tl_data, length, map_data, errors) -> None:
 # ── Semantic checks ──
 
 
-def _validate_no_nan_inf(scenario, errors) -> None:
+def _validate_no_nan_inf(scenario: schema.PufferScenario, errors: list[str]) -> None:
     for prefix, items in (("Agent", scenario.agents), ("Object", scenario.objects)):
         for eid, ds in items.items():
             for field in _DYNAMIC_STATE_SPECS:
@@ -146,11 +155,15 @@ def _validate_no_nan_inf(scenario, errors) -> None:
 
     for eid, elem in scenario.map.items():
         for key in ("polyline", "polygon"):
-            if (arr := elem.get(key)) is not None and isinstance(arr, np.ndarray) and not np.all(np.isfinite(arr)):
+            if (
+                (arr := getattr(elem, key, None)) is not None
+                and isinstance(arr, np.ndarray)
+                and not np.all(np.isfinite(arr))
+            ):
                 errors.append(f"Map {eid} {key} contains NaN or Inf")
 
 
-def _validate_ego(agents, length, errors) -> None:
+def _validate_ego(agents: dict[int, schema.Track], length: int, errors: list[str]) -> None:
     if 0 not in agents:
         errors.append("Ego agent (id=0) missing")
         return
@@ -175,23 +188,23 @@ def _validate_ego(agents, length, errors) -> None:
         errors.append(f"Ego teleports at timestep {i}: moved {dists[i]:.2f}m")
 
 
-def _validate_lane_topology(map_data, lane_ids, errors) -> None:
+def _validate_lane_topology(map_data: dict[int, schema.MapElement], lane_ids: set[int], errors: list[str]) -> None:
     for eid, elem in map_data.items():
-        if not puffer_types.is_road_lane(elem["type"]):
+        if not elem.is_lane:
             continue
         for key in ("entry_lanes", "exit_lanes"):
-            for ref in elem.get(key, []):
+            for ref in getattr(elem, key):
                 if ref not in lane_ids:
                     errors.append(f"Lane {eid} {key} references non-existent lane {ref}")
 
 
-def _validate_tl_lane_refs(tl_data, lane_ids, errors) -> None:
+def _validate_tl_lane_refs(tl_data: dict[int, schema.TrafficLightTrack], lane_ids: set[int], errors: list[str]) -> None:
     for eid, tl in tl_data.items():
         if tl.controlled_lane not in lane_ids:
             errors.append(f"TL {eid} controlled_lane {tl.controlled_lane} references non-lane element")
 
 
-def _validate_agent_sizes(items, prefix, errors) -> None:
+def _validate_agent_sizes(items: dict[int, schema.Track], prefix: str, errors: list[str]) -> None:
     for eid, ds in items.items():
         valid = ds.valid.astype(bool)
         if not np.any(valid):
@@ -202,7 +215,7 @@ def _validate_agent_sizes(items, prefix, errors) -> None:
                 errors.append(f"{prefix} {eid} has non-positive {key}")
 
 
-def _z_at_xy(polyline, point):
+def _z_at_xy(polyline: np.ndarray, point: Point) -> float:
     seg = np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1)
     cum = np.concatenate([[0.0], np.cumsum(seg)])
     s = LineString(polyline[:, :2]).project(point)
@@ -211,7 +224,7 @@ def _z_at_xy(polyline, point):
     return polyline[i, 2] + t * (polyline[i + 1, 2] - polyline[i, 2])
 
 
-def _intersection_points(geom):
+def _intersection_points(geom: BaseGeometry) -> list[Point]:
     if geom.is_empty:
         return []
     if isinstance(geom, Point):
@@ -226,15 +239,15 @@ def _intersection_points(geom):
     return []
 
 
-def _validate_road_edge_z_overlap(map_data, errors) -> None:
+def _validate_road_edge_z_overlap(map_data: dict[int, schema.MapElement], errors: list[str]) -> None:
     edges = [
-        (eid, np.asarray(elem["polyline"]))
+        (eid, np.asarray(elem.polyline))
         for eid, elem in map_data.items()
-        if puffer_types.is_road_edge(elem["type"])
-        and isinstance(elem.get("polyline"), np.ndarray)
-        and elem["polyline"].ndim == 2
-        and elem["polyline"].shape[0] >= 2
-        and elem["polyline"].shape[1] >= 3
+        if elem.is_edge
+        and isinstance(elem.polyline, np.ndarray)
+        and elem.polyline.ndim == 2
+        and elem.polyline.shape[0] >= 2
+        and elem.polyline.shape[1] >= 3
     ]
     if len(edges) < 2:
         return

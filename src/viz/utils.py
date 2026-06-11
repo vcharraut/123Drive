@@ -31,7 +31,7 @@ ROAD_COLORS = {
 }
 
 
-def as_json_dict():
+def as_json_dict() -> dict:
     return {
         "AGENT_TYPE_NAMES": AGENT_TYPE_NAMES,
         "ROAD_TYPE_NAMES": ROAD_TYPE_NAMES,

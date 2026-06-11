@@ -1,55 +1,74 @@
 import numpy as np
 from shapely import geometry as shapely_geom
 
+from bin_factory import schema
+
+
+# ── Polyline length primitives ──────────────────────────────────────────────────────────
+
+
+def arc_length(polyline: np.ndarray) -> np.ndarray:
+    """Cumulative arc-length per point. cum[0]=0, cum[-1]=total length. Norms over all columns."""
+    polyline = np.asarray(polyline)
+    if len(polyline) < 2:
+        return np.zeros(len(polyline), dtype=np.float64)
+    seg = np.linalg.norm(np.diff(polyline, axis=0), axis=1)
+    return np.concatenate([[0.0], np.cumsum(seg)]).astype(np.float64)
+
+
+def polyline_length(polyline: np.ndarray) -> float:
+    """Total arc-length of a polyline (sum of segment norms over all columns)."""
+    polyline = np.asarray(polyline)
+    if len(polyline) < 2:
+        return 0.0
+    return float(np.sum(np.linalg.norm(np.diff(polyline, axis=0), axis=1)))
+
 
 # ── Interpolate polygons to ensure they are all the same spacing ───────────────────────
 
 
-def interpolate_all_polygons(scenario, spacing=3.0) -> None:
+def interpolate_all_polygons(scenario: schema.PufferScenario, spacing: float = 5.0) -> None:
     for element_data in scenario.map.values():
-        if "polygon" in element_data:
-            element_data["polygon"] = _interpolate_polygon(element_data["polygon"], spacing)
+        if element_data.polygon is not None:
+            element_data.polygon = _interpolate_polygon(element_data.polygon, spacing)
 
 
-def _interpolate_polygon(xyz, spacing):
+def _interpolate_polygon(xyz: np.ndarray | None, spacing: float) -> np.ndarray:
     if xyz is None or len(xyz) == 0:
         return np.zeros((0, 3), dtype=np.float64)
 
+    xyz = np.asarray(xyz, dtype=np.float64)
     if not np.allclose(xyz[0], xyz[-1]):
         xyz = np.vstack([xyz, xyz[0:1]])
 
-    diffs = np.diff(xyz, axis=0)
-    seg_lengths = np.linalg.norm(diffs[:, :2], axis=1)
-    total_length = seg_lengths.sum()
+    densified = shapely_geom.LineString(xyz).segmentize(spacing)
+    return np.asarray(densified.coords, dtype=np.float64)
 
-    if total_length < spacing:
-        return xyz
 
-    cum_lengths = np.concatenate([[0], np.cumsum(seg_lengths)])
-    num_points = max(int(total_length / spacing), 2)
-    target_dists = np.linspace(0, total_length, num_points, endpoint=False)
+# ── Reverse road-edge heading  ─────────────────────────────────────────────────────────
 
-    idx = np.clip(np.searchsorted(cum_lengths[1:], target_dists, side="right"), 0, len(seg_lengths) - 1)
-    safe_lengths = np.where(seg_lengths[idx] > 0, seg_lengths[idx], 1.0)
-    t = ((target_dists - cum_lengths[idx]) / safe_lengths)[:, np.newaxis]
-    interpolated = xyz[idx] + t * diffs[idx]
 
-    return np.vstack([interpolated, interpolated[0:1]])
+def reverse_road_edges(scenario: schema.PufferScenario) -> None:
+    for element in scenario.map.values():
+        if element.is_edge and element.polyline is not None:
+            element.polyline = element.polyline[::-1]
 
 
 # ── Downsample and simplify polylines ──────────────────────────────────────────────────
 
 
-def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1) -> None:
+def process_polylines(
+    scenario: schema.PufferScenario, max_segment_length: float = 2.0, area_threshold: float = 0.1
+) -> None:
     map_elements = scenario.map
     if not map_elements:
         return
 
     for element in map_elements.values():
-        if "polyline" not in element:
+        if element.polyline is None:
             continue
 
-        polyline = element["polyline"]
+        polyline = element.polyline
 
         if len(polyline) < 2:
             continue
@@ -62,10 +81,10 @@ def process_polylines(scenario, max_segment_length=2.0, area_threshold=0.1) -> N
         if max_segment_length > 0:
             polyline = _distance_based_interpolate(polyline, max_segment_length)
 
-        element["polyline"] = polyline
+        element.polyline = polyline
 
 
-def _remove_duplicate_points(polyline, tol=1e-9):
+def _remove_duplicate_points(polyline: np.ndarray, tol: float = 1e-9) -> np.ndarray:
     diffs = np.diff(polyline, axis=0)
     distances = np.linalg.norm(diffs, axis=1)
     keep_mask = np.concatenate([[True], distances >= tol])
@@ -73,7 +92,7 @@ def _remove_duplicate_points(polyline, tol=1e-9):
     return polyline[keep_mask]
 
 
-def _distance_based_interpolate(polyline, max_segment_length):
+def _distance_based_interpolate(polyline: np.ndarray, max_segment_length: float) -> np.ndarray:
     diffs = np.diff(polyline, axis=0)
     seg_lengths = np.linalg.norm(diffs, axis=1)
     subdivisions = np.maximum(np.ceil(seg_lengths / max_segment_length).astype(int), 1)
@@ -93,7 +112,7 @@ def _distance_based_interpolate(polyline, max_segment_length):
     return result
 
 
-def _simplify_polyline(polyline, tolerance):
+def _simplify_polyline(polyline: np.ndarray, tolerance: float) -> np.ndarray:
     simplified_2d = np.array(shapely_geom.LineString(polyline[:, :2]).simplify(tolerance).coords)
 
     # Re-interpolate z from original polyline at simplified 2D positions

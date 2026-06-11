@@ -2,6 +2,76 @@
 
 Generated from tags on `main`.
 
+## v0.3.2 - 2026-06-11
+
+Compared with `v0.3.1`.
+Source: `v0.3.1..v0.3.2` - 34 commits, 60 files changed.
+
+### Added
+
+- Dataset presets: `--preset` flag backed by `src/bin_factory/presets.toml`
+  (`av2`/`carla`/`nuplan`/`nuscenes`/`opendrive`/`wod-motion`). A preset pins the
+  dataset family and reproducible defaults; explicit CLI flags still override.
+- `--dt` flag for iteration timestep (default `0.1` = 10 Hz), threaded into scene
+  discovery as `target_iteration_duration_s` and `timestamp_threshold_s`.
+- `--reverse_road_edges` flag and transform reversing road-edge polyline order
+  (Waymo convention) for nuplan/carla/opendrive.
+- `--scenario_id_field` flag (`scene_uuid`/`log_name`/`location`, default
+  `scene_uuid`) selecting the py123d attribute used as the scenario id for both
+  `metadata.id` and the output filename; each preset pins a per-dataset default.
+- Prediction targets: extract `objects_of_interest` and `tracks_to_predict` from the
+  WOD-Motion `aux` modality into `ScenarioMetadata`, remap them during reindex, and
+  serialize them into binary metadata (previously hard-coded empty lists).
+- `transforms/pipeline.py`: ordered, config-gated processing pipeline with
+  `build_stages` / `run` as the single `process_scenario` entry point.
+- Geometry length primitives `arc_length` and `polyline_length`.
+- Docker build `--push` to tag and push either image to a registry.
+- CI workflow (`pre-commit` + `ty check` + `pytest` on Python 3.11/3.13) and a
+  `.pre-commit-config.yaml` (ruff lint/format, standard sanity hooks, `uv-lock`).
+- Type hints across `src/` enforced by ruff `ANN` rules (tests exempt) and checked
+  by `ty` (pinned dev dependency); `Any` allowed at the py123d/numpy boundary.
+- Test suite under `tests/`: pipeline, schema, serialize, geometry, reindex,
+  sanitize, signal-phase, traffic-controls, traffic-light interpolation, plus
+  real-data end-to-end tests with Arrow fixtures.
+
+### Changed
+
+- Renamed `--impute_tl` to `--interpolate_tl` (`--impute_tl` kept as an alias);
+  module `traffic_lights_imputation.py` → `traffic_light_interpolation.py` and
+  `impute_traffic_lights` → `interpolate_traffic_lights`.
+- Map elements are now `MapElement` / `StopZone` dataclasses (with `is_lane`/
+  `is_line`/`is_edge`/`is_crosswalk`/`uses_polyline` predicates and `geometry`/
+  `min_points` helpers) instead of dicts; extras are an `ExtractionExtras`
+  dataclass. Threaded through extractor, validation, every transform, and serialize.
+- Map extraction queries an ego-path corridor buffer (`SCENE_MAP_MARGIN`, via
+  shapely `intersects`) instead of a fixed radius around the centroid; ego states
+  are now required for non-map-only scenarios.
+- Polygon densification uses shapely `segmentize`; default spacing `3.0` → `5.0` m.
+- `AGENT_TYPE_MAP` maps the `TWO_WHEELER` label (was `BICYCLE`) to `CYCLIST`.
+- Traffic-control processing skips traffic lights whose controlled lane is a bike lane.
+- Lane arc-length consolidated: `compute_lane_arc_lengths` removed in favor of the
+  shared `geometry.arc_length`.
+- `_convert_one` now delegates all processing to `transforms.run`.
+- Scenario id derivation is driven by `--scenario_id_field` (and per-preset
+  defaults) instead of the hard-coded dataset-specific fields added in v0.3.1;
+  `metadata.id` now matches the output filename, and map-only scenarios use
+  `location`.
+- Conversion tolerates partial failures: exit `0` if any scenario converted, `1`
+  only if none did (was `1` whenever any scenario failed).
+- Docker entrypoint exports `PY123D_DATA_ROOT=/input` so convert workers resolve maps.
+- Pinned `py123d` `0.2.1` → `0.5.1` (pyproject, Dockerfile, docker README default);
+  bumped project version to `0.3.2` and packaged `presets.toml` as package data.
+
+### Removed
+
+- `docs/data.md` (supported data surface) and its README link.
+
+### Docs
+
+- Binary format doc now points to `puffer_types.py` as the single source of truth
+  for enum values instead of inlining them.
+- README: added a Presets section and `--preset` / `--dt` / `--interpolate_tl` flags.
+
 ## v0.3.1 - 2026-05-21
 
 Compared with `v0.3`.

@@ -1,4 +1,10 @@
-"""Traffic light state imputation from vehicle trajectories (Yan et al. 2025).
+"""Traffic light interpolation from vehicle trajectories.
+
+This module implements the traffic-light interpolation algorithm described in the paper
+Improving Traffic Signal Data Quality for the Waymo Open Motion Dataset (Yan et al. 2025).
+
+Creates the traffic-light signals for an already-existing intersection by interpolating the
+signal phases from how vehicles move through it.
 
 Algorithm overview:
 1. Build lane graph and assign observed TL states to lanes.
@@ -7,21 +13,29 @@ Algorithm overview:
 4. For each intersection and timestep:
    a. raw_state: directly observed TL detections (from dataset).
    b. estimated_state: inferred from vehicle kinematics (speed/acceleration near stop line).
-   c. imputed_state: merge raw + estimated with confidence weighting.
+   c. interpolated_state: merge raw + estimated with confidence weighting.
    d. Select closest feasible phase pattern (physically valid signal combination).
 5. Smooth short spurious phase flips, insert yellow transitions.
-6. Write imputed states back to traffic_lights extras dict.
+6. Write interpolated states back to traffic_lights extras dict.
 """
 
 from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
 from bin_factory import puffer_types, schema
 from bin_factory.log_context import log
+from bin_factory.transforms.geometry import polyline_length
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
+    from numpy.typing import ArrayLike
 
 
 _LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}
@@ -44,14 +58,19 @@ class _TLS(enum.IntEnum):
     GREEN = 3
 
 
-def _copy_state(state):
-    return [dict(d) for d in state]
-
-
 class _Direction(enum.IntEnum):
     L = 0
     S = 1
     R = 2
+
+
+# Per-way signal state: maps each phase (grouped turn directions) to its light state,
+# None while not yet derived.
+_PhaseState = dict[tuple[_Direction, ...], "_TLS | None"]
+
+
+def _copy_state(state: list[_PhaseState]) -> list[_PhaseState]:
+    return [dict(d) for d in state]
 
 
 @dataclass(slots=True)
@@ -68,7 +87,7 @@ class _InJunctionLane:
     record_tls: list[_TLS]
     record_vehs: list[dict[int, _VehicleState]]
     direction: _Direction = field(init=False)
-    new_tls: list[_TLS] = field(init=False)
+    new_tls: list[_TLS | None] = field(init=False)
 
     def __post_init__(self) -> None:
         self.direction = _classify_direction(self.shape[:, :2])
@@ -97,15 +116,17 @@ class _LaneRecord:
 
 
 class _UnionFind:
-    def __init__(self, items) -> None:
+    def __init__(self, items: Iterable[int]) -> None:
         self.parent = {item: item for item in items}
         self.rank = dict.fromkeys(items, 1)
 
     def find(self, item: int) -> int:
-        parent = self.parent[item]
-        if parent != item:
-            self.parent[item] = self.find(parent)
-        return self.parent[item]
+        root = item
+        while self.parent[root] != root:
+            root = self.parent[root]
+        while self.parent[item] != root:
+            self.parent[item], item = root, self.parent[item]
+        return root
 
     def union(self, left: int, right: int) -> None:
         root_left = self.find(left)
@@ -125,23 +146,23 @@ class _UnionFind:
         return [sorted(items) for items in root_to_items.values()]
 
 
-def impute_traffic_lights(scenario, extras) -> None:
+def interpolate_traffic_lights(scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
     if scenario.metadata.scenario_length <= 0:
         return
 
-    imputer = _TrafficLightImputer(scenario, extras)
-    imputer.impute()
+    interpolator = _TrafficLightInterpolator(scenario, extras)
+    interpolator.interpolate()
 
 
-class _TrafficLightImputer:
-    def __init__(self, scenario, extras) -> None:
+class _TrafficLightInterpolator:
+    def __init__(self, scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
         self.scenario = scenario
         self.extras = extras
         self.length = scenario.metadata.scenario_length
         self.dt = max(float(scenario.metadata.dt), 1e-3)
         self.lanes = self._build_lanes()
 
-    def impute(self) -> None:
+    def interpolate(self) -> None:
         if len(self.lanes) < 4:
             return
 
@@ -160,7 +181,7 @@ class _TrafficLightImputer:
             self.length,
         )
 
-        traffic_lights = dict(self.extras.get("traffic_lights", {}))
+        traffic_lights = dict(self.extras.traffic_lights)
         generator = _TLSGenerator(self.length)
         updated_lanes = 0
 
@@ -174,12 +195,12 @@ class _TrafficLightImputer:
             updated_lanes += self._write_generated_states(intersection, tls_sequence, traffic_lights)
 
         if updated_lanes == 0:
-            log.debug("traffic-light imputation produced no updates")
+            log.debug("traffic-light interpolation produced no updates")
             return
 
-        self.extras["traffic_lights"] = traffic_lights
+        self.extras.traffic_lights = traffic_lights
         log.debug(
-            "imputed traffic lights for %d lanes across %d intersections",
+            "interpolated traffic lights for %d lanes across %d intersections",
             updated_lanes,
             len(signalized_intersections),
         )
@@ -187,22 +208,22 @@ class _TrafficLightImputer:
     def _build_lanes(self) -> dict[int, _LaneRecord]:
         lanes: dict[int, _LaneRecord] = {}
         for lane_id, element in self.scenario.map.items():
-            if element.get("type") not in _LANE_TYPES:
+            if element.type not in _LANE_TYPES:
                 continue
-            polyline = _as_xyz_array(element.get("polyline"))
+            polyline = _as_xyz_array(element.polyline)
             if len(polyline) < 2:
                 continue
             lanes[int(lane_id)] = _LaneRecord(
                 id=int(lane_id),
                 polyline=polyline,
-                entry_lanes=[int(ref) for ref in element.get("entry_lanes", [])],
-                exit_lanes=[int(ref) for ref in element.get("exit_lanes", [])],
-                left_neighbors=[int(ref) for ref in element.get("left_neighbor", [])],
-                right_neighbors=[int(ref) for ref in element.get("right_neighbor", [])],
+                entry_lanes=[int(ref) for ref in element.entry_lanes],
+                exit_lanes=[int(ref) for ref in element.exit_lanes],
+                left_neighbors=[int(ref) for ref in element.left_neighbor],
+                right_neighbors=[int(ref) for ref in element.right_neighbor],
                 record_tls=[_TLS.ABSENT for _ in range(self.length)],
             )
 
-        for traffic_light in self.extras.get("traffic_lights", {}).values():
+        for traffic_light in self.extras.traffic_lights.values():
             lane_id = int(traffic_light.controlled_lane)
             lane = lanes.get(lane_id)
             if lane is None:
@@ -225,7 +246,7 @@ class _TrafficLightImputer:
             lane_id
             for lane_id, lane in self.lanes.items()
             if (len(lane.entry_lanes) == 0 or len(lane.exit_lanes) == 0)
-            and _polyline_length(lane.polyline) < _LANE_SHORT_THRESHOLD
+            and polyline_length(lane.polyline) < _LANE_SHORT_THRESHOLD
         ]
         for lane_id in to_delete:
             del self.lanes[lane_id]
@@ -316,10 +337,13 @@ class _TrafficLightImputer:
         for lane_id, lane in self.lanes.items():
             if lane_id in internal_lanes or not lane.entry_lanes or not lane.exit_lanes:
                 continue
-            if lane.entry_lanes[0] in self.lanes and lane.exit_lanes[0] in self.lanes:
-                if union_find.find(lane.entry_lanes[0]) == union_find.find(lane.exit_lanes[0]):
-                    union_find.union(lane_id, lane.entry_lanes[0])
-                    union_find.union(lane_id, lane.exit_lanes[0])
+            if (
+                lane.entry_lanes[0] in self.lanes
+                and lane.exit_lanes[0] in self.lanes
+                and union_find.find(lane.entry_lanes[0]) == union_find.find(lane.exit_lanes[0])
+            ):
+                union_find.union(lane_id, lane.entry_lanes[0])
+                union_find.union(lane_id, lane.exit_lanes[0])
 
         signalized = []
         for group in union_find.groups():
@@ -394,7 +418,7 @@ class _TrafficLightImputer:
     def _write_generated_states(
         self,
         intersection: list[list[_ApproachingLane]],
-        tls_sequence: list[list[dict[tuple[_Direction, ...], _TLS]]],
+        tls_sequence: list[list[_PhaseState]],
         traffic_lights: dict[int, schema.TrafficLightTrack],
     ) -> int:
         updated_lanes: set[int] = set()
@@ -418,9 +442,8 @@ class _TrafficLightImputer:
                     for conn in lane.injunction_lanes:
                         conn.new_tls[timestep] = state
                         track = traffic_lights.get(conn.id)
-                        if track is None:
-                            if self._is_tail_lane(conn.id):
-                                continue
+                        if track is None and self._is_tail_lane(conn.id):
+                            continue
                         if track is None or len(track.states) != self.length:
                             track = schema.TrafficLightTrack(
                                 position=conn.shape[0].astype(np.float64, copy=True),
@@ -428,14 +451,13 @@ class _TrafficLightImputer:
                                 controlled_lane=conn.id,
                             )
                             traffic_lights[conn.id] = track
-                        track.position = conn.shape[0].astype(np.float64, copy=True)
                         track.states[timestep] = _to_puffer_tls(state)
                         updated_lanes.add(conn.id)
         return len(updated_lanes)
 
     def _is_tail_lane(self, lane_id: int) -> bool:
         lane = self.lanes.get(lane_id)
-        if lane is None or _polyline_length(lane.polyline) >= _TAIL_LANE_LENGTH_THRESHOLD:
+        if lane is None or polyline_length(lane.polyline) >= _TAIL_LANE_LENGTH_THRESHOLD:
             return False
         if len(lane.entry_lanes) != 1:
             return False
@@ -443,7 +465,7 @@ class _TrafficLightImputer:
         entry_lane = self.lanes.get(lane.entry_lanes[0])
         if entry_lane is None or len(entry_lane.exit_lanes) != 1:
             return False
-        if _polyline_length(entry_lane.polyline) <= _TAIL_ENTRY_LENGTH_THRESHOLD:
+        if polyline_length(entry_lane.polyline) <= _TAIL_ENTRY_LENGTH_THRESHOLD:
             return False
 
         lane_vector = lane.polyline[-1, :2] - lane.polyline[0, :2]
@@ -469,60 +491,43 @@ class _TLSGenerator:
         self.w_small = 0.1  # low-confidence weight (raw-only, no estimation)
         self.smoothing_width = smoothing_width  # max span of spurious phase flips to smooth out
         self.yellow_duration = yellow_duration  # timesteps of yellow before red
-        self.container_template: list[dict[tuple[_Direction, ...], _TLS | None]] = []
+        self.container_template: list[_PhaseState] = []
 
     def gen_period(
         self,
         intersection: list[list[_ApproachingLane]],
-        start_step: int = 0,
-        end_step: int | None = None,
-    ) -> list[list[dict[tuple[_Direction, ...], _TLS]]]:
+    ) -> list[list[_PhaseState]]:
         if len(intersection) not in (2, 3, 4) or self.horizon == 0:
             return []
 
-        end_step = self.horizon if end_step is None else min(end_step, self.horizon)
-        if end_step <= start_step:
-            return []
-
-        generated_steps = list(range(max(start_step, self.delta_t), min(end_step, self.horizon - self.delta_t)))
-        tl_state_buff: list[list[dict[tuple[_Direction, ...], _TLS]] | None] = [None for _ in range(self.horizon)]
-
+        generated_steps = list(range(self.delta_t, self.horizon - self.delta_t))
         if not generated_steps:
-            step = min(max(start_step, 0), self.horizon - 1)
-            state = self.gen_one_moment(intersection, step)
+            state = self.gen_one_moment(intersection, 0)
             return [_copy_state(state) for _ in range(self.horizon)]
 
+        tl_state_buff: list[list[_PhaseState] | None] = [None for _ in range(self.horizon)]
         prev_state = None
         for step in generated_steps:
             current = self.gen_one_moment(intersection, step, prev_state)
             tl_state_buff[step] = current
             prev_state = current
 
-        first_step = generated_steps[0]
-        last_step = generated_steps[-1]
-        for step in range(start_step, first_step):
-            tl_state_buff[step] = _copy_state(tl_state_buff[first_step])
-        for step in range(first_step, last_step + 1):
-            if tl_state_buff[step] is None:
-                tl_state_buff[step] = _copy_state(tl_state_buff[step - 1])
-        for step in range(last_step + 1, end_step):
-            tl_state_buff[step] = _copy_state(tl_state_buff[last_step])
-        for step in range(start_step):
-            tl_state_buff[step] = _copy_state(tl_state_buff[first_step])
-        for step in range(end_step, self.horizon):
-            tl_state_buff[step] = _copy_state(tl_state_buff[last_step])
+        first_state = cast("list[_PhaseState]", tl_state_buff[generated_steps[0]])
+        last_state = cast("list[_PhaseState]", tl_state_buff[generated_steps[-1]])
+        for step in range(generated_steps[0]):
+            tl_state_buff[step] = _copy_state(first_state)
+        for step in range(generated_steps[-1] + 1, self.horizon):
+            tl_state_buff[step] = _copy_state(last_state)
 
-        final = [state for state in tl_state_buff if state is not None]
-        final[start_step:end_step] = self._smooth_sequence(final[start_step:end_step])
-        final[start_step:end_step] = self._add_yellow_light(final[start_step:end_step])
-        return final
+        # generated_steps is contiguous and padded above, so no None remains
+        return self._add_yellow_light(self._smooth_sequence(cast("list[list[_PhaseState]]", tl_state_buff)))
 
     def gen_one_moment(
         self,
         intersection: list[list[_ApproachingLane]],
         curr_step: int,
-        prev_state: list[dict[tuple[_Direction, ...], _TLS]] | None = None,
-    ) -> list[dict[tuple[_Direction, ...], _TLS]]:
+        prev_state: list[_PhaseState] | None = None,
+    ) -> list[_PhaseState]:
         self.container_template = self._gen_state_container(intersection)
         raw_state = self._derive_raw_state(intersection, curr_step)
         estimated_state, confidence = self._derive_estimated_state(intersection, curr_step)
@@ -532,16 +537,16 @@ class _TLSGenerator:
 
         feasible_states = self._get_feasible_states()
         candidate_states = self._score_candidate_states(feasible_states, imputed_state, weight)
-        if prev_state in candidate_states:
+        if prev_state is not None and prev_state in candidate_states:
             return _copy_state(prev_state)
         return self._fill_right_turn_signal(_copy_state(candidate_states[0]))
 
     def _gen_state_container(
         self,
         intersection: list[list[_ApproachingLane]],
-    ) -> list[dict[tuple[_Direction, ...], _TLS | None]]:
-        state_container = [None for _ in intersection]
-        for index, approach in enumerate(intersection):
+    ) -> list[_PhaseState]:
+        state_container: list[_PhaseState] = []
+        for approach in intersection:
             movements = {conn.direction for lane in approach for conn in lane.injunction_lanes}
             union_find = _UnionFind(range(3))
             for lane in approach:
@@ -553,14 +558,14 @@ class _TLSGenerator:
                 for group in union_find.groups()
                 if all(_Direction(direction) in movements for direction in group)
             ]
-            state_container[index] = dict.fromkeys(phases)
+            state_container.append(dict.fromkeys(phases))
         return state_container
 
     def _derive_raw_state(
         self,
         intersection: list[list[_ApproachingLane]],
         curr_step: int,
-    ) -> list[dict[tuple[_Direction, ...], _TLS]]:
+    ) -> list[_PhaseState]:
         raw_state = _copy_state(self.container_template)
         for index, approach in enumerate(intersection):
             for lane in approach:
@@ -579,9 +584,11 @@ class _TLSGenerator:
         self,
         intersection: list[list[_ApproachingLane]],
         curr_step: int,
-    ) -> tuple[list[dict[tuple[_Direction, ...], _TLS]], list[dict[tuple[_Direction, ...], float]]]:
+    ) -> tuple[list[_PhaseState], list[dict[tuple[_Direction, ...], float | None]]]:
         estimated_state = _copy_state(self.container_template)
-        confidence = _copy_state(self.container_template)
+        confidence: list[dict[tuple[_Direction, ...], float | None]] = [
+            dict.fromkeys(way) for way in self.container_template
+        ]
 
         for index, approach in enumerate(intersection):
             for phase in estimated_state[index]:
@@ -615,36 +622,37 @@ class _TLSGenerator:
 
     def _derive_imputed_state(
         self,
-        raw_state: list[dict[tuple[_Direction, ...], _TLS | None]],
-        estimated_state: list[dict[tuple[_Direction, ...], _TLS | None]],
-        confidence: list[dict[tuple[_Direction, ...], float]],
-    ) -> tuple[list[dict[tuple[_Direction, ...], _TLS]], list[dict[tuple[_Direction, ...], float]]]:
+        raw_state: list[_PhaseState],
+        estimated_state: list[_PhaseState],
+        confidence: list[dict[tuple[_Direction, ...], float | None]],
+    ) -> tuple[list[_PhaseState], list[dict[tuple[_Direction, ...], float]]]:
         imputed_state = _copy_state(self.container_template)
-        weight = _copy_state(self.container_template)
+        weight = [dict.fromkeys(way, 0.0) for way in self.container_template]
         for index in range(len(raw_state)):
             for phase in raw_state[index]:
-                raw_none = raw_state[index][phase] is None
-                estimated_none = estimated_state[index][phase] is None
-                if raw_none and estimated_none:
+                raw = raw_state[index][phase]
+                estimated = estimated_state[index][phase]
+                conf = confidence[index][phase] or 0.0  # None only when estimated is None
+                if raw is None and estimated is None:
                     weight[index][phase] = 0.0
-                elif raw_none:
-                    imputed_state[index][phase] = estimated_state[index][phase]
-                    weight[index][phase] = confidence[index][phase]
-                elif estimated_none:
-                    imputed_state[index][phase] = raw_state[index][phase]
+                elif raw is None:
+                    imputed_state[index][phase] = estimated
+                    weight[index][phase] = conf
+                elif estimated is None:
+                    imputed_state[index][phase] = raw
                     weight[index][phase] = self.w_small
-                elif raw_state[index][phase] == estimated_state[index][phase]:
-                    imputed_state[index][phase] = estimated_state[index][phase]
+                elif raw == estimated:
+                    imputed_state[index][phase] = estimated
                     weight[index][phase] = self.w_big
-                elif confidence[index][phase] >= self.theta:
-                    imputed_state[index][phase] = estimated_state[index][phase]
-                    weight[index][phase] = confidence[index][phase]
+                elif conf >= self.theta:
+                    imputed_state[index][phase] = estimated
+                    weight[index][phase] = conf
                 else:
-                    imputed_state[index][phase] = raw_state[index][phase]
+                    imputed_state[index][phase] = raw
                     weight[index][phase] = 0.0
         return imputed_state, weight
 
-    def _get_feasible_states(self) -> list[list[dict[tuple[_Direction, ...], _TLS]]]:
+    def _get_feasible_states(self) -> list[list[_PhaseState]]:
         n = len(self.container_template)
         if n == 4:
             return self._feasible_states_4way()
@@ -652,7 +660,7 @@ class _TLSGenerator:
             return self._feasible_states_3way()
         return []
 
-    def _make_candidate(self, state_fn) -> list[dict[tuple[_Direction, ...], _TLS]]:
+    def _make_candidate(self, state_fn: Callable[[int, tuple[_Direction, ...]], _TLS]) -> list[_PhaseState]:
         """Build a candidate state by applying state_fn(way_index, phase) -> _TLS to each phase."""
         candidate = _copy_state(self.container_template)
         for index in range(len(candidate)):
@@ -660,14 +668,14 @@ class _TLSGenerator:
                 candidate[index][phase] = state_fn(index, phase)
         return candidate
 
-    def _can_split_left(self, way_indices) -> bool:
+    def _can_split_left(self, way_indices: Iterable[int]) -> bool:
         """Check if left-turn phases are separate from straight phases for the given ways."""
         return not any(
             any(_Direction.L in phase and _Direction.S in phase for phase in self.container_template[index])
             for index in way_indices
         )
 
-    def _feasible_states_4way(self) -> list[list[dict[tuple[_Direction, ...], _TLS]]]:
+    def _feasible_states_4way(self) -> list[list[_PhaseState]]:
         candidates = []
         # Single-way green
         for green_way in range(4):
@@ -695,7 +703,7 @@ class _TLSGenerator:
 
         return candidates
 
-    def _feasible_states_3way(self) -> list[list[dict[tuple[_Direction, ...], _TLS]]]:
+    def _feasible_states_3way(self) -> list[list[_PhaseState]]:
         candidates = []
         # Single-way green
         for green_way in range(3):
@@ -721,11 +729,11 @@ class _TLSGenerator:
 
     def _score_candidate_states(
         self,
-        feasible_states: list[list[dict[tuple[_Direction, ...], _TLS]]],
-        imputed_state: list[dict[tuple[_Direction, ...], _TLS | None]],
+        feasible_states: list[list[_PhaseState]],
+        imputed_state: list[_PhaseState],
         weight: list[dict[tuple[_Direction, ...], float]],
-    ) -> list[list[dict[tuple[_Direction, ...], _TLS]]]:
-        def match_score(candidate) -> float:
+    ) -> list[list[_PhaseState]]:
+        def match_score(candidate: list[_PhaseState]) -> float:
             return sum(
                 weight[index][phase]
                 for index in range(len(imputed_state))
@@ -733,7 +741,7 @@ class _TLSGenerator:
                 if imputed_state[index][phase] is not None and imputed_state[index][phase] == candidate[index][phase]
             )
 
-        def conflict_score(candidate) -> float:
+        def conflict_score(candidate: list[_PhaseState]) -> float:
             return sum(
                 weight[index][phase]
                 for index in range(len(imputed_state))
@@ -752,8 +760,8 @@ class _TLSGenerator:
 
     def _fill_right_turn_signal(
         self,
-        state: list[dict[tuple[_Direction, ...], _TLS]],
-    ) -> list[dict[tuple[_Direction, ...], _TLS]]:
+        state: list[_PhaseState],
+    ) -> list[_PhaseState]:
         for lane_state in state:
             if (_Direction.R,) not in lane_state:
                 continue
@@ -778,7 +786,7 @@ class _TLSGenerator:
             trajectories.setdefault(veh_id, []).append((pos_idx, speed, acceleration))
 
         start = max(0, curr_step - self.delta_t)
-        end = min(self.horizon, curr_step + self.delta_t + 1)
+        end = min(self.horizon, curr_step + self.delta_t)
         for timestep in range(start, end):
             for lane in selected_lanes:
                 for veh_id, record in lane.record_vehs[timestep].items():
@@ -790,16 +798,20 @@ class _TLSGenerator:
                     for veh_id, record in conn.record_vehs[timestep].items():
                         pos_idx = -record.lane_pos_idx
                         append_record(veh_id, pos_idx, record.speed, record.acceleration)
-                        if not has_right_turn and abs(timestep - curr_step) <= 2:
-                            if 0 <= record.lane_pos_idx < 10 and record.speed > 0:
-                                return 0.0, 0.0, 0.0, 0.0, True
+                        if (
+                            not has_right_turn
+                            and abs(timestep - curr_step) <= 2
+                            and 0 <= record.lane_pos_idx < 10
+                            and record.speed > 0
+                        ):
+                            return 0.0, 0.0, 0.0, 0.0, True
 
         if not trajectories:
             return 0.0, 0.0, 0.0, 0.0, False
 
         per_vehicle = {}
         for veh_id, records in trajectories.items():
-            pos_idx, speeds, accelerations = zip(*records)
+            pos_idx, speeds, accelerations = zip(*records, strict=False)
             f_values = [self._f(distance, acc) for distance, acc in zip(pos_idx, accelerations, strict=False)]
             g_values = [self._g(distance, speed) for distance, speed in zip(pos_idx, speeds, strict=False)]
             per_vehicle[veh_id] = (
@@ -823,7 +835,9 @@ class _TLSGenerator:
 
     @staticmethod
     def _f(index: int, acceleration: float) -> float:
-        """Acceleration relevance weight: how much a vehicle's acceleration at this distance from the stop line informs TL state."""
+        """Acceleration relevance weight: how much a vehicle's acceleration at this
+        distance from the stop line informs TL state.
+        """
         distance = index * 0.5
         if distance < -8 or (acceleration < 0 and distance < 0):
             return 0.0
@@ -840,10 +854,7 @@ class _TLSGenerator:
         if distance < -12:
             return 0.0
 
-        if speed <= 12:
-            distance_limit = ((15 - 6) / (6 * 6)) * (speed - 6) ** 2 + 6
-        else:
-            distance_limit = min(speed - 12 + 15, 30)
+        distance_limit = (15 - 6) / (6 * 6) * (speed - 6) ** 2 + 6 if speed <= 12 else min(speed - 12 + 15, 30)
 
         if distance > 2 * distance_limit:
             return 0.0
@@ -853,8 +864,8 @@ class _TLSGenerator:
 
     def _smooth_sequence(
         self,
-        tl_state_buff: list[list[dict[tuple[_Direction, ...], _TLS]]],
-    ) -> list[list[dict[tuple[_Direction, ...], _TLS]]]:
+        tl_state_buff: list[list[_PhaseState]],
+    ) -> list[list[_PhaseState]]:
         intervals: set[tuple[int, int]] = set()
         for way_idx in range(len(self.container_template)):
             for phase in self.container_template[way_idx]:
@@ -868,7 +879,7 @@ class _TLSGenerator:
 
     def _find_short_intervals(
         self,
-        tl_state_buff: list[list[dict[tuple[_Direction, ...], _TLS]]],
+        tl_state_buff: list[list[_PhaseState]],
         way_idx: int,
         phase: tuple[_Direction, ...],
     ) -> list[tuple[int, int]]:
@@ -882,9 +893,12 @@ class _TLSGenerator:
                 while next_index < len(tl_state_buff) and tl_state_buff[next_index][way_idx][phase] == other:
                     next_index += 1
                 span = next_index - index - 1
-                if next_index < len(tl_state_buff) and 0 < span < self.smoothing_width:
-                    if tl_state_buff[next_index][way_idx][phase] == current:
-                        intervals.append((index + 1, next_index - 1))
+                if (
+                    next_index < len(tl_state_buff)
+                    and 0 < span < self.smoothing_width
+                    and tl_state_buff[next_index][way_idx][phase] == current
+                ):
+                    intervals.append((index + 1, next_index - 1))
                 index = next_index
             else:
                 index += 1
@@ -892,8 +906,8 @@ class _TLSGenerator:
 
     def _add_yellow_light(
         self,
-        tl_state_buff: list[list[dict[tuple[_Direction, ...], _TLS]]],
-    ) -> list[list[dict[tuple[_Direction, ...], _TLS]]]:
+        tl_state_buff: list[list[_PhaseState]],
+    ) -> list[list[_PhaseState]]:
         for way_idx in range(len(self.container_template)):
             for phase in self.container_template[way_idx]:
                 red_indices = [
@@ -910,7 +924,7 @@ class _TLSGenerator:
 
 
 def _assign_vehicle_states_to_lanes(
-    tracks,
+    tracks: dict[int, schema.Track],
     lane_center_matrix: np.ndarray,
     row_to_lane_id: dict[int, int],
     dt: float,
@@ -957,14 +971,13 @@ def _assign_vehicle_states_to_lanes(
             best_col = int(min_columns[best_row])
             speed = float(np.linalg.norm(velocities[timestep, :2]))
             acceleration = 0.0
-            for prev_step in range(timestep - 1, max(-1, timestep - 6), -1):
-                if prev_step < 0 or not valid[prev_step]:
-                    continue
-                prev_speed = float(np.linalg.norm(velocities[prev_step, :2]))
-                delta_t = (timestep - prev_step) * dt
-                if delta_t > 0:
-                    acceleration = (speed - prev_speed) / delta_t
-                break
+            prev_step = timestep - 5
+            while prev_step >= 0:
+                if valid[prev_step]:
+                    prev_speed = float(np.linalg.norm(velocities[prev_step, :2]))
+                    acceleration = (speed - prev_speed) / ((timestep - prev_step) * dt)
+                    break
+                prev_step -= 1
             if abs(acceleration) > _ACCELERATION_MAXLIMIT:
                 acceleration = 0.0
             assignments_by_row[best_row][timestep][int(track_id)] = _VehicleState(best_col, speed, acceleration)
@@ -1036,7 +1049,7 @@ def _neighbor_type(polyline1: np.ndarray, polyline2: np.ndarray) -> str:
     if parallel:
         if "low" in levels:
             return "bifurcated-parallel" if levels[0] == "low" else "merged-parallel"
-        return "other"
+        return "real"
     if levels[0] in {"low", "mid"}:
         return "bifurcated"
     if levels[1] in {"low", "mid"}:
@@ -1052,8 +1065,8 @@ def _real_neighbor_type(
 ) -> str:
     start_close = _distance(polyline1[0], polyline2[0]) < point_close_threshold
     end_close = _distance(polyline1[-1], polyline2[-1]) < point_close_threshold
-    length1 = _polyline_length(polyline1)
-    length2 = _polyline_length(polyline2)
+    length1 = polyline_length(polyline1)
+    length2 = polyline_length(polyline2)
     polyline1_longer = length2 + length_difference_threshold < length1
     if start_close and end_close:
         return "complete"
@@ -1066,12 +1079,6 @@ def _real_neighbor_type(
 
 def _distance(point1: np.ndarray, point2: np.ndarray) -> float:
     return float(np.linalg.norm(np.asarray(point1, dtype=np.float64) - np.asarray(point2, dtype=np.float64)))
-
-
-def _polyline_length(polyline: np.ndarray) -> float:
-    if len(polyline) < 2:
-        return 0.0
-    return float(np.sum(np.linalg.norm(np.diff(polyline, axis=0), axis=1)))
 
 
 def _two_lines_parallel(line1: np.ndarray, line2: np.ndarray) -> bool:
@@ -1104,7 +1111,7 @@ def _angle_of_headings(left: float, right: float) -> float:
     return float(min(diff, 2 * np.pi - diff))
 
 
-def _as_xyz_array(points) -> np.ndarray:
+def _as_xyz_array(points: ArrayLike | None) -> np.ndarray:
     array = np.asarray(points, dtype=np.float64)
     if array.ndim != 2 or len(array) == 0:
         return np.zeros((0, 3), dtype=np.float64)
@@ -1113,7 +1120,7 @@ def _as_xyz_array(points) -> np.ndarray:
     return array[:, :3]
 
 
-def _from_puffer_tls(state) -> _TLS:
+def _from_puffer_tls(state: int) -> _TLS:
     value = int(state)
     if value == int(puffer_types.TLState.GREEN):
         return _TLS.GREEN
@@ -1124,7 +1131,7 @@ def _from_puffer_tls(state) -> _TLS:
     return _TLS.UNKNOWN
 
 
-def _to_puffer_tls(state: _TLS):
+def _to_puffer_tls(state: _TLS | None) -> puffer_types.TLState:
     if state == _TLS.GREEN:
         return puffer_types.TLState.GREEN
     if state == _TLS.YELLOW:

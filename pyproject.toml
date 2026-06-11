@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "123Drive"
-version = "0.3.1"
+version = "0.3.2"
 description = "123D arrow files -> PufferDrive binaries"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -27,7 +27,7 @@ dependencies = [
   "joblib",
   "scipy",
   "shapely",
-  "py123d==0.2.1",
+  "py123d==0.5.1",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +38,7 @@ viz = [
 dev = [
   "pytest",
   "ruff",
+  "ty==0.0.48",
 ]
 all = [
   "123Drive[viz,dev]",
@@ -53,6 +54,7 @@ where = ["src", "."]
 include = ["bin_factory", "bin_factory.*", "viz", "viz.*", "docker_tools", "docker_tools.*"]
 
 [tool.setuptools.package-data]
+bin_factory = ["presets.toml"]
 viz = ["web/static/*"]
 docker_tools = ["dockerfiles/*", "*.py"]
 
@@ -88,6 +90,7 @@ select = [
     "TID",  # flake8-tidy-imports
     "TCH",  # flake8-type-checking
     "ARG",  # flake8-unused-arguments
+    "ANN",  # flake8-annotations
     "PTH",  # flake8-use-pathlib
     "ERA",  # eradicate
     "NPY",  # numpy
@@ -95,10 +98,15 @@ select = [
 ]
 
 ignore = [
+    "ANN401",  # Any is allowed at the py123d / numpy boundary
     "ISC001",  # Conflicts with the Ruff formatter
     "D100",    # Missing docstring in public module
     "D104",    # Missing docstring in public package
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"src/bin_factory/transforms/pipeline.py" = ["ARG001"]  # stages share a uniform (scenario, extras, config) signature
+"tests/**" = ["ARG", "A002", "ANN"]  # test helpers take unused stub args, shadow builtins (id, exit), and skip annotations
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2

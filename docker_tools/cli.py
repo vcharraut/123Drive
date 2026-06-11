@@ -18,7 +18,17 @@ DATASETS = {
 }
 
 
-def cmd_py123d(args):
+def push_image(tag: str, registry: str, dry_run: bool) -> None:
+    remote = f"{registry}/{tag}"
+    for cmd in (["docker", "tag", tag, remote], ["docker", "push", remote]):
+        print(f"$ {' '.join(cmd)}")
+        if not dry_run:
+            result = subprocess.run(cmd)
+            if result.returncode:
+                sys.exit(result.returncode)
+
+
+def cmd_py123d(args: argparse.Namespace) -> None:
     if not args.dataset or args.dataset not in DATASETS:
         print(f"Error: --dataset must be one of {list(DATASETS)}", file=sys.stderr)
         sys.exit(1)
@@ -47,8 +57,11 @@ def cmd_py123d(args):
         if result.returncode:
             sys.exit(result.returncode)
 
+    if args.push:
+        push_image(tag, args.push, args.dry_run)
 
-def cmd_123drive(args):
+
+def cmd_123drive(args: argparse.Namespace) -> None:
     cmd = [
         "docker",
         "build",
@@ -68,8 +81,11 @@ def cmd_123drive(args):
         if result.returncode:
             sys.exit(result.returncode)
 
+    if args.push:
+        push_image("123drive", args.push, args.dry_run)
 
-def main():
+
+def main() -> None:
     parser = argparse.ArgumentParser(prog="build", description="Build Docker images for py123d/123Drive pipeline")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -77,10 +93,12 @@ def main():
     py123d_parser.add_argument("--dataset", required=True, help="Dataset name")
     py123d_parser.add_argument("--no_cache", action="store_true", help="Build without Docker cache")
     py123d_parser.add_argument("--dry_run", action="store_true", help="Print commands without running")
+    py123d_parser.add_argument("--push", help="Registry to tag + push to")
 
     drive_parser = sub.add_parser("123drive", help="Build 123Drive converter image")
     drive_parser.add_argument("--no_cache", action="store_true", help="Build without Docker cache")
     drive_parser.add_argument("--dry_run", action="store_true", help="Print commands without running")
+    drive_parser.add_argument("--push", help="Registry to tag + push to")
 
     args = parser.parse_args()
     {"py123d": cmd_py123d, "123drive": cmd_123drive}[args.command](args)

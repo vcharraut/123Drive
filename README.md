@@ -75,10 +75,25 @@ uv run convert --py123d_path /path/to/123d --output ./output \
 uv run convert --py123d_path /path/to/123d --output ./output --map_only
 ```
 
+### Presets
+
+Presets bundle the right defaults to reproduce a dataset with one command. Each
+pins a dataset family; pick a split on top with `--split_names`. Explicit CLI
+flags always override preset values. Defined in `src/bin_factory/presets.toml`.
+
+```bash
+uv run convert --preset nuplan --py123d_path /path/to/123d --output ./output
+
+# narrow to a split / override anything inline
+uv run convert --preset nuplan --split_names nuplan-mini_val \
+  --py123d_path /path/to/123d --output ./output --num_scenes 100
+```
+
 Core flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
+| `--preset` | none | Apply a dataset preset (`av2`/`carla`/`nuplan`/`nuscenes`/`opendrive`/`wod-motion`) |
 | `--py123d_path` | `PY123D_DATA_ROOT` or required | Path to 123D dataset with `logs/` and `maps/` |
 | `--output` | `./output` | Directory for `.bin` files |
 | `--workers` | `0` | Parallel workers (`0` = 80% of CPU cores) |
@@ -110,7 +125,7 @@ Geometry + route flags:
 | `--min_route_valid_points` | `0.0` | Min valid trajectory percentage for route computation (`0`-`100`) |
 | `--route_check_timestep` | `0` | Timestep that must be valid for route computation |
 | `--no_reindex` | off | Skip reindexing element IDs to contiguous `range(0, n)` |
-| `--impute_tl` | off | Impute traffic light states from vehicle trajectories |
+| `--interpolate_tl` | off | Interpolate traffic light states from vehicle trajectories |
 | `--invalid_agent_overlap` | off | Zero out log-only agents whose bbox overlaps an active agent during replay |
 
 Validation levels:
@@ -150,5 +165,4 @@ Images are portable - run them however you want (`docker run`, Kubernetes, etc.)
 ## Docs
 
 - Binary format: `docs/binary-format.md`
-- Supported data surface: `docs/data.md`
 - Route search notes: `docs/route-algorithm.md`

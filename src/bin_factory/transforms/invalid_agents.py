@@ -9,12 +9,13 @@ intersection zeros the log agent's ``valid`` array.
 import numpy as np
 from shapely import geometry as shapely_geom
 
+from bin_factory import schema
 from bin_factory.log_context import log
 
 from .routes import _compute_control_state
 
 
-def invalid_agent_overlap(scenario) -> None:
+def invalid_agent_overlap(scenario: schema.PufferScenario) -> None:
     agent_ids = list(scenario.agents.keys())
     tracks = [scenario.agents[aid] for aid in agent_ids]
     if len(tracks) < 2:
@@ -55,8 +56,8 @@ def invalid_agent_overlap(scenario) -> None:
         if ai.size == 0:
             continue
 
-        polys = {}
-        for pa, pl in zip(ai, li):
+        polys: dict[int, shapely_geom.Polygon] = {}
+        for pa, pl in zip(ai, li, strict=False):
             a_idx, l_idx = active_live[pa], log_live[pl]
             if flagged[l_idx]:
                 continue
@@ -80,7 +81,7 @@ def invalid_agent_overlap(scenario) -> None:
         log.debug("zeroed %d overlapping log agents", len(flagged_ids))
 
 
-def _compute_all_corners(tracks):
+def _compute_all_corners(tracks: list[schema.Track]) -> np.ndarray:
     positions = np.stack([t.position[:, :2] for t in tracks], axis=0)  # (N, T, 2)
     headings = np.stack([np.asarray(t.heading) for t in tracks], axis=0)  # (N, T)
     lengths = np.stack([np.asarray(t.length) for t in tracks], axis=0)  # (N, T)

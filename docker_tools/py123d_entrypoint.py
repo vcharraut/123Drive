@@ -1,5 +1,6 @@
 """py123d extraction entrypoint."""
 
+import argparse
 import json
 import os
 
@@ -20,7 +21,7 @@ HYDRA_OVERRIDES = [
 ]
 
 
-def build_hydra_args(dataset, args):
+def build_hydra_args(dataset: str, args: argparse.Namespace) -> list[str]:
     config = DATASETS[dataset]
     hydra_args = [
         f"dataset={dataset}",
@@ -42,7 +43,6 @@ def build_hydra_args(dataset, args):
 
 
 if __name__ == "__main__":
-    import argparse
     import sys
 
     dataset = os.environ.get("DATASET")

@@ -2,13 +2,14 @@ import numpy as np
 from scipy import sparse as scipy_sparse
 from scipy.sparse import csgraph as scipy_csgraph
 
-from bin_factory import puffer_types
+from bin_factory import puffer_types, schema
+from bin_factory.transforms.geometry import arc_length
 
 
 GRAPH_LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}
 
 
-def build_lane_distance_matrix(map_elements):
+def build_lane_distance_matrix(map_elements: dict[int, schema.MapElement]) -> dict | None:
     """Build the all-pairs shortest-path distance matrix over drivable lanes.
 
     Only SURFACE_STREET and FREEWAY lanes participate. Directed edges follow each lane's
@@ -20,9 +21,9 @@ def build_lane_distance_matrix(map_elements):
 
     Returns:
         ``None`` if the map has no drivable lanes, else ``{"lane_ids": [int, ...],
-        "distances": float64 N×N array}``. Unreachable pairs are ``+inf``.
+        "distances": float64 NxN array}``. Unreachable pairs are ``+inf``.
     """
-    lanes = [(eid, e) for eid, e in map_elements.items() if e["type"] in GRAPH_LANE_TYPES]
+    lanes = [(eid, e) for eid, e in map_elements.items() if e.type in GRAPH_LANE_TYPES]
     if not lanes:
         return None
 
@@ -30,15 +31,12 @@ def build_lane_distance_matrix(map_elements):
     id_to_idx = {lid: i for i, lid in enumerate(lane_ids)}
     n = len(lanes)
 
-    lane_lengths = [
-        e["length"] if "length" in e else float(compute_lane_arc_lengths(np.asarray(e["polyline"]))[-1])
-        for _, e in lanes
-    ]
+    lane_lengths = [e.length for _, e in lanes]
 
     rows, cols, weights = [], [], []
     for eid, element in lanes:
         src = id_to_idx[eid]
-        for exit_id in element.get("exit_lanes", []):
+        for exit_id in element.exit_lanes:
             if exit_id in id_to_idx:
                 rows.append(src)
                 cols.append(id_to_idx[exit_id])
@@ -50,23 +48,14 @@ def build_lane_distance_matrix(map_elements):
     return {"lane_ids": lane_ids, "distances": dist_matrix}
 
 
-def compute_lane_lengths(scenario):
+def compute_lane_lengths(scenario: schema.PufferScenario) -> None:
     """Annotate each lane element with `length` (scalar) and `cum_length` (per-point arc-length).
 
     Must run AFTER geometry.process_polylines so values match the serialized polyline.
     """
     for elem in scenario.map.values():
-        if not puffer_types.is_road_lane(elem["type"]):
+        if not elem.is_lane or elem.polyline is None:
             continue
-        cum = compute_lane_arc_lengths(np.asarray(elem["polyline"]))
-        elem["cum_length"] = cum
-        elem["length"] = float(cum[-1]) if len(cum) else 0.0
-
-
-def compute_lane_arc_lengths(polyline):
-    """Cumulative arc-length per polyline point. cum[0]=0, cum[-1]=total length."""
-    polyline = np.asarray(polyline)
-    if len(polyline) < 2:
-        return np.zeros(len(polyline), dtype=np.float64)
-    seg = np.linalg.norm(np.diff(polyline, axis=0), axis=1)
-    return np.concatenate([[0.0], np.cumsum(seg)]).astype(np.float64)
+        cum = arc_length(elem.polyline)
+        elem.cum_length = cum
+        elem.length = float(cum[-1]) if len(cum) else 0.0

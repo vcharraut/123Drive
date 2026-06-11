@@ -1,6 +1,6 @@
 # PufferDrive Binary Format (.bin)
 
-Binary files are written by `scenario_to_binary()` in `src/bin_factory/serialize.py`. All multi-byte values are little-endian. Floats are 32-bit IEEE 754 unless noted.
+Binary files are written by `scenario_to_binary()` in `src/bin_factory/serialize.py`. All multi-byte values are little-endian. Floats are 32-bit IEEE 754 unless noted. Enum integer values (`type`, `control_state`, `states`, …) are defined in `src/bin_factory/puffer_types.py` — that file is the single source of truth; this doc only names the enum.
 
 ## Header
 
@@ -18,7 +18,7 @@ Each agent is laid out sequentially:
 | Type | Field | Notes |
 |------|-------|-------|
 | int32 | `id` | Track ID as stored in the scenario |
-| int32 | `type` | 1=VEHICLE, 2=PEDESTRIAN, 3=CYCLIST, 4=OTHER |
+| int32 | `type` | `AgentType` enum |
 | int32 | `T` | Trajectory length (number of timesteps) |
 | float32 × T | `x` | Column-major: all x values first |
 | float32 × T | `y` | |
@@ -36,7 +36,7 @@ Each agent is laid out sequentially:
 | float32 | `goal_x` | Last valid x position |
 | float32 | `goal_y` | Last valid y position |
 | float32 | `goal_z` | Last valid z position |
-| int32 | `control_state` | `0=controllable`, `1=non_controllable_moving`, `2=non_controllable_static` |
+| int32 | `control_state` | `ControlState` enum |
 
 ## Road Map Elements (× n_road_elements)
 
@@ -64,23 +64,25 @@ Each agent is laid out sequentially:
 
 ### Road element type ranges
 
-| Range | Category | Values |
-|-------|----------|--------|
-| 0–9 | Lanes | 0=UNKNOWN, 1=FREEWAY, 2=SURFACE_STREET, 3=BIKE_LANE, 4=BUS_LANE |
-| 10–19 | Road lines | 10=UNKNOWN, 11=BROKEN_WHITE, 12=SOLID_WHITE, 13=DOUBLE_SOLID_WHITE, 14=BROKEN_YELLOW, 15=BROKEN_DOUBLE_YELLOW, 16=SOLID_YELLOW, 17=DOUBLE_SOLID_YELLOW, 18=PASSING_DOUBLE_YELLOW |
-| 20–29 | Road edges | 20=UNKNOWN, 21=BOUNDARY, 22=MEDIAN |
-| 30+ | Areas | 30=UNKNOWN, 31=CROSSWALK, 32=SPEED_BUMP |
+The `type` int selects a category by range; exact values live in `puffer_types.py` (`is_road_lane` / `is_road_line` / `is_road_edge` test these ranges).
+
+| Range | Category | Enum |
+|-------|----------|------|
+| 0–9 | Lanes | `LaneType` |
+| 10–19 | Road lines | `RoadLineType` |
+| 20–29 | Road edges | `RoadEdgeType` |
+| 30+ | Areas | `MiscRoadType` |
 
 ## Traffic Control Elements (× n_traffic_controls)
 
 | Type | Field | Notes |
 |------|-------|-------|
 | int32 | `id` | Element ID |
-| int32 | `type` | 1=TRAFFIC_LIGHT, 2=STOP_SIGN, 3=YIELD_SIGN |
+| int32 | `type` | `TCType` enum |
 | float32 × 6 | `stop_line` | Two 3D points |
 | float32 | `heading` | |
 | int32 | `n_states` | |
-| int32 × n_states | `states` | 0=UNKNOWN, 1=GREEN, 2=YELLOW, 3=RED, 4=OFF |
+| int32 × n_states | `states` | `TLState` enum (per-frame) |
 | int32 | `n_controlled_lanes` | |
 | int32 × n_controlled_lanes | `controlled_lane_ids` | |
 
@@ -91,7 +93,7 @@ Same dynamic state layout as agents, without route/goal:
 | Type | Field | Notes |
 |------|-------|-------|
 | int32 | `id` | Object ID |
-| int32 | `type` | Object type enum |
+| int32 | `type` | `ObjectType` enum |
 | int32 | `T` | Trajectory length |
 | float32 × T | `x` | Column-major |
 | float32 × T | `y` | |

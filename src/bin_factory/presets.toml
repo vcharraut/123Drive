@@ -1,0 +1,40 @@
+# Per-dataset reproducible presets for `convert`.
+# Keys mirror convert's CLI args; explicit CLI flags override these values.
+# A preset pins the dataset family only; pick a split with --split_names
+# (e.g. --preset nuplan --split_names nuplan-mini_val for nuPlan mini).
+# Usage:  uv run convert --preset <name> --py123d_path <data> --output <out>
+
+[av2]
+datasets = ["av2-sensor"]
+duration_s = 15
+invalid_agent_overlap = true
+scenario_id_field = "log_name"
+
+[carla]
+datasets = ["carla"]
+reverse_road_edges = true
+scenario_id_field = "log_name"
+
+[nuplan]
+datasets = ["nuplan"]
+reverse_road_edges = true
+duration_s = 20
+invalid_agent_overlap = true
+scenario_id_field = "scene_uuid"
+
+[nuscenes]
+datasets = ["nuscenes"]
+reverse_road_edges = true
+invalid_agent_overlap = true
+scenario_id_field = "scene_uuid"
+
+[opendrive]
+datasets = ["opendrive"]
+reverse_road_edges = true
+scenario_id_field = "location"
+
+[wod-motion]
+datasets = ["wod-motion"]
+invalid_agent_overlap = true
+interpolate_tl = true
+scenario_id_field = "log_name"
