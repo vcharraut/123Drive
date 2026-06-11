@@ -13,6 +13,10 @@ Ordering is load-bearing:
 - ``reindex`` must run last.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from .geometry import interpolate_all_polygons, process_polylines, reverse_road_edges
 from .graph import build_lane_distance_matrix, compute_lane_lengths
 from .invalid_agents import invalid_agent_overlap
@@ -23,53 +27,84 @@ from .traffic_controls import process_traffic_controls
 from .traffic_light_interpolation import interpolate_traffic_lights
 
 
-def _interpolate_traffic_lights(scenario, extras, config) -> None:
+if TYPE_CHECKING:
+    import argparse
+    from collections.abc import Callable
+
+    from bin_factory import schema
+
+    _Stage = Callable[[schema.PufferScenario, schema.ExtractionExtras, argparse.Namespace], None]
+
+
+def _interpolate_traffic_lights(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
     interpolate_traffic_lights(scenario, extras)
 
 
-def _reverse_road_edges(scenario, extras, config) -> None:
+def _reverse_road_edges(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
     reverse_road_edges(scenario)
 
 
-def _process_polylines(scenario, extras, config) -> None:
+def _process_polylines(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
     process_polylines(scenario, config.max_segment_length, config.area_threshold)
 
 
-def _interpolate_polygons(scenario, extras, config) -> None:
+def _interpolate_polygons(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
     interpolate_all_polygons(scenario)
 
 
-def _prune_invalid_map_elements(scenario, extras, config) -> None:
+def _prune_invalid_map_elements(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
     prune_invalid_map_elements(scenario, extras)
 
 
-def _process_traffic_controls(scenario, extras, config) -> None:
+def _process_traffic_controls(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
     process_traffic_controls(scenario, extras)
 
 
-def _process_agent_routes(scenario, extras, config) -> None:
+def _process_agent_routes(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
     process_agent_routes(scenario, config.min_route_valid_points, config.route_check_timestep)
 
 
-def _invalid_agent_overlap(scenario, extras, config) -> None:
+def _invalid_agent_overlap(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
     invalid_agent_overlap(scenario)
 
 
-def _compute_lane_lengths(scenario, extras, config) -> None:
+def _compute_lane_lengths(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
     compute_lane_lengths(scenario)
 
 
-def _build_lane_graph(scenario, extras, config) -> None:
+def _build_lane_graph(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
     scenario.lane_graph = build_lane_distance_matrix(scenario.map)
 
 
-def _reindex_scenario(scenario, extras, config) -> None:
+def _reindex_scenario(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
     reindex_scenario(scenario)
 
 
-def build_stages(config) -> list:
+def build_stages(config: argparse.Namespace) -> list[_Stage]:
     """Return the ordered processing stages for ``config``, gating the optional ones."""
-    stages = []
+    stages: list[_Stage] = []
     if config.interpolate_tl:
         stages.append(_interpolate_traffic_lights)
     if config.reverse_road_edges:
@@ -89,7 +124,7 @@ def build_stages(config) -> list:
     return stages
 
 
-def run(scenario, extras, config) -> None:
+def run(scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace) -> None:
     """Run the processing pipeline in declared order, mutating ``scenario`` in place."""
     for stage in build_stages(config):
         stage(scenario, extras, config)

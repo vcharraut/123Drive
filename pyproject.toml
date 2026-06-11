@@ -38,6 +38,7 @@ viz = [
 dev = [
   "pytest",
   "ruff",
+  "ty==0.0.48",
 ]
 all = [
   "123Drive[viz,dev]",
@@ -89,6 +90,7 @@ select = [
     "TID",  # flake8-tidy-imports
     "TCH",  # flake8-type-checking
     "ARG",  # flake8-unused-arguments
+    "ANN",  # flake8-annotations
     "PTH",  # flake8-use-pathlib
     "ERA",  # eradicate
     "NPY",  # numpy
@@ -96,6 +98,7 @@ select = [
 ]
 
 ignore = [
+    "ANN401",  # Any is allowed at the py123d / numpy boundary
     "ISC001",  # Conflicts with the Ruff formatter
     "D100",    # Missing docstring in public module
     "D104",    # Missing docstring in public package
@@ -103,7 +106,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "src/bin_factory/transforms/pipeline.py" = ["ARG001"]  # stages share a uniform (scenario, extras, config) signature
-"tests/**" = ["ARG", "A002"]  # test helpers take unused stub args and shadow builtins (id, exit)
+"tests/**" = ["ARG", "A002", "ANN"]  # test helpers take unused stub args, shadow builtins (id, exit), and skip annotations
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2

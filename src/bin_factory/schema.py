@@ -8,7 +8,7 @@ from bin_factory import puffer_types
 MAP_REF_KEYS = ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor")
 
 
-def remap_element_refs(element, id_map):
+def remap_element_refs(element: "MapElement", id_map: dict[int, int]) -> "MapElement":
     """Copy a MapElement with every MAP_REF_KEYS id passed through ``id_map`` (unknown ids dropped)."""
     return dataclasses.replace(
         element,
@@ -65,31 +65,31 @@ class MapElement:
     cum_length: np.ndarray | None = None
 
     @property
-    def is_lane(self):
+    def is_lane(self) -> bool:
         return puffer_types.is_road_lane(self.type)
 
     @property
-    def is_line(self):
+    def is_line(self) -> bool:
         return puffer_types.is_road_line(self.type)
 
     @property
-    def is_edge(self):
+    def is_edge(self) -> bool:
         return puffer_types.is_road_edge(self.type)
 
     @property
-    def is_crosswalk(self):
+    def is_crosswalk(self) -> bool:
         return puffer_types.is_crosswalk(self.type)
 
     @property
-    def uses_polyline(self):
+    def uses_polyline(self) -> bool:
         return self.is_lane or self.is_line or self.is_edge
 
     @property
-    def geometry(self):
+    def geometry(self) -> np.ndarray | None:
         return self.polyline if self.uses_polyline else self.polygon
 
     @property
-    def min_points(self):
+    def min_points(self) -> int:
         return 2 if self.uses_polyline else 3
 
 

@@ -7,12 +7,14 @@ import struct
 
 import numpy as np
 
+from bin_factory import schema
+
 
 METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
 
 
-def _write_dynamic_states(buf, track):
+def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
     """Write a per-track trajectory block (T + xyz + heading + velocity + bbox + valid). Returns xyz."""
     xyz = np.asarray(track.position, dtype=np.float32)
     buf.extend(struct.pack("<i", len(xyz)))
@@ -32,7 +34,7 @@ def _write_dynamic_states(buf, track):
     return xyz
 
 
-def scenario_to_binary(scenario):
+def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
     """Serialize a PufferScenario into the PufferDrive .bin format.
 
     See the module docstring for the full binary layout. Map elements must already be

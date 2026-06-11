@@ -12,11 +12,12 @@ import itertools
 import math
 from collections import deque
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 from shapely import geometry as shapely_geom
 
-from bin_factory import puffer_types
+from bin_factory import puffer_types, schema
 from bin_factory.log_context import log
 
 
@@ -33,6 +34,11 @@ SKIPPED_POINT_COST = 50.0
 HOP_COST = 1.0
 LANE_CHANGE_COST = 6.0
 
+# (total, skipped_points, hop_count, lane_changes, total_distance) — compared lexicographically
+_PathCost = tuple[float, ...]
+_RouteCache = dict[str, Any]
+_LaneData = tuple[list[int], np.ndarray, dict[int, dict], np.ndarray]
+
 
 @dataclass(frozen=True)
 class PointLaneCandidate:
@@ -42,7 +48,11 @@ class PointLaneCandidate:
     s: float
 
 
-def process_agent_routes(scenario, min_route_valid_points=0.0, route_check_timestep=0) -> None:
+def process_agent_routes(
+    scenario: schema.PufferScenario,
+    min_route_valid_points: float = 0.0,
+    route_check_timestep: int = 0,
+) -> None:
     """Compute a lane route per agent and assign it back onto ``scenario``.
 
     Routes are graph-constrained lane sequences. For each vehicle agent, the ground-truth
@@ -98,7 +108,7 @@ def process_agent_routes(scenario, min_route_valid_points=0.0, route_check_times
         agent_data.control_state = _compute_control_state(agent_data)
 
 
-def _extract_lane_centers(static_map_elements):
+def _extract_lane_centers(static_map_elements: dict[int, schema.MapElement]) -> _LaneData:
     lane_ids = []
     lane_polylines_list = []
     lane_lengths_list = []
@@ -111,7 +121,7 @@ def _extract_lane_centers(static_map_elements):
             continue
 
         polyline = element_data.polyline
-        if len(polyline) == 0:
+        if polyline is None or len(polyline) == 0:
             continue
 
         polyline_2d = polyline[:, :2] if polyline.shape[1] == 3 else polyline
@@ -137,7 +147,7 @@ def _extract_lane_centers(static_map_elements):
     return lane_ids, lane_polylines, lane_metadata, lane_lengths
 
 
-def build_route_cache(static_map_elements, lane_data):
+def build_route_cache(static_map_elements: dict[int, schema.MapElement], lane_data: _LaneData) -> _RouteCache:
     """Precompute lane geometry and connectivity shared by all agents."""
     lane_ids, lane_polylines, lane_metadata, lane_lengths = lane_data
     lane_ids = list(lane_ids)
@@ -194,17 +204,17 @@ def build_route_cache(static_map_elements, lane_data):
 
 
 def compute_agent_route(
-    agent_id,
-    positions,
-    headings,
-    valid,
-    lengths,
-    widths,
-    is_ego,
-    route_cache,
-    route_check_timestep=0,
-    min_route_valid_count=0,
-):
+    agent_id: int,
+    positions: np.ndarray,
+    headings: np.ndarray,
+    valid: np.ndarray,
+    lengths: np.ndarray,
+    widths: np.ndarray,
+    is_ego: bool,
+    route_cache: _RouteCache,
+    route_check_timestep: int = 0,
+    min_route_valid_count: int = 0,
+) -> tuple[list[int], int]:
     """Return the best lane sequence for one agent, or an empty list."""
     positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
     valid = np.asarray(valid, dtype=bool)
@@ -251,7 +261,13 @@ def compute_agent_route(
     return route, route_gt_len
 
 
-def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=0, min_route_valid_count=0) -> bool:
+def _can_compute_route(
+    agent_context: dict[str, np.ndarray],
+    route_cache: _RouteCache,
+    is_ego: bool,
+    route_check_timestep: int = 0,
+    min_route_valid_count: int = 0,
+) -> bool:
     """Return True if a non-ego agent qualifies for route computation at ``route_check_timestep``.
 
     Ego always qualifies. A non-ego agent qualifies only if it has a trajectory, the map has
@@ -276,7 +292,7 @@ def _can_compute_route(agent_context, route_cache, is_ego, route_check_timestep=
     return not _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep)
 
 
-def _build_point_observations(agent_context, route_cache):
+def _build_point_observations(agent_context: dict[str, np.ndarray], route_cache: _RouteCache) -> list[dict[str, Any]]:
     trajectory = agent_context["trajectory"]
     if len(trajectory) == 0:
         return []
@@ -319,7 +335,7 @@ def _build_point_observations(agent_context, route_cache):
     return [observation for observation in observations if observation["candidates"]]
 
 
-def _select_nearby_lane_indices(trajectory, route_cache):
+def _select_nearby_lane_indices(trajectory: np.ndarray, route_cache: _RouteCache) -> np.ndarray:
     if len(route_cache["lane_bbox_mins"]) == 0:
         return np.array([], dtype=np.int64)
 
@@ -334,7 +350,14 @@ def _select_nearby_lane_indices(trajectory, route_cache):
     return np.where(overlaps)[0]
 
 
-def _select_point_candidates(point_idx, point_distances, point_alignments, point_s, point_mask, candidate_lane_ids):
+def _select_point_candidates(
+    point_idx: int,
+    point_distances: np.ndarray,
+    point_alignments: np.ndarray,
+    point_s: np.ndarray,
+    point_mask: np.ndarray,
+    candidate_lane_ids: np.ndarray,
+) -> list[PointLaneCandidate]:
     valid_indices = np.where(point_mask)[0]
     ranked = sorted(
         valid_indices,
@@ -355,7 +378,12 @@ def _select_point_candidates(point_idx, point_distances, point_alignments, point
     ]
 
 
-def _project_arc_lengths(closest_indices_all, closest_t_all, candidate_lane_indices, route_cache):
+def _project_arc_lengths(
+    closest_indices_all: np.ndarray,
+    closest_t_all: np.ndarray,
+    candidate_lane_indices: np.ndarray,
+    route_cache: _RouteCache,
+) -> np.ndarray:
     if len(candidate_lane_indices) == 0:
         return np.zeros((len(closest_indices_all), 0), dtype=np.float64)
 
@@ -367,23 +395,27 @@ def _project_arc_lengths(closest_indices_all, closest_t_all, candidate_lane_indi
     return base_lengths + closest_t_all * segment_lengths
 
 
-def _select_candidate_path(observations, total_points, route_cache):
+def _select_candidate_path(
+    observations: list[dict[str, Any]],
+    total_points: int,
+    route_cache: _RouteCache,
+) -> list[PointLaneCandidate]:
     if not observations:
         return []
 
     # Full-history backward scan: O(T^2 * C^2) over observations x candidates. Kept exact
     # because SKIPPED_POINT_COST dominates long gaps; windowing would need real-data parity checks.
-    costs = []
-    backrefs = []
+    costs: list[list[_PathCost]] = []
+    backrefs: list[list[tuple[int, int] | None]] = []
 
     for obs_idx, observation in enumerate(observations):
-        obs_costs = [None] * len(observation["candidates"])
-        obs_backrefs = [None] * len(observation["candidates"])
+        obs_costs: list[_PathCost] = []
+        obs_backrefs: list[tuple[int, int] | None] = []
 
-        for cand_idx, candidate in enumerate(observation["candidates"]):
+        for candidate in observation["candidates"]:
             start_cost = _make_path_cost(candidate.point_idx, 0, 0, candidate.distance)
             best_cost = start_cost
-            best_backref = None
+            best_backref: tuple[int, int] | None = None
 
             for prev_idx in range(obs_idx):
                 skipped_points = candidate.point_idx - observations[prev_idx]["point_idx"] - 1
@@ -404,14 +436,14 @@ def _select_candidate_path(observations, total_points, route_cache):
                         best_cost = total_cost
                         best_backref = (prev_idx, prev_cand_idx)
 
-            obs_costs[cand_idx] = best_cost
-            obs_backrefs[cand_idx] = best_backref
+            obs_costs.append(best_cost)
+            obs_backrefs.append(best_backref)
 
         costs.append(obs_costs)
         backrefs.append(obs_backrefs)
 
-    best_final = None
-    best_state = None
+    best_final: _PathCost | None = None
+    best_state: tuple[int, int] | None = None
     for obs_idx, observation in enumerate(observations):
         trailing_unmatched = total_points - observation["point_idx"] - 1
         for cand_idx, cost in enumerate(costs[obs_idx]):
@@ -423,7 +455,12 @@ def _select_candidate_path(observations, total_points, route_cache):
     return _backtrack_candidate_path(best_state, observations, backrefs)
 
 
-def _transition_cost(prev_candidate, next_candidate, skipped_points, route_cache):
+def _transition_cost(
+    prev_candidate: PointLaneCandidate,
+    next_candidate: PointLaneCandidate,
+    skipped_points: int,
+    route_cache: _RouteCache,
+) -> _PathCost | None:
     if prev_candidate.lane_id == next_candidate.lane_id:
         is_forward = next_candidate.s + BACKWARD_PROGRESS_TOLERANCE >= prev_candidate.s
         return _make_path_cost(skipped_points, 0, 0, 0) if is_forward else None
@@ -436,11 +473,11 @@ def _transition_cost(prev_candidate, next_candidate, skipped_points, route_cache
     return _make_path_cost(skipped_points, hop_count, 1, 0)
 
 
-def _add_costs(*costs):
+def _add_costs(*costs: _PathCost) -> _PathCost:
     return tuple(sum(parts) for parts in zip(*costs, strict=True))
 
 
-def _make_path_cost(skipped_points, hop_count, lane_changes, total_distance):
+def _make_path_cost(skipped_points: int, hop_count: int, lane_changes: int, total_distance: float) -> _PathCost:
     return (
         skipped_points * SKIPPED_POINT_COST + hop_count * HOP_COST + lane_changes * LANE_CHANGE_COST + total_distance,
         skipped_points,
@@ -450,12 +487,16 @@ def _make_path_cost(skipped_points, hop_count, lane_changes, total_distance):
     )
 
 
-def _backtrack_candidate_path(best_state, observations, backrefs):
+def _backtrack_candidate_path(
+    best_state: tuple[int, int] | None,
+    observations: list[dict[str, Any]],
+    backrefs: list[list[tuple[int, int] | None]],
+) -> list[PointLaneCandidate]:
     if best_state is None:
         return []
 
     obs_idx, cand_idx = best_state
-    path = []
+    path: list[PointLaneCandidate] = []
 
     while obs_idx is not None:
         path.append(observations[obs_idx]["candidates"][cand_idx])
@@ -467,7 +508,7 @@ def _backtrack_candidate_path(best_state, observations, backrefs):
     return list(reversed(path))
 
 
-def _expand_candidate_path(candidate_path, route_cache):
+def _expand_candidate_path(candidate_path: list[PointLaneCandidate], route_cache: _RouteCache) -> list[int]:
     if not candidate_path:
         return []
 
@@ -481,11 +522,16 @@ def _expand_candidate_path(candidate_path, route_cache):
     return _collapse_lane_ids(route)
 
 
-def _collapse_lane_ids(route):
+def _collapse_lane_ids(route: list[int]) -> list[int]:
     return [lane_id for idx, lane_id in enumerate(route) if idx == 0 or lane_id != route[idx - 1]]
 
 
-def _find_shortest_lane_path(start_lane_id, end_lane_id, route_cache, max_hops=MAX_TRANSITION_HOPS):
+def _find_shortest_lane_path(
+    start_lane_id: int,
+    end_lane_id: int,
+    route_cache: _RouteCache,
+    max_hops: int = MAX_TRANSITION_HOPS,
+) -> tuple[int, ...]:
     cache_key = (start_lane_id, end_lane_id)
     if cache_key in route_cache["path_cache"]:
         return route_cache["path_cache"][cache_key]
@@ -496,7 +542,7 @@ def _find_shortest_lane_path(start_lane_id, end_lane_id, route_cache, max_hops=M
         return path
 
     lane_graph = route_cache["lane_graph"]
-    queue = deque([(start_lane_id, (start_lane_id,))])
+    queue: deque[tuple[int, tuple[int, ...]]] = deque([(start_lane_id, (start_lane_id,))])
     seen = {start_lane_id}
 
     while queue:
@@ -518,7 +564,7 @@ def _find_shortest_lane_path(start_lane_id, end_lane_id, route_cache, max_hops=M
     return ()
 
 
-def _extend_route_to_dead_end(route, route_cache):
+def _extend_route_to_dead_end(route: list[int], route_cache: _RouteCache) -> list[int]:
     if not route:
         return []
 
@@ -539,7 +585,7 @@ def _extend_route_to_dead_end(route, route_cache):
     return route
 
 
-def _select_straightest_exit(current_lane_id, exit_lane_ids, route_cache):
+def _select_straightest_exit(current_lane_id: int, exit_lane_ids: list[int], route_cache: _RouteCache) -> int:
     lane_id_to_idx = route_cache["lane_id_to_idx"]
     current_dir = route_cache["lane_tail_dirs"][lane_id_to_idx[current_lane_id]]
     return max(
@@ -551,7 +597,10 @@ def _select_straightest_exit(current_lane_id, exit_lane_ids, route_cache):
     )
 
 
-def _compute_lane_length_tables(trimmed_polylines, max_points):
+def _compute_lane_length_tables(
+    trimmed_polylines: tuple[np.ndarray, ...],
+    max_points: int,
+) -> tuple[np.ndarray, np.ndarray]:
     segment_lengths = np.zeros((len(trimmed_polylines), max(0, max_points - 1)), dtype=np.float64)
     cum_lengths = np.zeros((len(trimmed_polylines), max_points), dtype=np.float64)
 
@@ -565,7 +614,7 @@ def _compute_lane_length_tables(trimmed_polylines, max_points):
     return segment_lengths, cum_lengths
 
 
-def _get_lane_endpoint_direction(polyline, from_start):
+def _get_lane_endpoint_direction(polyline: np.ndarray, from_start: bool) -> np.ndarray:
     if len(polyline) < 2:
         return np.zeros(2, dtype=np.float64)
 
@@ -581,7 +630,11 @@ def _get_lane_endpoint_direction(polyline, from_start):
     return np.zeros(2, dtype=np.float64)
 
 
-def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) -> bool:
+def _is_offroad_at_timestep(
+    agent_context: dict[str, np.ndarray],
+    route_cache: _RouteCache,
+    route_check_timestep: int = 0,
+) -> bool:
     position = agent_context["positions_2d"][route_check_timestep]
     heading = agent_context["headings"][route_check_timestep]
     length = agent_context["lengths"][route_check_timestep]
@@ -622,7 +675,7 @@ def _is_offroad_at_timestep(agent_context, route_cache, route_check_timestep=0) 
     return False
 
 
-def _compute_control_state(agent_data):
+def _compute_control_state(agent_data: schema.Track) -> int:
     if agent_data.route:
         return int(puffer_types.ControlState.CONTROLLABLE)
     if _compute_trajectory_extent(_valid_trajectory(agent_data.position, agent_data.valid)) > MOVEMENT_THRESHOLD:
@@ -630,19 +683,23 @@ def _compute_control_state(agent_data):
     return int(puffer_types.ControlState.NON_CONTROLLABLE_STATIC)
 
 
-def _valid_trajectory(positions, valid):
+def _valid_trajectory(positions: np.ndarray, valid: np.ndarray) -> np.ndarray:
     positions_2d = positions[:, :2] if positions.shape[1] == 3 else positions
     return positions_2d[np.asarray(valid, dtype=bool)]
 
 
-def _compute_trajectory_extent(trajectory):
+def _compute_trajectory_extent(trajectory: np.ndarray) -> float:
     if len(trajectory) < 2:
         return 0.0
     center = np.median(trajectory, axis=0)
     return float(np.linalg.norm(trajectory - center, axis=1).max())
 
 
-def _points_to_polylines_distance(points, polylines, polyline_lengths):
+def _points_to_polylines_distance(
+    points: np.ndarray,
+    polylines: np.ndarray,
+    polyline_lengths: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Returns (min_distances, closest_indices, closest_t), each shaped (n_points, n_lanes)."""
     n_points = len(points)
     n_lanes = len(polylines)
@@ -689,7 +746,7 @@ def _points_to_polylines_distance(points, polylines, polyline_lengths):
     return min_distances, closest_indices, closest_t
 
 
-def _get_lane_directions_at_indices_batch(polylines, indices):
+def _get_lane_directions_at_indices_batch(polylines: np.ndarray, indices: np.ndarray) -> np.ndarray:
     n_lanes = indices.shape[1]
     max_points = polylines.shape[1]
     lane_idx = np.arange(n_lanes)[np.newaxis, :]
@@ -700,7 +757,7 @@ def _get_lane_directions_at_indices_batch(polylines, indices):
     return directions / (norms + 1e-6)
 
 
-def _extract_road_edge(element):
+def _extract_road_edge(element: schema.MapElement) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     if not element.is_edge:
         return None
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import shapely
@@ -10,6 +10,10 @@ from py123d.datatypes import detections, map_objects
 from bin_factory import puffer_types, schema
 from bin_factory.loader import mapping
 from bin_factory.log_context import log
+
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 SCENE_MAP_MARGIN = 250.0  # Lateral buffer (m) around the ego path for non-map-only scenarios
@@ -67,9 +71,9 @@ def extract_scenario(
         if dt <= 0:
             raise ValueError(f"Invalid time step dt={dt} computed from scene metadata")
 
-        all_objects, tokens_to_object_id = _extract_objects(scene_api, centroid, ego_states)
+        all_objects, labels, tokens_to_object_id = _extract_objects(scene_api, centroid, ego_states)
         for oid, obj in all_objects.items():
-            label = obj.type
+            label = labels[oid]
             if label in mapping.AGENT_TYPE_MAP:
                 obj.type = mapping.AGENT_TYPE_MAP[label]
                 agents[oid] = obj
@@ -103,10 +107,15 @@ def _extract_objects(
     scene_api: py123d_api.SceneAPI,
     centroid: np.ndarray,
     ego_states: list[Any],
-) -> tuple[dict[int, schema.Track], dict[str, int]]:
-    """Extract dynamic objects from 123D box detections and ego state."""
+) -> tuple[dict[int, schema.Track], dict[int, detections.DefaultBoxDetectionLabel], dict[str, int]]:
+    """Extract dynamic objects from 123D box detections and ego state.
+
+    Returns (tracks, labels, tokens_to_object_id) — labels carry the 123D detection
+    label per object id until extract_scenario maps it to a puffer type.
+    """
     episode_length = scene_api.number_of_iterations
-    objects: dict[int, schema.Track] = {0: _make_empty_track(episode_length, detections.DefaultBoxDetectionLabel.EGO)}
+    objects: dict[int, schema.Track] = {0: _make_empty_track(episode_length)}
+    labels: dict[int, detections.DefaultBoxDetectionLabel] = {0: detections.DefaultBoxDetectionLabel.EGO}
     tokens_to_object_id: dict[str, int] = {}
 
     # Ego agent is always object ID 0, built from cached ego states
@@ -135,7 +144,8 @@ def _extract_objects(
                 next_object_id += 1
                 object_id = next_object_id
                 tokens_to_object_id[track_token] = object_id
-                objects[object_id] = _make_empty_track(episode_length, detection.attributes.default_label)
+                objects[object_id] = _make_empty_track(episode_length)
+                labels[object_id] = detection.attributes.default_label
 
             obj = objects[object_id]
             _write_detection_frame(
@@ -149,7 +159,7 @@ def _extract_objects(
             if detection.velocity_3d is not None:
                 obj.velocity[frame_idx] = [float(detection.velocity_3d.x), float(detection.velocity_3d.y)]
 
-    return objects, tokens_to_object_id
+    return objects, labels, tokens_to_object_id
 
 
 def _extract_prediction_targets(
@@ -165,7 +175,7 @@ def _extract_prediction_targets(
     meta = aux.metadata
     idx2tok = meta["track_index_to_token"]
 
-    def _resolve(track_indices):
+    def _resolve(track_indices: Iterable[int]) -> list[int]:
         ids = (tokens_to_object_id.get(idx2tok.get(idx)) for idx in track_indices)
         return [oid for oid in ids if oid in agents]
 
@@ -223,20 +233,23 @@ def _extract_map(
     stop_zones: list[schema.StopZone] = []
     non_lane_objects: list[Any] = []
     undefined_lane: list[int] = []
-    layers = [layer for layer in map_api.available_map_layers if layer in mapping.SUPPORTED_MAP_LAYERS]
+    layers: list[str | map_objects.MapLayer] = [
+        layer for layer in map_api.available_map_layers if layer in mapping.SUPPORTED_MAP_LAYERS
+    ]
 
-    if map_only or map_api.map_is_per_log:
-        map_objs = map_api.get_all_map_objects_in_layers(layers)
+    map_objs: list[Any]
+    if map_only or map_api.map_is_per_log or ego_states is None:
+        map_objs = list(map_api.get_all_map_objects_in_layers(layers))
     else:
         corridor = shapely.LineString([(s.center_se3.x, s.center_se3.y) for s in ego_states]).buffer(SCENE_MAP_MARGIN)
         map_objects_by_layer = map_api.query(corridor, layers, predicate="intersects")
-        map_objs = [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])]
+        map_objs = cast("list[Any]", [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])])
 
     # Lanes first — other elements reference lane IDs
     for obj in map_objs:
         if obj.layer == map_objects.MapLayer.LANE:
             element = _write_map_object(obj, centroid)
-            if element is None:
+            if not isinstance(element, schema.MapElement):
                 continue
             result[obj.object_id] = element
             if obj.lane_type == map_objects.LaneType.UNDEFINED:
@@ -253,7 +266,7 @@ def _extract_map(
         element = _write_map_object(obj, centroid)
         if element is None:
             continue
-        if obj.layer == map_objects.MapLayer.STOP_ZONE:
+        if isinstance(element, schema.StopZone):
             stop_zones.append(element)
         else:
             result[next_id] = element
@@ -318,11 +331,11 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
     return None
 
 
-def _speed_limit(speed_limit_mps):
+def _speed_limit(speed_limit_mps: float | None) -> float:
     return -1.0 if not speed_limit_mps or np.isnan(speed_limit_mps) else float(speed_limit_mps)
 
 
-def _optional_id_list(value):
+def _optional_id_list(value: int | None) -> list[int]:
     return [value] if value is not None else []
 
 
@@ -345,9 +358,9 @@ def _write_detection_frame(
     obj.height[frame_idx] = float(bbox.height)
 
 
-def _make_empty_track(episode_length: int, agent_type: object) -> schema.Track:
+def _make_empty_track(episode_length: int) -> schema.Track:
     return schema.Track(
-        type=agent_type,
+        type=-1,  # placeholder until the 123D label is mapped to a puffer type
         position=np.zeros((episode_length, 3), dtype=np.float64),
         heading=np.zeros((episode_length,), dtype=np.float64),
         velocity=np.zeros((episode_length, 2), dtype=np.float64),
@@ -376,7 +389,7 @@ def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) 
     points = [
         coords
         for obj in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE)
-        if (coords := obj.centerline_3d.array) is not None and len(coords) > 0
+        if (coords := obj.centerline_3d.array) is not None and len(coords) > 0  # ty: ignore[unresolved-attribute]
     ]
     if points:
         return np.vstack(points).mean(axis=0)
@@ -386,7 +399,13 @@ def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) 
 # ── Corrective functions ───────────────────────
 
 
-def _zero_all_z(agents, objects, traffic_lights, map_elements, stop_zones):
+def _zero_all_z(
+    agents: dict[int, schema.Track],
+    objects: dict[int, schema.Track],
+    traffic_lights: dict[int, schema.TrafficLightTrack],
+    map_elements: dict[int, schema.MapElement],
+    stop_zones: list[schema.StopZone],
+) -> None:
     """Force all Z values to 0 when map has no Z data."""
     for track in [*agents.values(), *objects.values()]:
         track.position[:, 2] = 0.0
@@ -413,24 +432,29 @@ def _fix_lane_topology(
             if len(connected_types) == 1:
                 lane.type = connected_types.pop()
 
-        lane_start, lane_end = lane.polyline[0], lane.polyline[-1]
+        polyline = lane.polyline
+        if polyline is None:
+            continue
+        lane_start, lane_end = polyline[0], polyline[-1]
 
         new_entry, new_exit = [], []
         for entry_id in lane.entry_lanes:
-            if entry_id not in lanes or lanes[entry_id].polyline is None:
+            entry_polyline = lanes[entry_id].polyline if entry_id in lanes else None
+            if entry_polyline is None:
                 new_entry.append(entry_id)
                 continue
-            entry_end = lanes[entry_id].polyline[-1]
+            entry_end = entry_polyline[-1]
             if np.linalg.norm(entry_end - lane_start) > np.linalg.norm(entry_end - lane_end):
                 new_exit.append(entry_id)
             else:
                 new_entry.append(entry_id)
 
         for exit_id in lane.exit_lanes:
-            if exit_id not in lanes or lanes[exit_id].polyline is None:
+            exit_polyline = lanes[exit_id].polyline if exit_id in lanes else None
+            if exit_polyline is None:
                 new_exit.append(exit_id)
                 continue
-            exit_start = lanes[exit_id].polyline[0]
+            exit_start = exit_polyline[0]
             if np.linalg.norm(exit_start - lane_end) > np.linalg.norm(exit_start - lane_start):
                 new_entry.append(exit_id)
             else:

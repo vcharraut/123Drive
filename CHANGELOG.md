@@ -5,7 +5,7 @@ Generated from tags on `main`.
 ## v0.3.2 - 2026-06-11
 
 Compared with `v0.3.1`.
-Source: `v0.3.1..v0.3.2` - 29 commits, 55 files changed.
+Source: `v0.3.1..v0.3.2` - 30 commits, 61 files changed.
 
 ### Added
 
@@ -26,8 +26,10 @@ Source: `v0.3.1..v0.3.2` - 29 commits, 55 files changed.
   `build_stages` / `run` as the single `process_scenario` entry point.
 - Geometry length primitives `arc_length` and `polyline_length`.
 - Docker build `--push` to tag and push either image to a registry.
-- CI workflow (`pre-commit` + `pytest` on Python 3.11/3.13) and a ruff
-  `.pre-commit-config.yaml`.
+- CI workflow (`pre-commit` + `ty check` + `pytest` on Python 3.11/3.13) and a
+  `.pre-commit-config.yaml` (ruff lint/format, standard sanity hooks, `uv-lock`).
+- Type hints across `src/` enforced by ruff `ANN` rules (tests exempt) and checked
+  by `ty` (pinned dev dependency); `Any` allowed at the py123d/numpy boundary.
 - Test suite under `tests/`: pipeline, schema, serialize, geometry, reindex,
   sanitize, signal-phase, traffic-controls, traffic-light interpolation, plus
   real-data end-to-end tests with Arrow fixtures.

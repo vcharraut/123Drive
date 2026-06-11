@@ -6,6 +6,7 @@ import re
 import sys
 import tomllib
 import warnings
+from typing import Any
 
 import joblib
 import tqdm
@@ -14,7 +15,7 @@ from bin_factory import loader, serialize, transforms
 from bin_factory.log_context import bind, log, unbind
 
 
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Convert 123D datasets to PufferDrive binary format")
 
     parser.add_argument("--py123d_path", type=str, help="Path to py123d dataset (logs/ and maps/)")
@@ -102,7 +103,7 @@ def build_parser():
     return parser
 
 
-def _apply_preset(parser, argv):
+def _apply_preset(parser: argparse.ArgumentParser, argv: list[str]) -> None:
     # Make preset values argparse defaults so explicit CLI flags still override them.
     # Note: store_true flags set by a preset cannot be turned back off from the CLI.
     pre = argparse.ArgumentParser(add_help=False)
@@ -120,7 +121,7 @@ def _apply_preset(parser, argv):
     parser.set_defaults(**presets[name])
 
 
-def _scenario_identity(py123d_data, field: str) -> str:
+def _scenario_identity(py123d_data: Any, field: str) -> str:
     if not hasattr(py123d_data, field):  # map-only objects only expose `location`
         field = "location"
     scenario_id = str(getattr(py123d_data, field) or "")
@@ -130,7 +131,7 @@ def _scenario_identity(py123d_data, field: str) -> str:
     return scenario_id
 
 
-def _build_output_path(py123d_data, output_dir, field):
+def _build_output_path(py123d_data: Any, output_dir: pathlib.Path, field: str) -> pathlib.Path:
     """Derive output path for a given scenario based on its metadata attributes.
 
     Arguments:
@@ -142,7 +143,7 @@ def _build_output_path(py123d_data, output_dir, field):
         A pathlib.Path object representing the output file path, e.g. <dataset>__<source_id>.bin
     """
 
-    def sanitize(v):
+    def sanitize(v: str) -> str:
         return re.sub(r"[^A-Za-z0-9._-]+", "_", v.strip()).strip("._-") or "scenario"
 
     source_id = _scenario_identity(py123d_data, field)
@@ -156,7 +157,7 @@ def _build_output_path(py123d_data, output_dir, field):
     return output_dir / f"{stem}.bin"
 
 
-def _worker_fn(py123d_data, output_dir, config):
+def _worker_fn(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Namespace) -> dict:
     log.setLevel(config.log_level)
     dataset = getattr(py123d_data, "dataset", "unknown")
     log_name = getattr(py123d_data, "log_name", "")
@@ -178,7 +179,7 @@ def _worker_fn(py123d_data, output_dir, config):
         unbind(tokens)
 
 
-def _convert_one(py123d_data, output_dir, config) -> None:
+def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Namespace) -> None:
     # 1. Load and convert 123D scenario to PufferDrive format
     scenario, extras = loader.extract_scenario(py123d_data, config.scenario_id_field)
 
@@ -201,7 +202,7 @@ def _convert_one(py123d_data, output_dir, config) -> None:
         f.write(binary_data)
 
 
-def _validate_args(args, parser):
+def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> tuple[argparse.Namespace, str]:
     for attr in ("datasets", "split_types", "split_names", "log_names", "scene_uuids"):
         values = getattr(args, attr)
         cleaned = [v.strip() for v in (values or []) if v and v.strip()] or None

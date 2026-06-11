@@ -1,7 +1,10 @@
+from collections.abc import Iterable
+
+from bin_factory import schema
 from bin_factory.schema import remap_element_refs
 
 
-def reindex_scenario(scenario) -> None:
+def reindex_scenario(scenario: schema.PufferScenario) -> None:
     map_id_map = _build_id_map(scenario.map)
     agent_id_map = _build_id_map(scenario.agents)
     object_id_map = _build_id_map(scenario.objects)
@@ -31,17 +34,17 @@ def reindex_scenario(scenario) -> None:
     ]
 
 
-def _build_id_map(ids):
+def _build_id_map(ids: Iterable[int]) -> dict[int, int]:
     return {element_id: idx for idx, element_id in enumerate(ids)}
 
 
-def _remap_track(track, map_id_map):
+def _remap_track(track: schema.Track, map_id_map: dict[int, int]) -> schema.Track:
     track.route = [map_id_map[ref_id] for ref_id in track.route if ref_id in map_id_map]
     track.route_gt_len = min(track.route_gt_len, len(track.route))
     return track
 
 
-def _remap_traffic_control(tc, map_id_map, control_id):
+def _remap_traffic_control(tc: dict, map_id_map: dict[int, int], control_id: int) -> dict:
     return {
         **tc,
         "id": control_id,

@@ -18,7 +18,7 @@ DATASETS = {
 }
 
 
-def push_image(tag, registry, dry_run):
+def push_image(tag: str, registry: str, dry_run: bool) -> None:
     remote = f"{registry}/{tag}"
     for cmd in (["docker", "tag", tag, remote], ["docker", "push", remote]):
         print(f"$ {' '.join(cmd)}")
@@ -28,7 +28,7 @@ def push_image(tag, registry, dry_run):
                 sys.exit(result.returncode)
 
 
-def cmd_py123d(args):
+def cmd_py123d(args: argparse.Namespace) -> None:
     if not args.dataset or args.dataset not in DATASETS:
         print(f"Error: --dataset must be one of {list(DATASETS)}", file=sys.stderr)
         sys.exit(1)
@@ -61,7 +61,7 @@ def cmd_py123d(args):
         push_image(tag, args.push, args.dry_run)
 
 
-def cmd_123drive(args):
+def cmd_123drive(args: argparse.Namespace) -> None:
     cmd = [
         "docker",
         "build",
@@ -85,7 +85,7 @@ def cmd_123drive(args):
         push_image("123drive", args.push, args.dry_run)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(prog="build", description="Build Docker images for py123d/123Drive pipeline")
     sub = parser.add_subparsers(dest="command", required=True)
 

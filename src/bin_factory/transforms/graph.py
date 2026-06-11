@@ -2,14 +2,14 @@ import numpy as np
 from scipy import sparse as scipy_sparse
 from scipy.sparse import csgraph as scipy_csgraph
 
-from bin_factory import puffer_types
+from bin_factory import puffer_types, schema
 from bin_factory.transforms.geometry import arc_length
 
 
 GRAPH_LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}
 
 
-def build_lane_distance_matrix(map_elements):
+def build_lane_distance_matrix(map_elements: dict[int, schema.MapElement]) -> dict | None:
     """Build the all-pairs shortest-path distance matrix over drivable lanes.
 
     Only SURFACE_STREET and FREEWAY lanes participate. Directed edges follow each lane's
@@ -48,13 +48,13 @@ def build_lane_distance_matrix(map_elements):
     return {"lane_ids": lane_ids, "distances": dist_matrix}
 
 
-def compute_lane_lengths(scenario):
+def compute_lane_lengths(scenario: schema.PufferScenario) -> None:
     """Annotate each lane element with `length` (scalar) and `cum_length` (per-point arc-length).
 
     Must run AFTER geometry.process_polylines so values match the serialized polyline.
     """
     for elem in scenario.map.values():
-        if not elem.is_lane:
+        if not elem.is_lane or elem.polyline is None:
             continue
         cum = arc_length(elem.polyline)
         elem.cum_length = cum

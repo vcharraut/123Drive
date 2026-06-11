@@ -1,18 +1,18 @@
 import numpy as np
 
-from bin_factory import puffer_types
+from bin_factory import puffer_types, schema
 from bin_factory.log_context import log
 
 
-def process_traffic_controls(scenario, extras) -> None:
+def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
     map_data = scenario.map
     scenario_length = scenario.metadata.scenario_length
 
     lanes_by_id = {eid: edata for eid, edata in map_data.items() if edata.is_lane}
 
-    elements = []
-    covered_lanes = set()
-    used_ids = set()
+    elements: list[dict] = []
+    covered_lanes: set[int] = set()
+    used_ids: set[int] = set()
 
     for element_id, traffic_light in extras.traffic_lights.items():
         controlled_lane_id = traffic_light.controlled_lane
@@ -97,7 +97,7 @@ def process_traffic_controls(scenario, extras) -> None:
     scenario.traffic_controls = elements
 
 
-def _stop_line_from_position(heading, lane_id, lanes_by_id):
+def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int, schema.MapElement]) -> np.ndarray:
     lane = lanes_by_id.get(lane_id)
     if lane is None:
         raise ValueError("controlled lane is missing")
@@ -118,7 +118,7 @@ def _stop_line_from_position(heading, lane_id, lanes_by_id):
     )
 
 
-def _compute_heading_from_incoming_lanes(lane, lanes_by_id):
+def _compute_heading_from_incoming_lanes(lane: schema.MapElement, lanes_by_id: dict[int, schema.MapElement]) -> float:
     headings = []
     for entry_id in lane.entry_lanes:
         entry_lane = lanes_by_id.get(entry_id)
@@ -140,7 +140,7 @@ def _compute_heading_from_incoming_lanes(lane, lanes_by_id):
     return float(np.arctan2(np.mean(np.sin(headings)), np.mean(np.cos(headings))))
 
 
-def _lane_width_from_boundaries(left_boundary, right_boundary):
+def _lane_width_from_boundaries(left_boundary: np.ndarray, right_boundary: np.ndarray) -> float:
     if left_boundary.ndim != 2 or right_boundary.ndim != 2:
         return 3.5
     if len(left_boundary) == 0 or len(right_boundary) == 0:
@@ -151,7 +151,7 @@ def _lane_width_from_boundaries(left_boundary, right_boundary):
     return width
 
 
-def _stop_line_from_polygon(polygon, heading):
+def _stop_line_from_polygon(polygon: np.ndarray, heading: float) -> np.ndarray:
     polygon = np.asarray(polygon, dtype=np.float64)
     if polygon.ndim != 2 or len(polygon) < 2:
         raise ValueError("stop zone polygon needs at least two points")
