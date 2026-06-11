@@ -56,7 +56,7 @@ def invalid_agent_overlap(scenario) -> None:
             continue
 
         polys = {}
-        for pa, pl in zip(ai, li):
+        for pa, pl in zip(ai, li, strict=False):
             a_idx, l_idx = active_live[pa], log_live[pl]
             if flagged[l_idx]:
                 continue

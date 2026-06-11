@@ -387,7 +387,8 @@ def test_map_only_metadata_uses_location_as_id(location):
     assert parsed["id"] == location  # opendrive identity is the map location
     assert parsed["dataset"] == "opendrive"
     assert parsed["scenario_length"] == 0
-    assert parsed["ttp"] == [] and parsed["ooi"] == []
+    assert parsed["ttp"] == []
+    assert parsed["ooi"] == []
 
 
 @pytest.mark.parametrize("location", MAP_LOCATIONS)

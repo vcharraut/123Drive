@@ -43,7 +43,7 @@ def build_parser():
         "--scenario_id_field",
         choices=["scene_uuid", "log_name", "location"],
         default="scene_uuid",
-        help="py123d attribute used as the scenario id (metadata.id + output filename). Map-only scenarios use 'location'.",
+        help="py123d attribute used as scenario id (metadata.id + output filename). Map-only uses 'location'.",
     )
     parser.add_argument("--duration_s", type=float, default=0.0, help="Duration of scenario in seconds")
     parser.add_argument("--dt", type=float, default=0.1, help="Iteration timestep in seconds (e.g. 0.1 = 10 Hz)")

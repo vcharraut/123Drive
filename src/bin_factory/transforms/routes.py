@@ -8,6 +8,7 @@ The route pipeline is graph-constrained:
 5. Extend beyond GT to the map dead-end.
 """
 
+import itertools
 import math
 from collections import deque
 from dataclasses import dataclass
@@ -471,7 +472,7 @@ def _expand_candidate_path(candidate_path, route_cache):
         return []
 
     route = [candidate_path[0].lane_id]
-    for prev_candidate, next_candidate in zip(candidate_path, candidate_path[1:], strict=False):
+    for prev_candidate, next_candidate in itertools.pairwise(candidate_path):
         path = _find_shortest_lane_path(prev_candidate.lane_id, next_candidate.lane_id, route_cache)
         if not path:
             return _collapse_lane_ids(route)
@@ -568,7 +569,7 @@ def _get_lane_endpoint_direction(polyline, from_start):
     if len(polyline) < 2:
         return np.zeros(2, dtype=np.float64)
 
-    segment_iter = zip(polyline[:-1], polyline[1:], strict=False)
+    segment_iter = itertools.pairwise(polyline)
     segments = segment_iter if from_start else reversed(tuple(segment_iter))
 
     for start, end in segments:

@@ -325,10 +325,13 @@ class _TrafficLightInterpolator:
         for lane_id, lane in self.lanes.items():
             if lane_id in internal_lanes or not lane.entry_lanes or not lane.exit_lanes:
                 continue
-            if lane.entry_lanes[0] in self.lanes and lane.exit_lanes[0] in self.lanes:
-                if union_find.find(lane.entry_lanes[0]) == union_find.find(lane.exit_lanes[0]):
-                    union_find.union(lane_id, lane.entry_lanes[0])
-                    union_find.union(lane_id, lane.exit_lanes[0])
+            if (
+                lane.entry_lanes[0] in self.lanes
+                and lane.exit_lanes[0] in self.lanes
+                and union_find.find(lane.entry_lanes[0]) == union_find.find(lane.exit_lanes[0])
+            ):
+                union_find.union(lane_id, lane.entry_lanes[0])
+                union_find.union(lane_id, lane.exit_lanes[0])
 
         signalized = []
         for group in union_find.groups():
@@ -779,16 +782,20 @@ class _TLSGenerator:
                     for veh_id, record in conn.record_vehs[timestep].items():
                         pos_idx = -record.lane_pos_idx
                         append_record(veh_id, pos_idx, record.speed, record.acceleration)
-                        if not has_right_turn and abs(timestep - curr_step) <= 2:
-                            if 0 <= record.lane_pos_idx < 10 and record.speed > 0:
-                                return 0.0, 0.0, 0.0, 0.0, True
+                        if (
+                            not has_right_turn
+                            and abs(timestep - curr_step) <= 2
+                            and 0 <= record.lane_pos_idx < 10
+                            and record.speed > 0
+                        ):
+                            return 0.0, 0.0, 0.0, 0.0, True
 
         if not trajectories:
             return 0.0, 0.0, 0.0, 0.0, False
 
         per_vehicle = {}
         for veh_id, records in trajectories.items():
-            pos_idx, speeds, accelerations = zip(*records)
+            pos_idx, speeds, accelerations = zip(*records, strict=False)
             f_values = [self._f(distance, acc) for distance, acc in zip(pos_idx, accelerations, strict=False)]
             g_values = [self._g(distance, speed) for distance, speed in zip(pos_idx, speeds, strict=False)]
             per_vehicle[veh_id] = (
@@ -812,7 +819,9 @@ class _TLSGenerator:
 
     @staticmethod
     def _f(index: int, acceleration: float) -> float:
-        """Acceleration relevance weight: how much a vehicle's acceleration at this distance from the stop line informs TL state."""
+        """Acceleration relevance weight: how much a vehicle's acceleration at this
+        distance from the stop line informs TL state.
+        """
         distance = index * 0.5
         if distance < -8 or (acceleration < 0 and distance < 0):
             return 0.0
@@ -829,10 +838,7 @@ class _TLSGenerator:
         if distance < -12:
             return 0.0
 
-        if speed <= 12:
-            distance_limit = ((15 - 6) / (6 * 6)) * (speed - 6) ** 2 + 6
-        else:
-            distance_limit = min(speed - 12 + 15, 30)
+        distance_limit = (15 - 6) / (6 * 6) * (speed - 6) ** 2 + 6 if speed <= 12 else min(speed - 12 + 15, 30)
 
         if distance > 2 * distance_limit:
             return 0.0
@@ -871,9 +877,12 @@ class _TLSGenerator:
                 while next_index < len(tl_state_buff) and tl_state_buff[next_index][way_idx][phase] == other:
                     next_index += 1
                 span = next_index - index - 1
-                if next_index < len(tl_state_buff) and 0 < span < self.smoothing_width:
-                    if tl_state_buff[next_index][way_idx][phase] == current:
-                        intervals.append((index + 1, next_index - 1))
+                if (
+                    next_index < len(tl_state_buff)
+                    and 0 < span < self.smoothing_width
+                    and tl_state_buff[next_index][way_idx][phase] == current
+                ):
+                    intervals.append((index + 1, next_index - 1))
                 index = next_index
             else:
                 index += 1

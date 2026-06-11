@@ -81,7 +81,7 @@ def _straight_lane_shape(n=11):
 
 
 @pytest.mark.parametrize(
-    "a, b, expected",
+    ("a", "b", "expected"),
     [
         ([0, 0, 0], [3, 4, 0], 5.0),
         ([0, 0, 0], [0, 0, 0], 0.0),
@@ -97,7 +97,7 @@ def test_distance(a, b, expected):
 
 
 @pytest.mark.parametrize(
-    "v2, parallel",
+    ("v2", "parallel"),
     [
         ([[0, 1], [1, 1]], True),  # same +x direction, offset
         ([[0, 0], [10, 1]], True),  # ~5.7 deg < 15
@@ -115,7 +115,7 @@ def test_two_lines_parallel(v2, parallel):
 
 
 @pytest.mark.parametrize(
-    "left, right, expected",
+    ("left", "right", "expected"),
     [
         ([1, 0], [1, 0], 0.0),
         ([1, 0], [-1, 0], np.pi),
@@ -128,7 +128,7 @@ def test_angle_of_two_vectors(left, right, expected):
 
 
 @pytest.mark.parametrize(
-    "vec, heading",
+    ("vec", "heading"),
     [([1, 0], 0.0), ([0, 1], np.pi / 2), ([-1, 0], np.pi), ([0, -1], -np.pi / 2)],
 )
 def test_vector_heading(vec, heading):
@@ -136,7 +136,7 @@ def test_vector_heading(vec, heading):
 
 
 @pytest.mark.parametrize(
-    "a, b, expected",
+    ("a", "b", "expected"),
     [
         (0.0, 0.0, 0.0),
         (0.0, np.pi, np.pi),
@@ -152,7 +152,7 @@ def test_angle_of_headings(a, b, expected):
 
 
 @pytest.mark.parametrize(
-    "shape, direction",
+    ("shape", "direction"),
     [
         (S_SHAPE, _Direction.S),
         (L_SHAPE, _Direction.L),
@@ -168,7 +168,7 @@ def test_classify_direction(shape, direction):
 
 
 @pytest.mark.parametrize(
-    "p2, expected",
+    ("p2", "expected"),
     [
         ([[0, 3.5, 0], [10, 3.5, 0]], "real"),  # parallel, both mid -> real (was "other")
         ([[0, 0.5, 0], [10, 0.8, 0]], "bifurcated-parallel"),  # parallel, start low
@@ -187,7 +187,7 @@ def test_neighbor_type(p2, expected):
 
 
 @pytest.mark.parametrize(
-    "p1, p2, expected",
+    ("p1", "p2", "expected"),
     [
         ([[0, 0, 0], [10, 0, 0]], [[0, 3, 0], [10, 3, 0]], "complete"),
         ([[0, 0, 0], [20, 0, 0]], [[0, 1, 0], [8, 1, 0]], "side-start"),
@@ -219,7 +219,7 @@ def test_as_xyz_array_degenerate(bad):
 
 
 @pytest.mark.parametrize(
-    "puffer, simple",
+    ("puffer", "simple"),
     [
         (puffer_types.TLState.GREEN, _TLS.GREEN),
         (puffer_types.TLState.YELLOW, _TLS.YELLOW),
@@ -326,7 +326,7 @@ def test_group_lanes_into_ways_3way_orders_opposites_first():
 
 
 @pytest.mark.parametrize(
-    "index, acc, expected",
+    ("index", "acc", "expected"),
     [
         (0, 1.0, 1.0),  # at stop line
         (30, 1.0, 1.0),  # d=15, edge of plateau
@@ -347,7 +347,7 @@ def test_relevance_weight_f(index, acc, expected):
 
 
 @pytest.mark.parametrize(
-    "index, speed, expected",
+    ("index", "speed", "expected"),
     [
         # speed 0 -> D2 = 15
         (0, 0.0, 1.0),
@@ -454,7 +454,7 @@ def test_make_candidate():
 
 
 @pytest.mark.parametrize(
-    "raw, est, conf, exp_state, exp_weight",
+    ("raw", "est", "conf", "exp_state", "exp_weight"),
     [
         (None, None, 0.0, None, 0.0),  # nothing observed
         (None, _TLS.GREEN, 2.0, _TLS.GREEN, 2.0),  # estimated only
@@ -486,7 +486,7 @@ def _raw_for(record_tls, curr_step, horizon=40):
 
 
 @pytest.mark.parametrize(
-    "record_tls, curr, expected",
+    ("record_tls", "curr", "expected"),
     [
         ({5: _TLS.GREEN}, 5, _TLS.GREEN),
         ({5: _TLS.RED}, 5, _TLS.RED),
@@ -560,7 +560,7 @@ def _metrics_with_vehicle_at(tt, curr, horizon=40):
 
 
 @pytest.mark.parametrize(
-    "tt, counted",
+    ("tt", "counted"),
     [
         (10, True),  # curr - dt  (inclusive start)
         (29, True),  # curr + dt - 1 (last inclusive)
@@ -569,7 +569,7 @@ def _metrics_with_vehicle_at(tt, curr, horizon=40):
     ],
 )
 def test_traj_metric_window_bounds(tt, counted):
-    mean_acc, mean_spd, sum_f, sum_g, must_green = _metrics_with_vehicle_at(tt, curr=20)
+    _mean_acc, mean_spd, _sum_f, sum_g, must_green = _metrics_with_vehicle_at(tt, curr=20)
     assert must_green is False
     if counted:
         assert sum_g > 0.0

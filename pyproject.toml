@@ -101,6 +101,10 @@ ignore = [
     "D104",    # Missing docstring in public package
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"src/bin_factory/transforms/pipeline.py" = ["ARG001"]  # stages share a uniform (scenario, extras, config) signature
+"tests/**" = ["ARG", "A002"]  # test helpers take unused stub args and shadow builtins (id, exit)
+
 [tool.ruff.lint.isort]
 lines-after-imports = 2
 

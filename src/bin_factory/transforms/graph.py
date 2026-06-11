@@ -21,7 +21,7 @@ def build_lane_distance_matrix(map_elements):
 
     Returns:
         ``None`` if the map has no drivable lanes, else ``{"lane_ids": [int, ...],
-        "distances": float64 N×N array}``. Unreachable pairs are ``+inf``.
+        "distances": float64 NxN array}``. Unreachable pairs are ``+inf``.
     """
     lanes = [(eid, e) for eid, e in map_elements.items() if e.type in GRAPH_LANE_TYPES]
     if not lanes:
