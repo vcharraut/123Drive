@@ -5,7 +5,7 @@ Generated from tags on `main`.
 ## v0.3.2 - 2026-06-11
 
 Compared with `v0.3.1`.
-Source: `v0.3.1..v0.3.2` - 32 commits, 60 files changed.
+Source: `v0.3.1..v0.3.2` - 34 commits, 60 files changed.
 
 ### Added
 
