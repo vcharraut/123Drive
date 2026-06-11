@@ -30,7 +30,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
       - name: Sync dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra all
       - name: Type check
         run: uv run ty check src/
       - name: Run tests
