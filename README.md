@@ -39,6 +39,7 @@ Open `http://localhost:8080`.
 ## CLIs
 
 - `convert`: py123d output root (`logs/` + `maps/`) -> PufferDrive `.bin`
+- `augment-static-maps`: affine variants of static map `.bin` files
 - `build`: build Docker images for the extraction/conversion pipeline
 - `web`: browser viewer for `.bin` files
 
@@ -135,6 +136,34 @@ Validation levels:
 | `0` | Skip validation |
 | `1` | Schema checks: required keys, container types, array shapes, and length consistency |
 | `2` | Semantic checks: schema plus topology refs, finite values, valid traffic-light states, and ego-only temporal sanity |
+
+## Static Map Augmentation
+
+The `augment-static-maps` CLI generates static map variants from `.bin` map files.
+
+```bash
+uv run augment-static-maps \
+  --config src/bin_factory/configs/static_map_transforms_affine_balanced.yaml \
+  --input-dir data/static_maps \
+  --output-dir data/static_maps_affine
+```
+
+Pass a YAML config explicitly. The config contains only `limit` and `transforms`;
+input/output directories are required CLI arguments, and original maps are always copied.
+
+| Preset | Config | Output | Count |
+|--------|--------|--------|-------|
+| Balanced affine | `src/bin_factory/configs/static_map_transforms_affine_balanced.yaml` | `data/static_maps_affine` | 8 maps x (1 original + 15 transforms) = 128 |
+| FlipX only | `src/bin_factory/configs/static_map_transforms_flipx_only.yaml` | `data/static_maps_flipx` | 8 maps x (1 original + 1 flip) = 16 |
+
+Use the flip-only preset explicitly:
+
+```bash
+uv run augment-static-maps \
+  --config src/bin_factory/configs/static_map_transforms_flipx_only.yaml \
+  --input-dir data/static_maps \
+  --output-dir data/static_maps_flipx
+```
 
 ## Web Viewer
 
