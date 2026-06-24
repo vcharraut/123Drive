@@ -27,7 +27,6 @@ dependencies = [
   "joblib",
   "scipy",
   "shapely",
-  "pyyaml",
   "py123d==0.5.1",
 ]
 
@@ -47,16 +46,16 @@ all = [
 
 [project.scripts]
 convert = "bin_factory.main:main"
-augment-static-maps = "bin_factory.augment_static_maps:main"
+mapforge = "mapforge.affine:main"
 build = "docker_tools.cli:main"
 web = "viz.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src", "."]
-include = ["bin_factory", "bin_factory.*", "viz", "viz.*", "docker_tools", "docker_tools.*"]
+include = ["bin_factory", "bin_factory.*", "mapforge", "mapforge.*", "viz", "viz.*", "docker_tools", "docker_tools.*"]
 
 [tool.setuptools.package-data]
-bin_factory = ["presets.toml", "configs/*.yaml"]
+bin_factory = ["presets.toml"]
 viz = ["web/static/*"]
 docker_tools = ["dockerfiles/*", "*.py"]
 

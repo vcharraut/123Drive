@@ -1,129 +1,49 @@
 import argparse
-import dataclasses
 import logging
 import shutil
 from pathlib import Path
 
 import numpy as np
-import yaml
 
-from bin_factory import static_binary
 from bin_factory.schema import PufferScenario
 from bin_factory.transforms import build_lane_distance_matrix, compute_lane_lengths
+from mapforge import static_binary
 
 
 logger = logging.getLogger(__name__)
 
 SINGULAR_VALUE_TOLERANCE = 1e-9
 MAX_AUGMENTED_SEGMENT_LENGTH = 10.0
-REQUIRED_CONFIG_KEYS = {"limit", "transforms"}
+
+# Affine transform catalog, grouped by family. Select families with --groups.
+TRANSFORM_GROUPS: dict[str, dict[str, list[list[float]]]] = {
+    "scale": {
+        "Sc10": [[1.10, 0.0], [0.0, 1.10]],  # uniform 10% scale
+        "ScX10": [[1.10, 0.0], [0.0, 1.0]],  # stretch global X
+        "ScY10": [[1.0, 0.0], [0.0, 1.10]],  # stretch global Y
+    },
+    "shear": {
+        "ShXP": [[1.0, 0.17], [0.0, 1.0]],  # positive X shear
+        "ShXN": [[1.0, -0.17], [0.0, 1.0]],  # negative X shear
+        "ShYP": [[1.0, 0.0], [0.17, 1.0]],  # positive Y shear
+        "ShYN": [[1.0, 0.0], [-0.17, 1.0]],  # negative Y shear
+    },
+    "flip": {
+        "FlipX": [[-1.0, 0.0], [0.0, 1.0]],  # mirror global X
+    },
+}
 
 
-@dataclasses.dataclass(frozen=True)
-class AugmentConfig:
-    limit: int
-    transforms: list[dict]
-
-
-def build_transform_catalog(transform_configs: list[dict]) -> dict[str, np.ndarray]:
-    raw_catalog = _raw_transform_catalog_from_config(transform_configs)
-    validate_transform_catalog(raw_catalog)
-    return raw_catalog
-
-
-def _raw_transform_catalog_from_config(transform_configs: list[dict]) -> dict[str, np.ndarray]:
-    if not isinstance(transform_configs, list):
-        raise ValueError("Config key 'transforms' must be a list")
-
-    raw_catalog = {}
-    for idx, transform_config in enumerate(transform_configs):
-        if not isinstance(transform_config, dict):
-            raise ValueError(f"Transform config at index {idx} must be a mapping")
-        transform_keys = set(transform_config)
-        if transform_keys != {"name", "matrix"}:
-            missing = sorted({"name", "matrix"} - transform_keys)
-            extra = sorted(transform_keys - {"name", "matrix"})
-            details = []
-            if missing:
-                details.append(f"missing keys: {missing}")
-            if extra:
-                details.append(f"unsupported keys: {extra}")
-            raise ValueError(
-                f"Transform config at index {idx} must contain exactly ['matrix', 'name'] "
-                f"({'; '.join(details)})"
-            )
-
-        name = transform_config.get("name")
-        if not isinstance(name, str) or not name:
-            raise ValueError(f"Transform config at index {idx} must have a non-empty string name")
-        if name in raw_catalog:
-            raise ValueError(f"Duplicate transform name in config: {name!r}")
-        try:
-            matrix = np.asarray(transform_config["matrix"], dtype=np.float64)
-        except KeyError as exc:
-            raise ValueError(f"Transform {name!r} must define a matrix") from exc
-        except (TypeError, ValueError) as exc:
-            raise ValueError(f"Transform {name!r} matrix must contain numeric values") from exc
-
-        if matrix.shape != (2, 2):
-            raise ValueError(f"Transform {name!r} matrix must have shape (2, 2), got {matrix.shape}")
-        if not np.all(np.isfinite(matrix)):
-            raise ValueError(f"Transform {name!r} matrix must contain only finite values")
-
-        raw_catalog[name] = matrix
-
-    return raw_catalog
-
-
-def _validate_yaml_config_path(config_path: Path) -> Path:
-    config_path = Path(config_path)
-    if config_path.suffix.lower() not in {".yaml", ".yml"}:
-        raise ValueError("config must point to a .yaml or .yml file")
-    if config_path.is_file():
-        return config_path
-    raise FileNotFoundError(f"YAML config file does not exist: {config_path}")
-
-
-def load_augment_config(config_path: Path) -> AugmentConfig:
-    config_path = _validate_yaml_config_path(config_path)
-    try:
-        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        raise ValueError(f"Failed to parse YAML config: {config_path}") from exc
-    raw_config = loaded or {}
-    if not isinstance(raw_config, dict):
-        raise ValueError(f"YAML config must be a mapping: {config_path}")
-
-    return _augment_config_from_mapping(raw_config)
-
-
-def _augment_config_from_mapping(raw_config: dict) -> AugmentConfig:
-    config_keys = set(raw_config)
-    if config_keys != REQUIRED_CONFIG_KEYS:
-        missing = sorted(REQUIRED_CONFIG_KEYS - config_keys)
-        extra = sorted(config_keys - REQUIRED_CONFIG_KEYS)
-        details = []
-        if missing:
-            details.append(f"missing keys: {missing}")
-        if extra:
-            details.append(f"unsupported keys: {extra}")
-        raise ValueError(f"Config must contain exactly {sorted(REQUIRED_CONFIG_KEYS)} ({'; '.join(details)})")
-
-    limit = raw_config["limit"]
-    if not isinstance(limit, int) or isinstance(limit, bool):
-        raise ValueError("Config key 'limit' must be an integer")
-    if limit < 0:
-        raise ValueError("Config key 'limit' must be >= 0")
-
-    return AugmentConfig(limit=limit, transforms=raw_config["transforms"])
-
-
-def validate_transform_catalog(catalog: dict[str, np.ndarray]) -> None:
-    for name, matrix in catalog.items():
-        singular_values = np.linalg.svd(matrix, compute_uv=False)
-        smallest = float(np.min(singular_values))
-        if smallest <= SINGULAR_VALUE_TOLERANCE:
-            raise ValueError(f"Transform {name!r} must be invertible")
+def select_transforms(groups: list[str] | None) -> dict[str, np.ndarray]:
+    chosen = list(TRANSFORM_GROUPS) if groups is None else groups
+    unknown = sorted({name for name in chosen if name not in TRANSFORM_GROUPS})
+    if unknown:
+        raise ValueError(f"Unknown transform group(s): {unknown}. Available: {list(TRANSFORM_GROUPS)}")
+    return {
+        name: np.asarray(matrix, dtype=np.float64)
+        for group in chosen
+        for name, matrix in TRANSFORM_GROUPS[group].items()
+    }
 
 
 def augment_first_static_maps(
@@ -136,10 +56,10 @@ def augment_first_static_maps(
         raise ValueError("limit must be >= 0")
     if not input_dir.is_dir():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
-    if limit == 0:
-        return []
 
-    input_paths = sorted(input_dir.glob("*.bin"))[:limit]
+    input_paths = sorted(input_dir.glob("*.bin"))
+    if limit:
+        input_paths = input_paths[:limit]
     if not input_paths:
         raise FileNotFoundError(f"No .bin files found in {input_dir}")
 
@@ -253,20 +173,20 @@ def _update_metadata_id(scenario: PufferScenario, output_stem: str, transform_na
     scenario.metadata.id = f"{output_stem}_{transform_name}"
 
 
-def _yaml_config_path(value: str) -> Path:
-    try:
-        return _validate_yaml_config_path(Path(value))
-    except (FileNotFoundError, ValueError) as exc:
-        raise argparse.ArgumentTypeError(str(exc)) from exc
-
-
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate affine-augmented static map binaries")
     parser.add_argument(
-        "--config",
-        type=_yaml_config_path,
-        required=True,
-        help="YAML config for affine map generation",
+        "--groups",
+        nargs="+",
+        choices=list(TRANSFORM_GROUPS),
+        default=None,
+        help="Transform groups to run (default: all)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=8,
+        help="Augment only the first N input maps (0 = all)",
     )
     parser.add_argument(
         "--input-dir",
@@ -286,24 +206,19 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     logging.basicConfig(format="%(levelname)s %(name)s: %(message)s", level=logging.INFO)
     args = build_parser().parse_args()
-    config = load_augment_config(args.config)
-    catalog = build_transform_catalog(config.transforms)
-    transforms_per_map = len(catalog)
-    expected_count = config.limit * (1 + transforms_per_map)
-    logger.info(
-        "Generating up to %d map binaries from %d input maps: %d originals/map + %d transforms/map",
-        expected_count,
-        config.limit,
-        1,
-        transforms_per_map,
-    )
+    catalog = select_transforms(args.groups)
     written = augment_first_static_maps(
         input_dir=args.input_dir,
         output_dir=args.output_dir,
-        limit=config.limit,
+        limit=args.limit,
         catalog=catalog,
     )
-    logger.info("Generated %d augmented map binaries.", len(written))
+    logger.info(
+        "Generated %d map binaries: %d transforms/map across groups %s",
+        len(written),
+        len(catalog),
+        args.groups or list(TRANSFORM_GROUPS),
+    )
     return 0
 
 

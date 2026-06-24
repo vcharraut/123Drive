@@ -39,7 +39,7 @@ Open `http://localhost:8080`.
 ## CLIs
 
 - `convert`: py123d output root (`logs/` + `maps/`) -> PufferDrive `.bin`
-- `augment-static-maps`: affine variants of static map `.bin` files
+- `mapforge`: affine variants of static map `.bin` files
 - `build`: build Docker images for the extraction/conversion pipeline
 - `web`: browser viewer for `.bin` files
 
@@ -139,31 +139,26 @@ Validation levels:
 
 ## Static Map Augmentation
 
-The `augment-static-maps` CLI generates static map variants from `.bin` map files.
+The `mapforge` CLI generates affine-transformed variants of static map `.bin` files.
+Transforms are grouped into families: `scale`, `shear`, `flip` (the catalog lives in
+`src/mapforge/affine.py`). Pick families with `--groups` (default: all). Original maps
+are always copied alongside the variants.
 
 ```bash
-uv run augment-static-maps \
-  --config src/bin_factory/configs/static_map_transforms_affine_balanced.yaml \
-  --input-dir data/static_maps \
-  --output-dir data/static_maps_affine
+# All groups (scale + shear + flip)
+uv run mapforge --input-dir data/static_maps --output-dir data/static_maps_aug
+
+# Only specific groups
+uv run mapforge --groups flip --input-dir data/static_maps --output-dir data/static_maps_flip
+uv run mapforge --groups scale shear --input-dir data/static_maps --output-dir data/static_maps_warp
 ```
 
-Pass a YAML config explicitly. The config contains only `limit` and `transforms`;
-input/output directories are required CLI arguments, and original maps are always copied.
-
-| Preset | Config | Output | Count |
-|--------|--------|--------|-------|
-| Balanced affine | `src/bin_factory/configs/static_map_transforms_affine_balanced.yaml` | `data/static_maps_affine` | 8 maps x (1 original + 15 transforms) = 128 |
-| FlipX only | `src/bin_factory/configs/static_map_transforms_flipx_only.yaml` | `data/static_maps_flipx` | 8 maps x (1 original + 1 flip) = 16 |
-
-Use the flip-only preset explicitly:
-
-```bash
-uv run augment-static-maps \
-  --config src/bin_factory/configs/static_map_transforms_flipx_only.yaml \
-  --input-dir data/static_maps \
-  --output-dir data/static_maps_flipx
-```
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--groups` | all groups | Subset of families to run (`scale`/`shear`/`flip`) |
+| `--limit` | `8` | Augment only the first N input maps (`0` = all) |
+| `--input-dir` | required | Directory of source `.bin` maps |
+| `--output-dir` | required | Directory for augmented `.bin` files |
 
 ## Web Viewer
 

@@ -1,7 +1,0 @@
-limit: 8
-transforms:
-  # Mirror global X only; generates a pure left/right flipped version of each source map.
-  - name: FlipX
-    matrix:
-      - [-1.0, 0.0]
-      - [0.0, 1.0]
