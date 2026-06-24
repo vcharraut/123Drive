@@ -146,19 +146,18 @@ are always copied alongside the variants.
 
 ```bash
 # All groups (scale + shear + flip)
-uv run mapforge --input-dir data/static_maps --output-dir data/static_maps_aug
+uv run mapforge --input_dir data/static_maps --output_dir data/static_maps_aug
 
 # Only specific groups
-uv run mapforge --groups flip --input-dir data/static_maps --output-dir data/static_maps_flip
-uv run mapforge --groups scale shear --input-dir data/static_maps --output-dir data/static_maps_warp
+uv run mapforge --groups flip --input_dir data/static_maps --output_dir data/static_maps_flip
+uv run mapforge --groups scale shear --input_dir data/static_maps --output_dir data/static_maps_warp
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--groups` | all groups | Subset of families to run (`scale`/`shear`/`flip`) |
-| `--limit` | `8` | Augment only the first N input maps (`0` = all) |
-| `--input-dir` | required | Directory of source `.bin` maps |
-| `--output-dir` | required | Directory for augmented `.bin` files |
+| `--input_dir` | required | Directory of source `.bin` maps |
+| `--output_dir` | required | Directory for augmented `.bin` files |
 
 ## Web Viewer
 

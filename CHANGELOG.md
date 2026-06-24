@@ -13,8 +13,8 @@ Generated from tags on `main`.
 
 ### Changed
 
-- `mapforge --limit` defaults to `8` (augments only the first N input maps); pass
-  `--limit 0` to augment every map in the input directory.
+- `mapforge --num_maps` defaults to `8` (augments only the first N input maps); pass
+  `--num_maps 0` to augment every map in the input directory.
 
 ### Removed
 
