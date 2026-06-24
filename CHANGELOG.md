@@ -2,6 +2,25 @@
 
 Generated from tags on `main`.
 
+## Unreleased
+
+### Added
+
+- `mapforge` CLI (`src/mapforge/`): generates affine-transformed variants of static
+  map `.bin` files, as a sibling package to `bin_factory`/`viz`. Transform families
+  (`scale`/`shear`/`flip`) are selected with `--groups` (default: all); the catalog
+  is an inline `TRANSFORM_GROUPS` constant in `mapforge/affine.py`.
+
+### Changed
+
+- `mapforge --num_maps` defaults to `8` (augments only the first N input maps); pass
+  `--num_maps 0` to augment every map in the input directory.
+
+### Removed
+
+- `pyyaml` direct dependency: the `mapforge` catalog is now inline Python, and
+  nothing else in `src/` imports yaml (still present transitively via other deps).
+
 ## v0.3.2 - 2026-06-11
 
 Compared with `v0.3.1`.

@@ -39,6 +39,7 @@ Open `http://localhost:8080`.
 ## CLIs
 
 - `convert`: py123d output root (`logs/` + `maps/`) -> PufferDrive `.bin`
+- `mapforge`: affine variants of static map `.bin` files
 - `build`: build Docker images for the extraction/conversion pipeline
 - `web`: browser viewer for `.bin` files
 
@@ -77,9 +78,14 @@ uv run convert --py123d_path /path/to/123d --output ./output --map_only
 
 ### Presets
 
-Presets bundle the right defaults to reproduce a dataset with one command. Each
-pins a dataset family; pick a split on top with `--split_names`. Explicit CLI
-flags always override preset values. Defined in `src/bin_factory/presets.toml`.
+Presets bundle the right defaults to reproduce a dataset with one command, and
+are the recommended way to convert any dataset. Each pins a dataset family; pick
+a split on top with `--split_names`. Explicit CLI flags always override preset
+values. Defined in `src/bin_factory/presets.toml`.
+
+> **nuPlan:** always convert via `--preset nuplan` (or set `--duration_s`
+> explicitly). Raw nuPlan logs span minutes; loading one without trimming the
+> duration can exhaust RAM. The preset pins `--duration_s 20` for you.
 
 ```bash
 uv run convert --preset nuplan --py123d_path /path/to/123d --output ./output
@@ -135,6 +141,28 @@ Validation levels:
 | `0` | Skip validation |
 | `1` | Schema checks: required keys, container types, array shapes, and length consistency |
 | `2` | Semantic checks: schema plus topology refs, finite values, valid traffic-light states, and ego-only temporal sanity |
+
+## Static Map Augmentation
+
+The `mapforge` CLI generates affine-transformed variants of static map `.bin` files.
+Transforms are grouped into families: `scale`, `shear`, `flip` (the catalog lives in
+`src/mapforge/affine.py`). Pick families with `--groups` (default: all). Original maps
+are always copied alongside the variants.
+
+```bash
+# All groups (scale + shear + flip)
+uv run mapforge --input_dir data/static_maps --output_dir data/static_maps_aug
+
+# Only specific groups
+uv run mapforge --groups flip --input_dir data/static_maps --output_dir data/static_maps_flip
+uv run mapforge --groups scale shear --input_dir data/static_maps --output_dir data/static_maps_warp
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--groups` | all groups | Subset of families to run (`scale`/`shear`/`flip`) |
+| `--input_dir` | required | Directory of source `.bin` maps |
+| `--output_dir` | required | Directory for augmented `.bin` files |
 
 ## Web Viewer
 

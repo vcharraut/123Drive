@@ -46,12 +46,13 @@ all = [
 
 [project.scripts]
 convert = "bin_factory.main:main"
+mapforge = "mapforge.affine:main"
 build = "docker_tools.cli:main"
 web = "viz.server:main"
 
 [tool.setuptools.packages.find]
 where = ["src", "."]
-include = ["bin_factory", "bin_factory.*", "viz", "viz.*", "docker_tools", "docker_tools.*"]
+include = ["bin_factory", "bin_factory.*", "mapforge", "mapforge.*", "viz", "viz.*", "docker_tools", "docker_tools.*"]
 
 [tool.setuptools.package-data]
 bin_factory = ["presets.toml"]

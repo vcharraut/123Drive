@@ -233,6 +233,12 @@ def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         log.warning("Dataset 'opendrive' selected with --map_only=False. Forcing --map_only=True.")
         args.map_only = True
 
+    if "nuplan" in (args.datasets or []) and args.duration_s == 0.0:
+        log.warning(
+            "Converting nuPlan without --duration_s: raw nuPlan logs span minutes and can exhaust RAM. "
+            "Set --duration_s (e.g. 20) or use --preset nuplan, which pins it for you."
+        )
+
     py123d_data_root = args.py123d_path or os.environ.get("PY123D_DATA_ROOT")
     if not py123d_data_root:
         parser.error("--py123d_path is required (or set PY123D_DATA_ROOT environment variable)")
