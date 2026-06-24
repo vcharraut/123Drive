@@ -2,32 +2,19 @@
 
 Generated from tags on `main`.
 
-## Unreleased
+## v0.3.2 - 2026-06-24
+
+Compared with `v0.3.1`.
+Source: `v0.3.1..v0.3.2` - 46 commits, 64 files changed.
 
 ### Added
 
 - `mapforge` CLI (`src/mapforge/`): generates affine-transformed variants of static
-  map `.bin` files, as a sibling package to `bin_factory`/`viz`. Transform families
+  map `.bin` files, a sibling package to `bin_factory`/`viz`. Transform families
   (`scale`/`shear`/`flip`) are selected with `--groups` (default: all); the catalog
-  is an inline `TRANSFORM_GROUPS` constant in `mapforge/affine.py`.
-
-### Changed
-
-- `mapforge --num_maps` defaults to `8` (augments only the first N input maps); pass
-  `--num_maps 0` to augment every map in the input directory.
-
-### Removed
-
-- `pyyaml` direct dependency: the `mapforge` catalog is now inline Python, and
-  nothing else in `src/` imports yaml (still present transitively via other deps).
-
-## v0.3.2 - 2026-06-11
-
-Compared with `v0.3.1`.
-Source: `v0.3.1..v0.3.2` - 34 commits, 60 files changed.
-
-### Added
-
+  is the inline `TRANSFORM_GROUPS` constant in `mapforge/affine.py`. Each input map is
+  copied through and augmented into `--output_dir`, with `mapforge` tests over the
+  committed OpenDRIVE maps.
 - Dataset presets: `--preset` flag backed by `src/bin_factory/presets.toml`
   (`av2`/`carla`/`nuplan`/`nuscenes`/`opendrive`/`wod-motion`). A preset pins the
   dataset family and reproducible defaults; explicit CLI flags still override.
@@ -84,6 +71,8 @@ Source: `v0.3.1..v0.3.2` - 34 commits, 60 files changed.
 ### Removed
 
 - `docs/data.md` (supported data surface) and its README link.
+- `pyyaml` direct dependency: the `mapforge` catalog is now inline Python, and nothing
+  else in `src/` imports yaml (still present transitively via other deps).
 
 ### Docs
 
