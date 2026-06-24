@@ -23,9 +23,7 @@ def _opendrive_static_bytes(location):
     """Map-only conversion of one opendrive map -> serialized static .bin bytes."""
     config = main.build_parser().parse_args(["--py123d_path", str(DATA_ROOT)])
     config.map_only = True
-    maps = loader.discover_scenes(
-        py123d_data_root=str(DATA_ROOT), workers=1, map_only=True, datasets=["opendrive"]
-    )
+    maps = loader.discover_scenes(py123d_data_root=str(DATA_ROOT), workers=1, map_only=True, datasets=["opendrive"])
     scene = next(m for m in maps if m.location == location)
     scenario, extras = loader.extract_scenario(scene)
     assert loader.validate_scenario(scenario, extras=extras, level=2) == []
@@ -223,7 +221,7 @@ def test_traffic_control_heading_rotates_under_flip(opendrive_bins):
     matrix = np.asarray(affine.TRANSFORM_GROUPS["flip"]["FlipX"], dtype=np.float64)
     affine.apply_affine_transform(scenario, matrix, centroid)
 
-    for tc, ref in zip(scenario.traffic_controls, reference.traffic_controls):
+    for tc, ref in zip(scenario.traffic_controls, reference.traffic_controls, strict=False):
         h = float(ref["heading"])
         rotated = matrix @ np.array([np.cos(h), np.sin(h)])
         assert tc["heading"] == pytest.approx(float(np.arctan2(rotated[1], rotated[0])))

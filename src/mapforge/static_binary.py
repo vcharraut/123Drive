@@ -71,9 +71,7 @@ def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> PufferSce
         n_objects = reader.i32()
 
         if n_agents or n_objects:
-            raise StaticBinaryError(
-                f"{source} is not static: found {n_agents} agents and {n_objects} objects"
-            )
+            raise StaticBinaryError(f"{source} is not static: found {n_agents} agents and {n_objects} objects")
 
         road_map = _read_roads(reader, n_roads)
         traffic_controls = _read_traffic_controls(reader, n_traffic)
@@ -85,9 +83,7 @@ def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> PufferSce
         raise StaticBinaryError(f"{source} is not a valid static PufferDrive binary") from exc
 
     if reader.offset != len(data):
-        raise StaticBinaryError(
-            f"{source} has {len(data) - reader.offset} trailing bytes after metadata"
-        )
+        raise StaticBinaryError(f"{source} has {len(data) - reader.offset} trailing bytes after metadata")
 
     return PufferScenario(
         agents={},

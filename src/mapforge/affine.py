@@ -168,7 +168,7 @@ def main() -> int:
     if not args.input_dir.is_dir():
         raise FileNotFoundError(f"Input directory does not exist: {args.input_dir}")
     catalog = select_transforms(args.groups)
-    written = augment_maps(input_dir=args.input_dir,output_dir=args.output_dir,catalog=catalog)
+    written = augment_maps(input_dir=args.input_dir, output_dir=args.output_dir, catalog=catalog)
     logger.info(
         "Generated %d map binaries: %d transforms/map across groups %s",
         len(written),
