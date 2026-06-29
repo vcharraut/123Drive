@@ -50,7 +50,7 @@ requires-dist = [
     { name = "fastapi", marker = "extra == 'viz'" },
     { name = "joblib" },
     { name = "numpy" },
-    { name = "py123d", specifier = "==0.5.1" },
+    { name = "py123d", specifier = "==0.6.0" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "scipy" },
@@ -2597,7 +2597,7 @@ wheels = [
 
 [[package]]
 name = "py123d"
-version = "0.5.1"
+version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
@@ -2628,9 +2628,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "viser" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/99/27/7046153789fc51174029de38b9ed884992a4f964bfcc2028d13483fe7b35/py123d-0.5.1.tar.gz", hash = "sha256:f4aa05e252e296a39ae3ddc88655f17190732d10119a248e6003c7121cb73625", size = 23322206, upload-time = "2026-06-02T11:08:09.818Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b7/e9/f92502fdfd138edb6ce46309330618dbe004509078b8c43ee4dd5d548af1/py123d-0.6.0.tar.gz", hash = "sha256:dffebab962520e46b4d44cf97a1348c658d453d4edee39b8707474e73216196f", size = 23404741, upload-time = "2026-06-28T15:49:19.018Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b5/54/03879bcf5ce669ea1485841b49738b3d9412bd51e845da814acda48d2934/py123d-0.5.1-py3-none-any.whl", hash = "sha256:6455ce98fb38eeadf51c3a52e48d01e275967316dc60315e4aec2ae23ab3b902", size = 23482406, upload-time = "2026-06-02T11:08:07.296Z" },
+    { url = "https://files.pythonhosted.org/packages/99/9c/11a8392fcb71c126355b579d6a7a436e597c6bef5648a97d190ce342f5ed/py123d-0.6.0-py3-none-any.whl", hash = "sha256:0b0763b4853d5966f7966bbae956512608c39f04e9397eb45c91aab5efdf5b95", size = 23589948, upload-time = "2026-06-28T15:49:16.27Z" },
 ]
 
 [[package]]

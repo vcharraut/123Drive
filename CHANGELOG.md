@@ -5,7 +5,7 @@ Generated from tags on `main`.
 ## v0.3.2 - 2026-06-24
 
 Compared with `v0.3.1`.
-Source: `v0.3.1..v0.3.2` - 46 commits, 64 files changed.
+Source: `v0.3.1..v0.3.2` - 47 commits, 64 files changed.
 
 ### Added
 
@@ -65,7 +65,7 @@ Source: `v0.3.1..v0.3.2` - 46 commits, 64 files changed.
 - Conversion tolerates partial failures: exit `0` if any scenario converted, `1`
   only if none did (was `1` whenever any scenario failed).
 - Docker entrypoint exports `PY123D_DATA_ROOT=/input` so convert workers resolve maps.
-- Pinned `py123d` `0.2.1` → `0.5.1` (pyproject, Dockerfile, docker README default);
+- Pinned `py123d` `0.2.1` → `0.6.0` (pyproject, Dockerfile, docker README default);
   bumped project version to `0.3.2` and packaged `presets.toml` as package data.
 
 ### Removed
