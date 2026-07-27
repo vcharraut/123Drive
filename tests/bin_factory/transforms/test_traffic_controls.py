@@ -81,3 +81,23 @@ def test_only_bike_lane_signal_yields_no_traffic_controls():
     process_traffic_controls(scenario, extras)
 
     assert scenario.traffic_controls == []
+
+
+def test_static_traffic_light_keeps_only_uncovered_lanes():
+    scenario = _scenario(
+        {
+            1: _lane(puffer_types.LaneType.SURFACE_STREET, [[0, 0, 0], [10, 0, 0]]),
+            2: _lane(puffer_types.LaneType.SURFACE_STREET, [[0, 5, 0], [10, 5, 0]]),
+        }
+    )
+    zone = schema.StopZone(
+        type=int(puffer_types.TCType.TRAFFIC_LIGHT),
+        polygon=np.array([[0, -1, 0], [0, 6, 0], [1, 6, 0], [1, -1, 0]], dtype=np.float64),
+        controlled_lanes=[1, 2],
+    )
+    extras = schema.ExtractionExtras(traffic_lights={1: _tl(1)}, stop_zones=[zone])
+
+    process_traffic_controls(scenario, extras)
+
+    assert [control["controlled_lanes"] for control in scenario.traffic_controls] == [[1], [2]]
+    assert scenario.traffic_controls[1]["states"] == [puffer_types.TLState.UNKNOWN] * 5

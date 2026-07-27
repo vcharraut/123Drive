@@ -154,8 +154,15 @@ def test_clone_is_independent_deep_copy(opendrive_bins):
 
 def test_select_transforms_default_is_all_groups():
     catalog = affine.select_transforms(None)
-    expected = {name for group in affine.TRANSFORM_GROUPS.values() for name in group}
+    base = {
+        name
+        for group_name, group in affine.TRANSFORM_GROUPS.items()
+        if group_name != "flip"
+        for name in group
+    }
+    expected = base | {"FlipX"} | {f"FlipX_{name}" for name in base}
     assert set(catalog) == expected
+    assert len(catalog) == 15
     assert all(m.shape == (2, 2) for m in catalog.values())
 
 
@@ -271,6 +278,20 @@ def test_augment_maps_empty_input_raises(tmp_path):
     empty.mkdir()
     with pytest.raises(FileNotFoundError):
         affine.augment_maps(empty, tmp_path / "out", affine.select_transforms(["flip"]))
+
+
+def test_augment_maps_requires_explicit_overwrite(opendrive_bins, tmp_path):
+    input_dir = tmp_path / "in"
+    input_dir.mkdir()
+    (input_dir / "opendrive__Town02.bin").write_bytes(opendrive_bins["Town02"])
+    output_dir = tmp_path / "out"
+    catalog = affine.select_transforms(["flip"])
+    affine.augment_maps(input_dir, output_dir, catalog)
+
+    with pytest.raises(FileExistsError):
+        affine.augment_maps(input_dir, output_dir, catalog)
+
+    assert len(affine.augment_maps(input_dir, output_dir, catalog, overwrite=True)) == 2
 
 
 # ── affine: CLI ───────────────────────

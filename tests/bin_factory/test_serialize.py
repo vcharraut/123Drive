@@ -1,4 +1,5 @@
 import struct
+import copy
 
 import numpy as np
 
@@ -205,3 +206,20 @@ def test_round_trip_high_level_fields():
 def test_serialization_is_deterministic():
     scenario = _build_scenario()
     assert serialize.scenario_to_binary(scenario) == serialize.scenario_to_binary(scenario)
+
+
+def test_big_endian_inputs_serialize_identically():
+    little = _build_scenario()
+    big = copy.deepcopy(little)
+    for track in [*big.agents.values(), *big.objects.values()]:
+        for field in ("position", "heading", "velocity", "valid", "length", "width", "height"):
+            array = getattr(track, field)
+            setattr(track, field, array.astype(">i4" if field == "valid" else ">f8"))
+    for element in big.map.values():
+        key = "polyline" if element.uses_polyline else "polygon"
+        setattr(element, key, getattr(element, key).astype(">f8"))
+        if element.cum_length is not None:
+            element.cum_length = element.cum_length.astype(">f8")
+    big.lane_graph["distances"] = big.lane_graph["distances"].astype(">f8")
+
+    assert serialize.scenario_to_binary(big) == serialize.scenario_to_binary(little)

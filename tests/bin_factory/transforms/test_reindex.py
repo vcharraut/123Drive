@@ -38,3 +38,16 @@ def test_reindex_drops_refs_to_absent_lanes():
     reindex_scenario(scenario)
 
     assert scenario.map[0].exit_lanes == []
+
+
+def test_reindex_slices_lane_graph_rows_and_columns_together():
+    scenario = _scenario({10: _lane(), 30: _lane()})
+    scenario.lane_graph = {
+        "lane_ids": [10, 20, 30],
+        "distances": np.arange(9, dtype=np.float64).reshape(3, 3),
+    }
+
+    reindex_scenario(scenario)
+
+    assert scenario.lane_graph["lane_ids"] == [0, 1]
+    np.testing.assert_array_equal(scenario.lane_graph["distances"], [[0, 2], [6, 8]])
