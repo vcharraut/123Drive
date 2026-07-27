@@ -40,8 +40,12 @@ dev = [
   "ruff",
   "ty==0.0.48",
 ]
+docs = [
+  "furo",
+  "sphinx",
+]
 all = [
-  "123Drive[viz,dev]",
+  "123Drive[viz,dev,docs]",
 ]
 
 [project.scripts]
@@ -61,6 +65,7 @@ docker_tools = ["dockerfiles/*", "*.py"]
 
 [project.urls]
 Homepage = "https://github.com/vcharraut/123Drive"
+Documentation = "https://vcharraut.github.io/123Drive/"
 Repository = "https://github.com/vcharraut/123Drive"
 Issues = "https://github.com/vcharraut/123Drive/issues"
 
