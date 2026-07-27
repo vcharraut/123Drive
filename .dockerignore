@@ -1,0 +1,14 @@
+**
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!src
+!src/**
+!docker_tools
+!docker_tools/__init__.py
+!docker_tools/cli.py
+!docker_tools/123drive_entrypoint.py
+!docker_tools/py123d_entrypoint.py
+!docker_tools/dockerfiles
+!docker_tools/dockerfiles/**
