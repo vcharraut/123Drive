@@ -17,8 +17,11 @@ SUPPORTED_MAP_LAYERS = frozenset(
 AGENT_TYPE_MAP = {
     detections.DefaultBoxDetectionLabel.EGO: puffer_types.AgentType.VEHICLE,
     detections.DefaultBoxDetectionLabel.VEHICLE: puffer_types.AgentType.VEHICLE,
+    detections.DefaultBoxDetectionLabel.TRAIN: puffer_types.AgentType.OTHER,
     detections.DefaultBoxDetectionLabel.PERSON: puffer_types.AgentType.PEDESTRIAN,
     detections.DefaultBoxDetectionLabel.TWO_WHEELER: puffer_types.AgentType.CYCLIST,
+    detections.DefaultBoxDetectionLabel.ANIMAL: puffer_types.AgentType.OTHER,
+    detections.DefaultBoxDetectionLabel.OTHER: puffer_types.AgentType.OTHER,
 }
 
 OBJECT_TYPE_MAP = {
