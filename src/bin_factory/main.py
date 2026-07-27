@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--scenario_id_field",
         choices=["scene_uuid", "log_name", "location"],
         default="scene_uuid",
-        help="py123d attribute used as scenario id (metadata.id + output filename). Map-only uses 'location'.",
+        help="py123d attribute used as metadata.id and the readable filename component. Map-only uses 'location'.",
     )
     parser.add_argument("--duration_s", type=float, default=0.0, help="Duration of scenario in seconds")
     parser.add_argument("--dt", type=float, default=0.1, help="Iteration timestep in seconds (e.g. 0.1 = 10 Hz)")
@@ -140,19 +140,24 @@ def _build_output_path(py123d_data: Any, output_dir: pathlib.Path, field: str) -
         field: py123d attribute used as the scenario id
 
     Returns:
-        A pathlib.Path object representing the output file path, e.g. <dataset>__<source_id>.bin
+        A pathlib.Path object using the collision-resistant dataset/identity/UUID convention.
     """
 
     def sanitize(v: str) -> str:
         return re.sub(r"[^A-Za-z0-9._-]+", "_", v.strip()).strip("._-") or "scenario"
 
-    source_id = _scenario_identity(py123d_data, field)
     dataset = getattr(py123d_data, "dataset", "") or ""
 
     if not dataset:
         raise ValueError("py123d_data is missing 'dataset' attribute, which is required for output filename")
 
-    stem = f"{sanitize(dataset)}__{sanitize(source_id)}"
+    if not hasattr(py123d_data, "scene_uuid"):
+        stem = f"{sanitize(dataset)}__{sanitize(_scenario_identity(py123d_data, 'location'))}"
+    else:
+        scene_uuid = _scenario_identity(py123d_data, "scene_uuid")
+        source_id = _scenario_identity(py123d_data, field)
+        parts = [dataset, scene_uuid] if field == "scene_uuid" else [dataset, source_id, scene_uuid]
+        stem = "__".join(sanitize(part) for part in parts)
 
     return output_dir / f"{stem}.bin"
 
@@ -195,11 +200,23 @@ def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Na
     # 3. Process scenario (ordered transform pipeline; see transforms/pipeline.py)
     transforms.run(scenario, extras, config)
 
-    # 4. Serialize to binary and save
+    # 4. Validate transformed references and derived data
+    if config.validate_level > 0:
+        errors = loader.validate_scenario(scenario, level=config.validate_level)
+        scenario_id = scenario.metadata.id
+        for error in errors:
+            log.error(f"{scenario_id}: {error}")
+        if errors:
+            raise loader.ValidationError(
+                f"Post-transform validation failed for scenario {scenario_id} with {len(errors)} errors"
+            )
+
+    # 5. Serialize to binary and atomically replace the destination
     binary_data = serialize.scenario_to_binary(scenario)
     output_path = _build_output_path(py123d_data, output_dir, config.scenario_id_field)
-    with output_path.open("wb") as f:
-        f.write(binary_data)
+    temporary_path = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
+    temporary_path.write_bytes(binary_data)
+    temporary_path.replace(output_path)
 
 
 def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> tuple[argparse.Namespace, str]:
@@ -285,6 +302,13 @@ def main() -> int:
 
     output_dir = pathlib.Path(args.output)
     failures_path = output_dir / "failures.jsonl"
+    output_paths = [_build_output_path(scene, output_dir, args.scenario_id_field) for scene in scenes]
+    path_counts: dict[pathlib.Path, int] = {}
+    for path in output_paths:
+        path_counts[path] = path_counts.get(path, 0) + 1
+    duplicates = sorted(str(path) for path, count in path_counts.items() if count > 1)
+    if duplicates:
+        raise ValueError(f"Multiple scenarios resolve to the same output path: {', '.join(duplicates)}")
 
     log.info("Discovered %d scenarios. Starting conversion with %d workers.", len(scenes), args.workers)
 

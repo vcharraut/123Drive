@@ -23,9 +23,9 @@ def reindex_scenario(scenario: schema.PufferScenario) -> None:
         _remap_traffic_control(tc, map_id_map, traffic_control_id_map[tc["id"]]) for tc in scenario.traffic_controls
     ]
     if scenario.lane_graph:
-        scenario.lane_graph["lane_ids"] = [
-            map_id_map[lid] for lid in scenario.lane_graph["lane_ids"] if lid in map_id_map
-        ]
+        keep = [index for index, lane_id in enumerate(scenario.lane_graph["lane_ids"]) if lane_id in map_id_map]
+        scenario.lane_graph["lane_ids"] = [map_id_map[scenario.lane_graph["lane_ids"][index]] for index in keep]
+        scenario.lane_graph["distances"] = scenario.lane_graph["distances"][keep][:, keep]
     scenario.metadata.objects_of_interest = [
         agent_id_map[i] for i in scenario.metadata.objects_of_interest if i in agent_id_map
     ]

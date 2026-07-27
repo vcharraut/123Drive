@@ -39,24 +39,53 @@ def select_transforms(groups: list[str] | None) -> dict[str, np.ndarray]:
     unknown = sorted({name for name in chosen if name not in TRANSFORM_GROUPS})
     if unknown:
         raise ValueError(f"Unknown transform group(s): {unknown}. Available: {list(TRANSFORM_GROUPS)}")
-    return {
+    base = {
         name: np.asarray(matrix, dtype=np.float64)
         for group in chosen
+        if group != "flip"
         for name, matrix in TRANSFORM_GROUPS[group].items()
     }
+    if "flip" not in chosen:
+        return base
+    # FlipX composes with every base transform: 7 base + 1 flip + 7 composed = 15 transforms.
+    flips = {name: np.asarray(matrix, dtype=np.float64) for name, matrix in TRANSFORM_GROUPS["flip"].items()}
+    composed = {
+        f"{flip_name}_{base_name}": flip @ base_matrix
+        for flip_name, flip in flips.items()
+        for base_name, base_matrix in base.items()
+    }
+    return base | flips | composed
 
 
-def augment_maps(input_dir: Path, output_dir: Path, catalog: dict[str, np.ndarray]) -> list[Path]:
+def augment_maps(
+    input_dir: Path, output_dir: Path, catalog: dict[str, np.ndarray], overwrite: bool = False
+) -> list[Path]:
     input_paths = sorted(input_dir.glob("*.bin"))
     if not input_paths:
         raise FileNotFoundError(f"No .bin files found in {input_dir}")
+
+    planned_paths = [
+        path
+        for input_path in input_paths
+        for path in [
+            output_dir / input_path.name,
+            *(output_dir / f"{input_path.stem}_{transform_name}.bin" for transform_name in catalog),
+        ]
+    ]
+    if len(planned_paths) != len(set(planned_paths)):
+        raise ValueError("Mapforge output names collide within the requested augmentation plan")
+    existing = [path for path in planned_paths if path.exists()]
+    if existing and not overwrite:
+        raise FileExistsError(f"Refusing to overwrite existing output: {existing[0]}")
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     written = []
     for input_path in input_paths:
         output_stem = input_path.stem
         original_output_path = output_dir / f"{output_stem}.bin"
-        shutil.copy2(input_path, original_output_path)
+        if input_path.resolve() != original_output_path.resolve():
+            shutil.copy2(input_path, original_output_path)
         written.append(original_output_path)
         logger.info("Wrote %s", original_output_path)
 
@@ -73,7 +102,7 @@ def augment_maps(input_dir: Path, output_dir: Path, catalog: dict[str, np.ndarra
             variant = f"{output_stem}_{transform_name}"
             augmented.metadata.id = variant
             output_path = output_dir / f"{variant}.bin"
-            static_binary.write_static_scenario(augmented, output_path, overwrite=True)
+            static_binary.write_static_scenario(augmented, output_path, overwrite=overwrite)
             written.append(output_path)
             logger.info("Wrote %s", output_path)
 
@@ -159,6 +188,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Directory for augmented .bin files",
     )
+    parser.add_argument("--overwrite", action="store_true", help="Replace existing output files")
     return parser
 
 
@@ -168,7 +198,12 @@ def main() -> int:
     if not args.input_dir.is_dir():
         raise FileNotFoundError(f"Input directory does not exist: {args.input_dir}")
     catalog = select_transforms(args.groups)
-    written = augment_maps(input_dir=args.input_dir, output_dir=args.output_dir, catalog=catalog)
+    written = augment_maps(
+        input_dir=args.input_dir,
+        output_dir=args.output_dir,
+        catalog=catalog,
+        overwrite=args.overwrite,
+    )
     logger.info(
         "Generated %d map binaries: %d transforms/map across groups %s",
         len(written),

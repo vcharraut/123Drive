@@ -1,6 +1,6 @@
 """Serialize a PufferScenario to PufferDrive binary format.
 
-Full binary layout is specified in ``docs/binary-format.md``; enum values are in ``puffer_types.py``.
+Full binary layout is specified in ``docs/binary-format.rst``; enum values are in ``puffer_types.py``.
 """
 
 import struct
@@ -16,7 +16,7 @@ METADATA_DATASET_BYTES = 32
 
 def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
     """Write a per-track trajectory block (T + xyz + heading + velocity + bbox + valid). Returns xyz."""
-    xyz = np.asarray(track.position, dtype=np.float32)
+    xyz = np.asarray(track.position, dtype="<f4")
     buf.extend(struct.pack("<i", len(xyz)))
     for col in [
         xyz[:, 0],
@@ -29,8 +29,8 @@ def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
         track.width,
         track.height,
     ]:
-        buf.extend(np.asarray(col, dtype=np.float32).tobytes())
-    buf.extend(np.asarray(track.valid, dtype=np.int32).tobytes())
+        buf.extend(np.asarray(col, dtype="<f4").tobytes())
+    buf.extend(np.asarray(track.valid, dtype="<i4").tobytes())
     return xyz
 
 
@@ -74,10 +74,10 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         road_type = elem.type
         xyz = elem.geometry
 
-        xyz_f = np.asarray(xyz, dtype=np.float32)
+        xyz_f = np.asarray(xyz, dtype="<f4")
         pts = np.asarray(xyz, dtype=np.float64)
         seg = np.arctan2(np.diff(pts[:, 1]), np.diff(pts[:, 0]))
-        heading = np.append(seg, seg[-1]).astype(np.float32)
+        heading = np.append(seg, seg[-1]).astype("<f4")
 
         buf.extend(struct.pack("<ii", int(eid), int(road_type)))
         buf.extend(struct.pack("<i", len(xyz_f)))
@@ -92,12 +92,12 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
                     buf.extend(struct.pack(f"<{len(lane_list)}i", *map(int, lane_list)))
             buf.extend(struct.pack("<f", elem.speed_limit_mps))
             buf.extend(struct.pack("<f", float(elem.length)))
-            buf.extend(np.asarray(elem.cum_length, dtype=np.float32).tobytes())
+            buf.extend(np.asarray(elem.cum_length, dtype="<f4").tobytes())
 
     # Traffic controls: id, type, stop line endpoints, heading, states, controlled lanes
     for tc in tcs:
         buf.extend(struct.pack("<ii", int(tc["id"]), int(tc["type"])))
-        sl = np.asarray(tc["stop_line"], dtype=np.float32)
+        sl = np.asarray(tc["stop_line"], dtype="<f4")
         buf.extend(struct.pack("<fff", *sl[0]))
         buf.extend(struct.pack("<fff", *sl[1]))
         buf.extend(struct.pack("<f", float(tc["heading"])))
@@ -116,7 +116,7 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         n = len(lg["lane_ids"])
         buf.extend(struct.pack("<i", n))
         buf.extend(struct.pack(f"<{n}i", *lg["lane_ids"]))
-        buf.extend(np.asarray(lg["distances"], dtype=np.float32).tobytes())
+        buf.extend(np.asarray(lg["distances"], dtype="<f4").tobytes())
     else:
         buf.extend(struct.pack("<i", 0))
 
