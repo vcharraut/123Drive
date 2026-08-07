@@ -1,4 +1,5 @@
 import argparse
+import contextlib
 import json
 import os
 import pathlib
@@ -95,6 +96,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reverse road-edge polyline order (Waymo convention) for nuplan/carla/opendrive",
     )
     parser.add_argument(
+        "--emit_metadata",
+        action="store_true",
+        help="Write metadata.jsonl in the output directory, a row per converted scenario "
+        "carrying the recentring centroid, for consumers that map bin coordinates back to "
+        "the source frame",
+    )
+    parser.add_argument(
         "--log_level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
@@ -172,8 +180,8 @@ def _worker_fn(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Name
     try:
         identity["scenario_id"] = _scenario_identity(py123d_data, config.scenario_id_field)
         bind(dataset=dataset, scenario=identity["scenario_id"])
-        _convert_one(py123d_data, output_dir, config)
-        return {"ok": True, **identity, "error": ""}
+        metadata = _convert_one(py123d_data, output_dir, config)
+        return {"ok": True, **identity, "error": "", "metadata": metadata}
     except loader.ValidationError as ve:
         log.error("validation error: %s", ve)
         return {"ok": False, **identity, "error": str(ve)}
@@ -184,7 +192,7 @@ def _worker_fn(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Name
         unbind(tokens)
 
 
-def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Namespace) -> None:
+def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Namespace) -> dict | None:
     # 1. Load and convert 123D scenario to PufferDrive format
     scenario, extras = loader.extract_scenario(py123d_data, config.scenario_id_field)
 
@@ -217,6 +225,20 @@ def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Na
     temporary_path = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
     temporary_path.write_bytes(binary_data)
     temporary_path.replace(output_path)
+
+    # 6. Per-scenario metadata, returned for the parent to collect: consumers (AlpaSim state
+    # sync, scene manifests) need it to match maps between formats and map bin coords back to
+    # the source frame after centering.
+    if not config.emit_metadata:
+        return None
+    return {
+        "bin_path": output_path.name,
+        "scenario_id": scenario.metadata.id,
+        "dataset": scenario.metadata.dataset,
+        "scenario_length": scenario.metadata.scenario_length,
+        "dt": scenario.metadata.dt,
+        "centroid": extras.centroid,
+    }
 
 
 def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> tuple[argparse.Namespace, str]:
@@ -320,6 +342,11 @@ def main() -> int:
 
     with (
         failures_path.open("w", encoding="utf-8") as failure_handle,
+        (
+            (output_dir / "metadata.jsonl").open("w", encoding="utf-8")
+            if args.emit_metadata
+            else contextlib.nullcontext()
+        ) as metadata_handle,
         tqdm.tqdm(total=len(scenes)) as pbar,
         joblib.Parallel(
             n_jobs=args.workers,
@@ -335,6 +362,9 @@ def main() -> int:
             ):
                 if result["ok"]:
                     succeeded += 1
+                    if metadata_handle is not None:
+                        metadata_handle.write(json.dumps(result["metadata"]) + "\n")
+                        metadata_handle.flush()
                 else:
                     failed += 1
                     failure_handle.write(json.dumps(result) + "\n")
