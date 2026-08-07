@@ -104,6 +104,7 @@ class StopZone:
 class ExtractionExtras:
     traffic_lights: dict = dataclasses.field(default_factory=dict)
     stop_zones: list = dataclasses.field(default_factory=list)
+    centroid: list | None = None
 
 
 @dataclasses.dataclass

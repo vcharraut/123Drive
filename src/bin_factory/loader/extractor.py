@@ -75,6 +75,7 @@ def extract_scenario(
         all_objects, labels, tokens_to_object_id = _extract_objects(scene_api, centroid, ego_states)
         for obj in all_objects.values():
             _fill_missing_velocities(obj, dt)
+        dropped_labels: dict[str, int] = {}
         for oid, obj in all_objects.items():
             label = labels[oid]
             if label in mapping.AGENT_TYPE_MAP:
@@ -83,6 +84,16 @@ def extract_scenario(
             elif label in mapping.OBJECT_TYPE_MAP:
                 obj.type = mapping.OBJECT_TYPE_MAP[label]
                 objects[oid] = obj
+            else:
+                dropped_labels[label.name] = dropped_labels.get(label.name, 0) + 1
+        if dropped_labels:
+            log.warning(
+                "Scenario %s: dropped %d track(s) whose labels are in neither AGENT_TYPE_MAP "
+                "nor OBJECT_TYPE_MAP, so they are absent from the bin: %s",
+                metadata.id,
+                sum(dropped_labels.values()),
+                dropped_labels,
+            )
 
         _extract_prediction_targets(scene_api, tokens_to_object_id, agents, metadata)
 
@@ -99,7 +110,7 @@ def extract_scenario(
         objects=objects,
         metadata=metadata,
     )
-    extras = schema.ExtractionExtras(traffic_lights=traffic_lights, stop_zones=stop_zones)
+    extras = schema.ExtractionExtras(traffic_lights=traffic_lights, stop_zones=stop_zones, centroid=centroid.tolist())
     return scenario, extras
 
 
