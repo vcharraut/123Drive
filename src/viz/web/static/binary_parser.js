@@ -182,6 +182,18 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     const objects_of_interest = intList();
     const tracks_to_predict = intList();
 
+    // --- Optional traffic-light phase section: "TLPHASE1" + (junction_id, phase_idx) per traffic control ---
+    const PHASE_TAG = "TLPHASE1";
+    const hasPhaseSection = off + PHASE_TAG.length <= buffer.byteLength
+      && new TextDecoder().decode(new Uint8Array(buffer, off, PHASE_TAG.length)) === PHASE_TAG;
+    if (hasPhaseSection) {
+      off += PHASE_TAG.length;
+      for (let t = 0; t < numTraffic; t++) {
+        traffic_control_elements[t].junction_id = i32();
+        traffic_control_elements[t].phase_idx = i32();
+      }
+    }
+
     return {
       agents,
       road_map_elements,

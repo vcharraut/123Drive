@@ -98,6 +98,8 @@ class StopZone:
     type: int
     polygon: np.ndarray
     controlled_lanes: list = dataclasses.field(default_factory=list)
+    junction_id: int = -1  # -1: not part of a signalized junction cycle
+    phase_idx: int = -1
 
 
 @dataclasses.dataclass

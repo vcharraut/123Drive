@@ -46,6 +46,8 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
                 "stop_line": stop_line,
                 "heading": heading,
                 "states": traffic_light.states,
+                "junction_id": -1,
+                "phase_idx": -1,
             },
         )
         used_ids.add(control_id)
@@ -79,8 +81,13 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
 
         if stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT:
             states = [puffer_types.TLState.UNKNOWN] * scenario_length
+            junction_id, phase_idx = int(element_data.junction_id), int(element_data.phase_idx)
         else:
             states = []
+            junction_id, phase_idx = -1, -1
+        if (junction_id < 0) != (phase_idx < 0):
+            log.warning("lane=%s: stop zone has junction_id=%s but phase_idx=%s, dropping phase", controlled_lane_id, junction_id, phase_idx)
+            junction_id, phase_idx = -1, -1
 
         elements.append(
             {
@@ -90,11 +97,28 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
                 "stop_line": stop_line,
                 "heading": heading,
                 "states": states,
+                "junction_id": junction_id,
+                "phase_idx": phase_idx,
             },
         )
         next_id += 1
 
+    _compact_junction_phases(elements)
     scenario.traffic_controls = elements
+
+
+def _compact_junction_phases(elements: list[dict]) -> None:
+    """Renumbers phase_idx per junction to 0..N-1 in source order so the sim can cycle N slots."""
+    phases_by_junction: dict[int, list[int]] = {}
+    for element in elements:
+        if element["junction_id"] < 0:
+            continue
+        phases_by_junction.setdefault(element["junction_id"], []).append(element["phase_idx"])
+    rank_by_junction = {jid: {p: i for i, p in enumerate(sorted(set(ps)))} for jid, ps in phases_by_junction.items()}
+    for element in elements:
+        if element["junction_id"] < 0:
+            continue
+        element["phase_idx"] = rank_by_junction[element["junction_id"]][element["phase_idx"]]
 
 
 def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int, schema.MapElement]) -> np.ndarray:

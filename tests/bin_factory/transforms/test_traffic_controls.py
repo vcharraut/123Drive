@@ -81,3 +81,35 @@ def test_only_bike_lane_signal_yields_no_traffic_controls():
     process_traffic_controls(scenario, extras)
 
     assert scenario.traffic_controls == []
+
+
+def _stop_zone(controlled_lane, junction_id=-1, phase_idx=-1):
+    return schema.StopZone(
+        type=int(puffer_types.TCType.TRAFFIC_LIGHT),
+        polygon=np.array([[0.0, -1.0, 0.0], [0.5, -1.0, 0.0], [0.5, 1.0, 0.0], [0.0, 1.0, 0.0]]),
+        controlled_lanes=[controlled_lane],
+        junction_id=junction_id,
+        phase_idx=phase_idx,
+    )
+
+
+def test_stop_zone_phases_are_compacted_per_junction():
+    lanes = {
+        lane_id: _lane(puffer_types.LaneType.SURFACE_STREET, [[0.0, float(lane_id), 0.0], [5.0, float(lane_id), 0.0]])
+        for lane_id in range(4)
+    }
+    scenario = _scenario(lanes, length=0)
+    extras = schema.ExtractionExtras(
+        stop_zones=[_stop_zone(0, 7, 1), _stop_zone(1, 7, 3), _stop_zone(2, 7, 3), _stop_zone(3)],
+    )
+    process_traffic_controls(scenario, extras)
+
+    phases = [(tc["junction_id"], tc["phase_idx"]) for tc in scenario.traffic_controls]
+    assert phases == [(7, 0), (7, 1), (7, 1), (-1, -1)]
+
+
+def test_log_traffic_lights_carry_no_phase():
+    lanes = {0: _lane(puffer_types.LaneType.SURFACE_STREET, [[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]])}
+    scenario = _scenario(lanes)
+    process_traffic_controls(scenario, schema.ExtractionExtras(traffic_lights={0: _tl(0)}))
+    assert [(tc["junction_id"], tc["phase_idx"]) for tc in scenario.traffic_controls] == [(-1, -1)]

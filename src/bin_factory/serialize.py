@@ -12,6 +12,8 @@ from bin_factory import schema
 
 METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
+# Optional tagged section after the metadata: per traffic control (junction_id, phase_idx).
+TRAFFIC_PHASE_SECTION_TAG = b"TLPHASE1"
 
 
 def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
@@ -131,5 +133,10 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         buf.extend(struct.pack("<i", len(int_list)))
         if int_list:
             buf.extend(struct.pack(f"<{len(int_list)}i", *map(int, int_list)))
+
+    # Traffic control signal phases (tagged, so readers of older files without it still parse)
+    buf.extend(TRAFFIC_PHASE_SECTION_TAG)
+    for tc in tcs:
+        buf.extend(struct.pack("<ii", int(tc.get("junction_id", -1)), int(tc.get("phase_idx", -1))))
 
     return bytes(buf)

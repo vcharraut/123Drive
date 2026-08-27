@@ -7,7 +7,7 @@ import numpy as np
 
 from bin_factory import puffer_types
 from bin_factory.schema import MapElement, PufferScenario, ScenarioMetadata
-from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES, scenario_to_binary
+from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES, scenario_to_binary, TRAFFIC_PHASE_SECTION_TAG
 
 
 class StaticBinaryError(ValueError):
@@ -77,6 +77,7 @@ def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> PufferSce
         traffic_controls = _read_traffic_controls(reader, n_traffic)
         lane_graph = _read_lane_graph(reader)
         metadata = _read_metadata(reader)
+        _read_traffic_phases(reader, traffic_controls)
     except (struct.error, ValueError) as exc:
         if isinstance(exc, StaticBinaryError):
             raise
@@ -168,6 +169,19 @@ def _read_traffic_controls(reader: _Reader, n_traffic: int) -> list[dict]:
             }
         )
     return traffic_controls
+
+
+def _read_traffic_phases(reader: _Reader, traffic_controls: list[dict]) -> None:
+    tag_len = len(TRAFFIC_PHASE_SECTION_TAG)
+    if reader.data[reader.offset : reader.offset + tag_len] != TRAFFIC_PHASE_SECTION_TAG:
+        for tc in traffic_controls:
+            tc["junction_id"] = -1
+            tc["phase_idx"] = -1
+        return
+    reader.offset += tag_len
+    for tc in traffic_controls:
+        tc["junction_id"] = reader.i32()
+        tc["phase_idx"] = reader.i32()
 
 
 def _read_lane_graph(reader: _Reader) -> dict | None:

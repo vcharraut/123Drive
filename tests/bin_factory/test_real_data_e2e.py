@@ -158,6 +158,8 @@ def _parse(data):
     (dt,) = r.floats(1)
     ooi = r.ints(r.ints(1)[0])
     ttp = r.ints(r.ints(1)[0])
+    assert r.raw(len(serialize.TRAFFIC_PHASE_SECTION_TAG)) == serialize.TRAFFIC_PHASE_SECTION_TAG
+    phases = [tuple(r.ints(2)) for _ in range(n_tc)]
 
     return {
         "counts": (n_agents, n_road, n_tc, n_objects),
@@ -172,6 +174,7 @@ def _parse(data):
         "dt": dt,
         "ooi": ooi,
         "ttp": ttp,
+        "phases": phases,
         "consumed": r.off,
     }
 

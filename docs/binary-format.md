@@ -128,3 +128,12 @@ All-pairs shortest lane-to-lane distances precomputed via Dijkstra on FREEWAY an
 | int32 × n | `objects_of_interest_ids` | |
 | int32 | `n_tracks_to_predict` | |
 | int32 × n | `tracks_to_predict_ids` | |
+
+## Traffic Light Phases (optional tagged section)
+
+Written after the metadata by every current serializer; readers treat its absence as "no phase info".
+
+| Type | Field | Notes |
+|---|---|---|
+| char[8] | `tag` | `TLPHASE1` |
+| int32 × 2 × n_traffic_controls | `junction_id`, `phase_idx` | In traffic-control order. `-1, -1` when the element is not part of a signalized junction cycle. Per junction, `phase_idx` is compact `0..N-1`; lights with the same phase are green together, phases cycle in index order. |

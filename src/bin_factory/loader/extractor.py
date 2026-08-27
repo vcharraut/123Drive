@@ -322,10 +322,14 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
         puffer_type = mapping.STOP_ZONE_TYPE_MAP.get(map_object.stop_zone_type)
         if puffer_type is None:
             return None
+        intersection_id = getattr(map_object, "intersection_id", None)
+        phase_idx = getattr(map_object, "phase_idx", None)
         return schema.StopZone(
             type=puffer_type,
             polygon=_centered_array(map_object.outline_3d.array, centroid),
             controlled_lanes=map_object.lane_ids,
+            junction_id=-1 if intersection_id is None else int(intersection_id),
+            phase_idx=-1 if phase_idx is None else int(phase_idx),
         )
 
     return None

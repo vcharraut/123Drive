@@ -69,6 +69,8 @@ def _build_scenario():
             "heading": 0.5,
             "states": [int(puffer_types.TLState.GREEN)] * 3,
             "controlled_lanes": [10],
+            "junction_id": 20,
+            "phase_idx": 2,
         }
     ]
     lane_graph = {"lane_ids": [10, 11], "distances": np.array([[0.0, 3.0], [np.inf, 0.0]])}
@@ -159,7 +161,11 @@ def _parse(data):
     ooi = r.ints(r.ints(1)[0])
     ttp = r.ints(r.ints(1)[0])
 
+    assert r.raw(len(serialize.TRAFFIC_PHASE_SECTION_TAG)) == serialize.TRAFFIC_PHASE_SECTION_TAG
+    phases = [tuple(r.ints(2)) for _ in range(n_tc)]
+
     return {
+        "phases": phases,
         "counts": (n_agents, n_road, n_tc, n_objects),
         "agents": agents,
         "lanes": lanes,
@@ -197,6 +203,7 @@ def test_round_trip_high_level_fields():
     assert abs(parsed["dt"] - 0.1) < 1e-6  # float32 round-trip
     assert parsed["ooi"] == [1]
     assert parsed["ttp"] == [0, 1]
+    assert parsed["phases"] == [(20, 2)]
 
     # The parser walks every field; ending exactly at the buffer end proves layout consistency.
     assert parsed["consumed"] == len(data)
