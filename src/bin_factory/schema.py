@@ -63,6 +63,7 @@ class MapElement:
     right_neighbor: list = dataclasses.field(default_factory=list)
     length: float = 0.0
     cum_length: np.ndarray | None = None
+    width: np.ndarray | None = None
 
     @property
     def is_lane(self) -> bool:

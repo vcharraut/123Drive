@@ -137,3 +137,12 @@ Written after the metadata by every current serializer; readers treat its absenc
 |---|---|---|
 | char[8] | `tag` | `TLPHASE1` |
 | int32 × 2 × n_traffic_controls | `junction_id`, `phase_idx` | In traffic-control order. `-1, -1` when the element is not part of a signalized junction cycle. Per junction, `phase_idx` is compact `0..N-1`; lights with the same phase are green together, phases cycle in index order. |
+
+## Lane Widths (optional tagged section)
+
+Written after the traffic light phases. Per-point lane width in meters, measured from the centerline point to the left plus the right lane boundary. Readers treat its absence as "default width for every lane".
+
+| Type | Field | Notes |
+|---|---|---|
+| char[8] | `tag` | `LANEWID1` |
+| float32 × N per lane | `width` | Lanes (type 0–9) in road-map order, `N` = that lane's point count. |

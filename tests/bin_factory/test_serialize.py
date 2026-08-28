@@ -1,6 +1,7 @@
 import struct
 
 import numpy as np
+import pytest
 
 from bin_factory import puffer_types, schema, serialize
 
@@ -34,6 +35,7 @@ def _lane(road_type, points, entry=(), exit_=(), speed=-1.0):
         exit_lanes=list(exit_),
         length=float(cum_length[-1]) if points else 0.0,
         cum_length=cum_length,
+        width=np.full(points, 3.0) if 0 <= int(road_type) <= 9 else None,
     )
 
 
@@ -164,8 +166,12 @@ def _parse(data):
     assert r.raw(len(serialize.TRAFFIC_PHASE_SECTION_TAG)) == serialize.TRAFFIC_PHASE_SECTION_TAG
     phases = [tuple(r.ints(2)) for _ in range(n_tc)]
 
+    assert r.raw(len(serialize.LANE_WIDTH_SECTION_TAG)) == serialize.LANE_WIDTH_SECTION_TAG
+    widths = {lane["id"]: r.floats(lane["npts"]) for lane in lanes}
+
     return {
         "phases": phases,
+        "widths": widths,
         "counts": (n_agents, n_road, n_tc, n_objects),
         "agents": agents,
         "lanes": lanes,
@@ -204,9 +210,17 @@ def test_round_trip_high_level_fields():
     assert parsed["ooi"] == [1]
     assert parsed["ttp"] == [0, 1]
     assert parsed["phases"] == [(20, 2)]
+    assert parsed["widths"] == {10: [3.0] * 4, 11: [3.0] * 2}
 
     # The parser walks every field; ending exactly at the buffer end proves layout consistency.
     assert parsed["consumed"] == len(data)
+
+
+def test_lane_without_widths_is_rejected():
+    scenario = _build_scenario()
+    scenario.map[10].width = None
+    with pytest.raises(ValueError, match="compute_lane_widths"):
+        serialize.scenario_to_binary(scenario)
 
 
 def test_serialization_is_deterministic():

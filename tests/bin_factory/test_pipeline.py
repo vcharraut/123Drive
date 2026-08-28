@@ -29,6 +29,7 @@ def test_default_stage_order():
         "_prune_invalid_map_elements",
         "_process_traffic_controls",
         "_process_agent_routes",
+        "_compute_lane_widths",
         "_compute_lane_lengths",
         "_build_lane_graph",
         "_reindex_scenario",

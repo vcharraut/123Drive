@@ -160,8 +160,11 @@ def _parse(data):
     ttp = r.ints(r.ints(1)[0])
     assert r.raw(len(serialize.TRAFFIC_PHASE_SECTION_TAG)) == serialize.TRAFFIC_PHASE_SECTION_TAG
     phases = [tuple(r.ints(2)) for _ in range(n_tc)]
+    assert r.raw(len(serialize.LANE_WIDTH_SECTION_TAG)) == serialize.LANE_WIDTH_SECTION_TAG
+    widths = {road["id"]: r.floats(road["npts"]) for road in roads if road["lane"]}
 
     return {
+        "widths": widths,
         "counts": (n_agents, n_road, n_tc, n_objects),
         "agents": agents,
         "roads": roads,

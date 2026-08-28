@@ -7,6 +7,7 @@ import numpy as np
 
 from bin_factory.schema import PufferScenario
 from bin_factory.transforms import build_lane_distance_matrix, compute_lane_lengths
+from bin_factory.transforms.geometry import arc_length
 from mapforge import static_binary
 
 
@@ -91,9 +92,14 @@ def apply_affine_transform(scenario: PufferScenario, matrix: np.ndarray, centroi
     resample_points = float(np.max(np.linalg.svd(matrix, compute_uv=False))) > 1.0 + SINGULAR_VALUE_TOLERANCE
     for element in scenario.map.values():
         key = "polyline" if element.uses_polyline else "polygon"
-        transformed = _transform_xyz(np.asarray(getattr(element, key), dtype=np.float64), matrix, centroid)
+        source = np.asarray(getattr(element, key), dtype=np.float64)
+        transformed = _transform_xyz(source, matrix, centroid)
         if resample_points:
             transformed = _resample_xyz_segments(transformed, MAX_AUGMENTED_SEGMENT_LENGTH)
+        if element.is_lane and element.width is not None:
+            widths = _transform_lane_widths(np.asarray(element.width, dtype=np.float64), source[:, :2], matrix)
+            unresampled = _transform_xyz(source, matrix, centroid)
+            element.width = np.interp(arc_length(transformed), arc_length(unresampled), widths)
         setattr(element, key, transformed)
 
     for traffic_control in scenario.traffic_controls:
@@ -114,6 +120,17 @@ def _transform_xyz(xyz: np.ndarray, matrix: np.ndarray, centroid: np.ndarray) ->
     transformed = xyz.copy()
     transformed[:, :2] = (transformed[:, :2] - centroid) @ matrix.T + centroid
     return transformed
+
+
+def _transform_lane_widths(widths: np.ndarray, polyline_xy: np.ndarray, matrix: np.ndarray) -> np.ndarray:
+    """Scale each width by how much ``matrix`` stretches the local lane normal."""
+    if len(polyline_xy) < 2:
+        return widths.copy()
+    tangents = np.gradient(polyline_xy, axis=0)
+    normals = np.column_stack([-tangents[:, 1], tangents[:, 0]])
+    normal_lengths = np.linalg.norm(normals, axis=1)
+    normals = np.divide(normals, normal_lengths[:, None], out=np.zeros_like(normals), where=normal_lengths[:, None] > 0)
+    return widths * np.linalg.norm(normals @ matrix.T, axis=1)
 
 
 def _resample_xyz_segments(xyz: np.ndarray, max_segment_length: float) -> np.ndarray:

@@ -14,6 +14,8 @@ METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
 # Optional tagged section after the metadata: per traffic control (junction_id, phase_idx).
 TRAFFIC_PHASE_SECTION_TAG = b"TLPHASE1"
+# Optional tagged section after the traffic phases: per lane element, N float32 per-point widths (meters).
+LANE_WIDTH_SECTION_TAG = b"LANEWID1"
 
 
 def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
@@ -138,5 +140,17 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
     buf.extend(TRAFFIC_PHASE_SECTION_TAG)
     for tc in tcs:
         buf.extend(struct.pack("<ii", int(tc.get("junction_id", -1)), int(tc.get("phase_idx", -1))))
+
+    # Lane widths (tagged; lane order matches the road map section)
+    buf.extend(LANE_WIDTH_SECTION_TAG)
+    for eid, elem in road_map.items():
+        if not elem.is_lane:
+            continue
+        widths = np.asarray(elem.width if elem.width is not None else [], dtype=np.float32)
+        if len(widths) != len(elem.geometry):
+            raise ValueError(
+                f"lane {eid}: {len(widths)} widths for {len(elem.geometry)} points (run compute_lane_widths)"
+            )
+        buf.extend(widths.tobytes())
 
     return bytes(buf)

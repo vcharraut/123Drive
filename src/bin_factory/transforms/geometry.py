@@ -1,4 +1,5 @@
 import numpy as np
+import shapely
 from shapely import geometry as shapely_geom
 
 from bin_factory import schema
@@ -14,6 +15,40 @@ def arc_length(polyline: np.ndarray) -> np.ndarray:
         return np.zeros(len(polyline), dtype=np.float64)
     seg = np.linalg.norm(np.diff(polyline, axis=0), axis=1)
     return np.concatenate([[0.0], np.cumsum(seg)]).astype(np.float64)
+
+
+DEFAULT_LANE_WIDTH_M = 3.7
+
+
+def compute_lane_widths(scenario: schema.PufferScenario, default_width_m: float = DEFAULT_LANE_WIDTH_M) -> None:
+    """Annotate each lane with per-point `width` = centerline distance to left boundary + to right boundary.
+
+    Must run AFTER process_polylines so values align with the serialized polyline.
+    """
+    for element in scenario.map.values():
+        if not element.is_lane or element.polyline is None:
+            continue
+        element.width = _lane_widths_from_boundaries(
+            element.polyline, element.left_boundary, element.right_boundary, default_width_m
+        )
+
+
+def _lane_widths_from_boundaries(
+    polyline: np.ndarray,
+    left_boundary: np.ndarray | None,
+    right_boundary: np.ndarray | None,
+    default_width_m: float,
+) -> np.ndarray:
+    widths = np.full(len(polyline), default_width_m, dtype=np.float64)
+    if left_boundary is None or right_boundary is None or len(left_boundary) < 2 or len(right_boundary) < 2:
+        return widths
+    left = shapely_geom.LineString(np.asarray(left_boundary, dtype=np.float64)[:, :2])
+    right = shapely_geom.LineString(np.asarray(right_boundary, dtype=np.float64)[:, :2])
+    points = shapely.points(np.asarray(polyline, dtype=np.float64)[:, :2])
+    measured = shapely.distance(left, points) + shapely.distance(right, points)
+    valid = np.isfinite(measured) & (measured > 0.0)
+    widths[valid] = measured[valid]
+    return widths
 
 
 def polyline_length(polyline: np.ndarray) -> float:

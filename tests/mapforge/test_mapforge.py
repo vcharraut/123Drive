@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from bin_factory import loader, main, serialize, transforms
+from bin_factory.transforms.geometry import DEFAULT_LANE_WIDTH_M
 from mapforge import affine, static_binary
 from mapforge.static_binary import StaticBinaryError
 
@@ -211,6 +212,50 @@ def test_scale_grows_extent_and_resamples(opendrive_bins):
     assert np.allclose(after_extent / before_extent, 1.10, atol=1e-2)
     # A scale > 1 lengthens segments, so resampling can only add points, never drop them.
     assert after_points > before_points
+
+
+def test_read_carries_lane_widths(opendrive_bins):
+    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
+    lanes = [e for e in scenario.map.values() if e.is_lane]
+    assert lanes
+    for lane in lanes:
+        assert lane.width.shape == (len(lane.polyline),)
+        assert np.all(np.isfinite(lane.width))
+        assert np.all(lane.width > 0)
+    assert any(not np.allclose(e.width, e.width[0]) for e in lanes), "expected some lane to vary in width"
+
+
+def test_read_without_width_section_uses_default(opendrive_bins):
+    payload = opendrive_bins["Town02"]
+    idx = payload.rfind(serialize.LANE_WIDTH_SECTION_TAG)
+    scenario = static_binary.static_binary_to_scenario(payload[:idx])
+    for element in scenario.map.values():
+        if element.is_lane:
+            np.testing.assert_array_equal(element.width, DEFAULT_LANE_WIDTH_M)
+
+
+def test_flip_preserves_lane_widths(opendrive_bins):
+    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
+    reference = static_binary.clone_static_scenario(scenario)
+    affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["flip"]["FlipX"], _centroid(scenario))
+    for eid, element in scenario.map.items():
+        if element.is_lane:
+            np.testing.assert_allclose(element.width, reference.map[eid].width, atol=1e-6)
+
+
+def test_uniform_scale_scales_lane_widths_and_resamples(opendrive_bins):
+    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
+    reference = static_binary.clone_static_scenario(scenario)
+    affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["scale"]["Sc10"], _centroid(scenario))
+    for eid, element in scenario.map.items():
+        if not element.is_lane:
+            continue
+        ref = reference.map[eid]
+        assert element.width.shape == (len(element.polyline),)
+        assert element.width[0] == pytest.approx(1.10 * ref.width[0], rel=1e-6)
+        assert element.width[-1] == pytest.approx(1.10 * ref.width[-1], rel=1e-6)
+        assert element.width.min() >= 1.10 * ref.width.min() - 1e-6
+        assert element.width.max() <= 1.10 * ref.width.max() + 1e-6
 
 
 def test_traffic_control_heading_rotates_under_flip(opendrive_bins):

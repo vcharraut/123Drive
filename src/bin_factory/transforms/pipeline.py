@@ -7,7 +7,8 @@ order — including the config-gated stages — as data. ``run`` is the single e
 (the ``process_scenario`` the docs refer to).
 
 Ordering is load-bearing:
-- ``compute_lane_lengths`` must run after ``process_polylines`` (lengths match serialized geometry),
+- ``compute_lane_widths`` and ``compute_lane_lengths`` must run after ``process_polylines``
+  (per-point values match the serialized geometry),
 - ``build_lane_graph`` needs those lengths,
 - ``invalid_agent_overlap`` needs routes from ``process_agent_routes``,
 - ``reindex`` must run last.
@@ -17,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .geometry import interpolate_all_polygons, process_polylines, reverse_road_edges
+from .geometry import compute_lane_widths, interpolate_all_polygons, process_polylines, reverse_road_edges
 from .graph import build_lane_distance_matrix, compute_lane_lengths
 from .invalid_agents import invalid_agent_overlap
 from .reindex import reindex_scenario
@@ -84,6 +85,12 @@ def _invalid_agent_overlap(
     invalid_agent_overlap(scenario)
 
 
+def _compute_lane_widths(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
+    compute_lane_widths(scenario)
+
+
 def _compute_lane_lengths(
     scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
 ) -> None:
@@ -118,7 +125,7 @@ def build_stages(config: argparse.Namespace) -> list[_Stage]:
     ]
     if config.invalid_agent_overlap:
         stages.append(_invalid_agent_overlap)
-    stages += [_compute_lane_lengths, _build_lane_graph]
+    stages += [_compute_lane_widths, _compute_lane_lengths, _build_lane_graph]
     if not config.no_reindex:
         stages.append(_reindex_scenario)
     return stages
