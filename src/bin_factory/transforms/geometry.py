@@ -18,6 +18,8 @@ def arc_length(polyline: np.ndarray) -> np.ndarray:
 
 
 DEFAULT_LANE_WIDTH_M = 3.7
+# PufferDrive's loader rejects any lane point wider than its MAX_LANE_WIDTH_M (50 m)
+MAX_LANE_WIDTH_M = 50.0
 
 
 def compute_lane_widths(scenario: schema.PufferScenario, default_width_m: float = DEFAULT_LANE_WIDTH_M) -> None:
@@ -48,7 +50,7 @@ def _lane_widths_from_boundaries(
     measured = shapely.distance(left, points) + shapely.distance(right, points)
     valid = np.isfinite(measured) & (measured > 0.0)
     widths[valid] = measured[valid]
-    return widths
+    return np.minimum(widths, MAX_LANE_WIDTH_M)
 
 
 def polyline_length(polyline: np.ndarray) -> float:
