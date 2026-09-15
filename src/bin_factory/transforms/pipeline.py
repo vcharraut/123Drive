@@ -75,7 +75,7 @@ def _process_traffic_controls(
 def _process_agent_routes(
     scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
 ) -> None:
-    process_agent_routes(scenario, config.min_route_valid_points, config.route_check_timestep)
+    process_agent_routes(scenario, config.route_check_timestep)
 
 
 def _invalid_agent_overlap(
