@@ -64,12 +64,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Tolerance for polyline simplification (0=disabled)",
     )
     parser.add_argument(
-        "--min_route_valid_points",
-        type=float,
-        default=0.0,
-        help="Min valid trajectory percentage for route computation (0-100)",
-    )
-    parser.add_argument(
         "--route_check_timestep",
         type=int,
         default=0,
@@ -231,8 +225,6 @@ def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         parser.error("--chunk_target_scenes must be > 0")
     if args.route_check_timestep < 0:
         parser.error("--route_check_timestep must be >= 0")
-    if not 0 <= args.min_route_valid_points <= 100:
-        parser.error("--min_route_valid_points must be between 0 and 100")
     if args.workers < -1:
         parser.error("--workers must be -1, 0, or a positive integer")
 

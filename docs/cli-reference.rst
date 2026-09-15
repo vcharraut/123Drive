@@ -99,9 +99,6 @@ Transforms
    * - ``--area_threshold METRES``
      - ``0.1``
      - Shapely simplification tolerance; zero disables it
-   * - ``--min_route_valid_points PERCENT``
-     - ``0``
-     - Minimum post-check-frame valid percentage for non-ego routes
    * - ``--route_check_timestep INDEX``
      - ``0``
      - Required on-road valid frame for non-ego routes

@@ -11,7 +11,6 @@ def _config(**overrides):
         "no_reindex": False,
         "max_segment_length": 10.0,
         "area_threshold": 0.1,
-        "min_route_valid_points": 0.0,
         "route_check_timestep": 0,
     }
     base.update(overrides)

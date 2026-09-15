@@ -28,10 +28,9 @@ Eligibility
 Ego is always considered when it has a trajectory and the map has lanes. A non-ego vehicle must:
 
 * be valid at ``--route_check_timestep``;
-* have at least ``--min_route_valid_points`` percent valid samples from that frame onward;
 * be on-road at the check frame.
 
-The percentage is converted to a frame count for the remaining horizon. Pedestrians, cyclists,
+Pedestrians, cyclists,
 objects, and other non-vehicle agents do not receive routes. Conversion fails when ego exists but
 no ego route can be computed.
 
