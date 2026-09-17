@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pathlib
 
 from py123d import api as py123d_api
@@ -21,6 +22,7 @@ def discover_scenes(
     map_only: bool = False,
 ) -> list:
     data_root = pathlib.Path(py123d_data_root)
+    os.environ["PY123D_DATA_ROOT"] = str(data_root)
     if map_only:
         return _discover_maps(data_root / "maps", datasets, num_scenes)
 

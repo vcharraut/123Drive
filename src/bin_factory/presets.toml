@@ -33,6 +33,12 @@ datasets = ["opendrive"]
 reverse_road_edges = true
 scenario_id_field = "location"
 
+[nurec]
+datasets = ["nurec"]
+scenario_id_field = "location"
+emit_metadata = true
+# No reverse_road_edges: NuRec boundaries already come with drivable-side-left.
+
 [wod-motion]
 datasets = ["wod-motion"]
 invalid_agent_overlap = true
