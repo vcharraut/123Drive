@@ -163,8 +163,14 @@ def _parse(data):
     assert r.raw(len(serialize.LANE_WIDTH_SECTION_TAG)) == serialize.LANE_WIDTH_SECTION_TAG
     widths = {road["id"]: r.floats(road["npts"]) for road in roads if road["lane"]}
 
+    zones = None
+    if r.data[r.off : r.off + len(serialize.SPEED_ZONE_SECTION_TAG)] == serialize.SPEED_ZONE_SECTION_TAG:
+        r.raw(len(serialize.SPEED_ZONE_SECTION_TAG))
+        zones = {road["id"]: r.ints(1)[0] for road in roads if road["lane"]}
+
     return {
         "widths": widths,
+        "zones": zones,
         "counts": (n_agents, n_road, n_tc, n_objects),
         "agents": agents,
         "roads": roads,

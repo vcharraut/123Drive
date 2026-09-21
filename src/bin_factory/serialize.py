@@ -16,6 +16,8 @@ METADATA_DATASET_BYTES = 32
 TRAFFIC_PHASE_SECTION_TAG = b"TLPHASE1"
 # Optional tagged section after the traffic phases: per lane element, N float32 per-point widths (meters).
 LANE_WIDTH_SECTION_TAG = b"LANEWID1"
+# Optional tagged section after the lane widths: per lane element, int32 speed zone index (-1 = none).
+SPEED_ZONE_SECTION_TAG = b"SPDZONE1"
 
 
 def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
@@ -153,4 +155,15 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
             )
         buf.extend(widths.tobytes())
 
+    _write_speed_zone_section(buf, road_map)
+
     return bytes(buf)
+
+
+def _write_speed_zone_section(buf: bytearray, road_map: dict[int, schema.MapElement]) -> None:
+    """Tagged int32 per lane in road-map order; omitted entirely when no lane has a zone."""
+    lane_zones = [int(elem.speed_zone_idx) for elem in road_map.values() if elem.is_lane]
+    if not any(zone_idx >= 0 for zone_idx in lane_zones):
+        return
+    buf.extend(SPEED_ZONE_SECTION_TAG)
+    buf.extend(np.asarray(lane_zones, dtype=np.int32).tobytes())

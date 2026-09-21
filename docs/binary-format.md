@@ -146,3 +146,12 @@ Written after the traffic light phases. Per-point lane width in meters, measured
 |---|---|---|
 | char[8] | `tag` | `LANEWID1` |
 | float32 × N per lane | `width` | Lanes (type 0–9) in road-map order, `N` = that lane's point count. |
+
+## Speed Zones (optional tagged section)
+
+Written after the lane widths when the converter could build zones (the source map has lane groups). A zone is a connected set of lanes meant to share one posted speed limit: parallel lanes of a lane group, both driving directions of a road, and consecutive road pieces up to the next junction or limit change. Junction connector lanes carry `-1`. Readers treat absence as "no zone for any lane".
+
+| Type | Field | Notes |
+|---|---|---|
+| char[8] | `tag` | `SPDZONE1` |
+| int32 × n_lanes | `speed_zone_idx` | Lanes (type 0–9) in road-map order. Compact `0..N-1`, or `-1` for lanes without a zone. |

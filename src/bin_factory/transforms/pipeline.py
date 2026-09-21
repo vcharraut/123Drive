@@ -10,6 +10,7 @@ Ordering is load-bearing:
 - ``compute_lane_widths`` and ``compute_lane_lengths`` must run after ``process_polylines``
   (per-point values match the serialized geometry),
 - ``build_lane_graph`` needs those lengths,
+- ``compute_speed_zones`` needs final geometry (after ``process_polylines``) and source ids (before ``reindex``),
 - ``invalid_agent_overlap`` needs routes from ``process_agent_routes``,
 - ``reindex`` must run last.
 """
@@ -24,6 +25,7 @@ from .invalid_agents import invalid_agent_overlap
 from .reindex import reindex_scenario
 from .routes import process_agent_routes
 from .sanitize import prune_invalid_map_elements
+from .speed_zones import compute_speed_zones
 from .traffic_controls import process_traffic_controls
 from .traffic_light_interpolation import interpolate_traffic_lights
 
@@ -97,6 +99,12 @@ def _compute_lane_lengths(
     compute_lane_lengths(scenario)
 
 
+def _compute_speed_zones(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
+    compute_speed_zones(scenario, config.speed_zone_min_extent_m, config.speed_zone_opposite_gap_m)
+
+
 def _build_lane_graph(
     scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
 ) -> None:
@@ -125,6 +133,8 @@ def build_stages(config: argparse.Namespace) -> list[_Stage]:
     ]
     if config.invalid_agent_overlap:
         stages.append(_invalid_agent_overlap)
+    if not config.no_speed_zones:
+        stages.append(_compute_speed_zones)
     stages += [_compute_lane_widths, _compute_lane_lengths, _build_lane_graph]
     if not config.no_reindex:
         stages.append(_reindex_scenario)

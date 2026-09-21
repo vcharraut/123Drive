@@ -13,6 +13,7 @@ import tqdm
 
 from bin_factory import loader, serialize, transforms
 from bin_factory.log_context import bind, log, unbind
+from bin_factory.transforms.speed_zones import DEFAULT_MIN_ZONE_EXTENT_M, DEFAULT_OPPOSITE_GAP_M
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -77,6 +78,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--no_reindex", action="store_true", help="Skip reindexing element IDs to contiguous range(0, n)"
+    )
+    parser.add_argument("--no_speed_zones", action="store_true", help="Skip the per-lane speed zone section (SPDZONE1)")
+    parser.add_argument(
+        "--speed_zone_min_extent_m",
+        type=float,
+        default=DEFAULT_MIN_ZONE_EXTENT_M,
+        help="Zones with a smaller bounding-box diagonal merge into a same-limit neighbour across a junction (0=off)",
+    )
+    parser.add_argument(
+        "--speed_zone_opposite_gap_m",
+        type=float,
+        default=DEFAULT_OPPOSITE_GAP_M,
+        help="Max gap between the inner boundaries of opposite-direction lanes to count as one road (0=off)",
     )
     parser.add_argument(
         "--interpolate_tl",

@@ -259,6 +259,7 @@ def _extract_map(
 
     lane_ids = set(result.keys())
     _fix_lane_topology(result, undefined_lane, lane_ids)
+    _mark_junction_lanes(map_api, result)
 
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
     next_id = max(result.keys(), default=-1) + 1
@@ -298,6 +299,7 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
             right_boundary=_centered_array(map_object.right_boundary_3d.array, centroid),
             left_neighbor=_optional_id_list(getattr(map_object, "left_lane_id", None)),
             right_neighbor=_optional_id_list(getattr(map_object, "right_lane_id", None)),
+            lane_group_id=_optional_int(getattr(map_object, "lane_group_id", None)),
         )
 
     if layer in (map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE):
@@ -341,6 +343,23 @@ def _speed_limit(speed_limit_mps: float | None) -> float:
 
 def _optional_id_list(value: int | None) -> list[int]:
     return [value] if value is not None else []
+
+
+def _optional_int(value: int | None) -> int | None:
+    return None if value is None else int(value)
+
+
+def _mark_junction_lanes(map_api: py123d_api.MapAPI, lanes: dict[int, schema.MapElement]) -> None:
+    """Flag lanes whose lane group belongs to an intersection (junction connectors)."""
+    if map_objects.MapLayer.LANE_GROUP not in map_api.available_map_layers:
+        return
+    for group in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE_GROUP):
+        if getattr(group, "intersection_id", None) is None:
+            continue
+        for lane_id in group.lane_ids:
+            lane = lanes.get(int(lane_id))
+            if lane is not None:
+                lane.in_junction = True
 
 
 def _write_detection_frame(

@@ -169,9 +169,15 @@ def _parse(data):
     assert r.raw(len(serialize.LANE_WIDTH_SECTION_TAG)) == serialize.LANE_WIDTH_SECTION_TAG
     widths = {lane["id"]: r.floats(lane["npts"]) for lane in lanes}
 
+    zones = None
+    if r.data[r.off : r.off + len(serialize.SPEED_ZONE_SECTION_TAG)] == serialize.SPEED_ZONE_SECTION_TAG:
+        r.raw(len(serialize.SPEED_ZONE_SECTION_TAG))
+        zones = {lane["id"]: r.ints(1)[0] for lane in lanes}
+
     return {
         "phases": phases,
         "widths": widths,
+        "zones": zones,
         "counts": (n_agents, n_road, n_tc, n_objects),
         "agents": agents,
         "lanes": lanes,
@@ -213,6 +219,17 @@ def test_round_trip_high_level_fields():
     assert parsed["widths"] == {10: [3.0] * 4, 11: [3.0] * 2}
 
     # The parser walks every field; ending exactly at the buffer end proves layout consistency.
+    assert parsed["consumed"] == len(data)
+
+
+def test_speed_zone_section_written_only_when_a_lane_has_a_zone():
+    scenario = _build_scenario()
+    assert _parse(serialize.scenario_to_binary(scenario))["zones"] is None
+
+    scenario.map[10].speed_zone_idx = 0
+    data = serialize.scenario_to_binary(scenario)
+    parsed = _parse(data)
+    assert parsed["zones"] == {10: 0, 11: -1}
     assert parsed["consumed"] == len(data)
 
 

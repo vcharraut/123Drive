@@ -64,6 +64,9 @@ class MapElement:
     length: float = 0.0
     cum_length: np.ndarray | None = None
     width: np.ndarray | None = None
+    lane_group_id: int | None = None  # source-map group of parallel same-direction lanes
+    in_junction: bool = False
+    speed_zone_idx: int = -1  # -1: no zone (junction lane, or zones not computed)
 
     @property
     def is_lane(self) -> bool:

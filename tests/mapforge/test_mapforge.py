@@ -234,6 +234,28 @@ def test_read_without_width_section_uses_default(opendrive_bins):
             np.testing.assert_array_equal(element.width, DEFAULT_LANE_WIDTH_M)
 
 
+def test_read_carries_speed_zones(opendrive_bins):
+    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
+    zone_by_lane = {eid: e.speed_zone_idx for eid, e in scenario.map.items() if e.is_lane}
+    zone_ids = sorted({z for z in zone_by_lane.values() if z >= 0})
+    assert len(zone_ids) > 1
+    assert zone_ids == list(range(len(zone_ids))), "zone ids must be compact"
+    assert any(z < 0 for z in zone_by_lane.values()), "junction lanes carry no zone"
+    for zone_idx in zone_ids:
+        limits = {round(e.speed_limit_mps, 2) for e in scenario.map.values() if e.speed_zone_idx == zone_idx}
+        assert len(limits) == 1, f"zone {zone_idx} mixes limits {limits}"
+    rewritten = static_binary.static_binary_to_scenario(serialize.scenario_to_binary(scenario))
+    assert {eid: e.speed_zone_idx for eid, e in rewritten.map.items() if e.is_lane} == zone_by_lane
+
+
+def test_read_without_speed_zone_section_uses_minus_one(opendrive_bins):
+    payload = opendrive_bins["Town02"]
+    idx = payload.rfind(serialize.SPEED_ZONE_SECTION_TAG)
+    assert idx > 0
+    scenario = static_binary.static_binary_to_scenario(payload[:idx])
+    assert all(e.speed_zone_idx == -1 for e in scenario.map.values() if e.is_lane)
+
+
 def test_flip_preserves_lane_widths(opendrive_bins):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
     reference = static_binary.clone_static_scenario(scenario)

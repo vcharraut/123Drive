@@ -13,6 +13,9 @@ def _config(**overrides):
         "area_threshold": 0.1,
         "min_route_valid_points": 0.0,
         "route_check_timestep": 0,
+        "no_speed_zones": False,
+        "speed_zone_min_extent_m": 100.0,
+        "speed_zone_opposite_gap_m": 8.0,
     }
     base.update(overrides)
     return types.SimpleNamespace(**base)
@@ -29,11 +32,18 @@ def test_default_stage_order():
         "_prune_invalid_map_elements",
         "_process_traffic_controls",
         "_process_agent_routes",
+        "_compute_speed_zones",
         "_compute_lane_widths",
         "_compute_lane_lengths",
         "_build_lane_graph",
         "_reindex_scenario",
     ]
+
+
+def test_no_speed_zones_drops_stage_and_default_runs_it_after_polylines_before_reindex():
+    assert "_compute_speed_zones" not in _names(_config(no_speed_zones=True))
+    names = _names(_config())
+    assert names.index("_process_polylines") < names.index("_compute_speed_zones") < names.index("_reindex_scenario")
 
 
 def test_interpolate_tl_prepends_interpolation():

@@ -11,6 +11,7 @@ from bin_factory.serialize import (
     LANE_WIDTH_SECTION_TAG,
     METADATA_DATASET_BYTES,
     METADATA_ID_BYTES,
+    SPEED_ZONE_SECTION_TAG,
     TRAFFIC_PHASE_SECTION_TAG,
     scenario_to_binary,
 )
@@ -86,6 +87,7 @@ def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> PufferSce
         metadata = _read_metadata(reader)
         _read_traffic_phases(reader, traffic_controls)
         _read_lane_widths(reader, road_map)
+        _read_speed_zones(reader, road_map)
     except (struct.error, ValueError) as exc:
         if isinstance(exc, StaticBinaryError):
             raise
@@ -205,6 +207,16 @@ def _read_lane_widths(reader: _Reader, road_map: dict[int, MapElement]) -> None:
             element.width = reader.f32_array(n_points).astype(np.float64)
         else:
             element.width = np.full(n_points, DEFAULT_LANE_WIDTH_M, dtype=np.float64)
+
+
+def _read_speed_zones(reader: _Reader, road_map: dict[int, MapElement]) -> None:
+    tag_len = len(SPEED_ZONE_SECTION_TAG)
+    has_section = reader.data[reader.offset : reader.offset + tag_len] == SPEED_ZONE_SECTION_TAG
+    if has_section:
+        reader.offset += tag_len
+    for element in road_map.values():
+        if element.is_lane:
+            element.speed_zone_idx = reader.i32() if has_section else -1
 
 
 def _read_lane_graph(reader: _Reader) -> dict | None:
