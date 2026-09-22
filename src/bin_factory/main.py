@@ -61,8 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--area_threshold",
         type=float,
-        default=0.1,
-        help="Tolerance for polyline simplification (0=disabled)",
+        default=0.02,
+        help="Tolerance for polyline simplification in meters (0=disabled)",
     )
     parser.add_argument(
         "--min_route_valid_points",
