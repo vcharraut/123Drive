@@ -1,4 +1,5 @@
 import argparse
+import copy
 import logging
 import shutil
 from pathlib import Path
@@ -97,7 +98,7 @@ def augment_maps(
         ]
         centroid = np.vstack(geometries).mean(axis=0)
         for transform_name, matrix in catalog.items():
-            augmented = static_binary.clone_static_scenario(scenario)
+            augmented = copy.deepcopy(scenario)
             apply_affine_transform(augmented, matrix, centroid)
             variant = f"{output_stem}_{transform_name}"
             augmented.metadata.id = variant

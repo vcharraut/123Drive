@@ -1,4 +1,3 @@
-import copy
 import dataclasses
 import struct
 from pathlib import Path
@@ -106,10 +105,6 @@ def write_static_scenario(scenario: PufferScenario, path: str | Path, overwrite:
         raise FileExistsError(f"Refusing to overwrite existing file: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(scenario_to_binary(scenario))
-
-
-def clone_static_scenario(scenario: PufferScenario) -> PufferScenario:
-    return copy.deepcopy(scenario)
 
 
 def _read_roads(reader: _Reader, n_roads: int) -> dict[int, MapElement]:

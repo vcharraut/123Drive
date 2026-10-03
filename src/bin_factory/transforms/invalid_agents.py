@@ -9,10 +9,8 @@ intersection zeros the log agent's ``valid`` array.
 import numpy as np
 from shapely import geometry as shapely_geom
 
-from bin_factory import schema
+from bin_factory import puffer_types, schema
 from bin_factory.log_context import log
-
-from .routes import _compute_control_state
 
 
 def invalid_agent_overlap(scenario: schema.PufferScenario) -> None:
@@ -75,7 +73,7 @@ def invalid_agent_overlap(scenario: schema.PufferScenario) -> None:
         track.valid[:] = 0
         track.route = []
         track.route_gt_len = 0
-        track.control_state = _compute_control_state(track, scenario.metadata.dt)
+        track.control_state = int(puffer_types.ControlState.NON_CONTROLLABLE_STATIC)
 
     if flagged_ids:
         log.debug("zeroed %d overlapping log agents", len(flagged_ids))

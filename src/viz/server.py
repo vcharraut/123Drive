@@ -21,7 +21,14 @@ try:
 except ImportError as exc:  # pragma: no cover - import guard
     raise SystemExit("Install viz dependencies first: uv sync --extra viz") from exc
 
-from viz.utils import as_json_dict
+from bin_factory.puffer_types import (
+    AGENT_TYPE_NAMES,
+    OBJECT_TYPE_NAMES,
+    ROAD_TYPE_NAMES,
+    TC_TYPE_NAMES,
+    TL_STATE_NAMES,
+    TLState,
+)
 
 
 app = FastAPI()
@@ -74,7 +81,21 @@ def _sanitize_export_name(name: str) -> str:
 
 @app.get("/api/types")
 def get_types() -> dict:
-    return as_json_dict()
+    return {
+        "AGENT_TYPE_NAMES": AGENT_TYPE_NAMES,
+        "ROAD_TYPE_NAMES": ROAD_TYPE_NAMES,
+        "TL_STATE_NAMES": TL_STATE_NAMES,
+        "TL_STATE_COLORS": {
+            TLState.GREEN: "#00FF00",
+            TLState.YELLOW: "#FFFF00",
+            TLState.RED: "#FF0000",
+            TLState.OFF: "#808080",
+            TLState.UNKNOWN: "#808080",
+        },
+        "TC_TYPE_NAMES": TC_TYPE_NAMES,
+        "OBJECT_TYPE_NAMES": OBJECT_TYPE_NAMES,
+        "LANE_RANGE": (0, 9),
+    }
 
 
 @app.get("/api/scenarios")

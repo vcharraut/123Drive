@@ -75,7 +75,6 @@ class ObjectType(enum.IntEnum):
 
 # Derived name dicts (int -> str)
 AGENT_TYPE_NAMES = {t.value: t.name.lower() for t in AgentType}
-CONTROL_STATE_NAMES = {t.value: t.name.lower() for t in ControlState}
 ROAD_TYPE_NAMES = {
     t.value: t.name.lower() for enum_cls in [LaneType, RoadLineType, RoadEdgeType, MiscRoadType] for t in enum_cls
 }
@@ -97,19 +96,5 @@ def is_road_edge(t: int) -> bool:
     return 20 <= t <= 29
 
 
-def is_yellow_line(t: int) -> bool:
-    return t in (
-        RoadLineType.BROKEN_SINGLE_YELLOW,
-        RoadLineType.BROKEN_DOUBLE_YELLOW,
-        RoadLineType.SOLID_SINGLE_YELLOW,
-        RoadLineType.SOLID_DOUBLE_YELLOW,
-        RoadLineType.PASSING_DOUBLE_YELLOW,
-    )
-
-
 def is_crosswalk(t: int) -> bool:
     return t == MiscRoadType.CROSSWALK
-
-
-def is_broken_line(t: int) -> bool:
-    return t in (RoadLineType.BROKEN_SINGLE_WHITE, RoadLineType.BROKEN_SINGLE_YELLOW)

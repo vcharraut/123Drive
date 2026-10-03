@@ -306,13 +306,13 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
         return schema.MapElement(
             type=puffer_type,
             polyline=_centered_array(map_object.centerline_3d.array, centroid),
-            speed_limit_mps=_speed_limit(map_object.speed_limit_mps),
+            speed_limit_mps=float(speed) if (speed := map_object.speed_limit_mps) and not np.isnan(speed) else -1.0,
             entry_lanes=map_object.predecessor_ids,
             exit_lanes=map_object.successor_ids,
             left_boundary=_centered_array(map_object.left_boundary_3d.array, centroid),
             right_boundary=_centered_array(map_object.right_boundary_3d.array, centroid),
-            left_neighbor=_optional_id_list(getattr(map_object, "left_lane_id", None)),
-            right_neighbor=_optional_id_list(getattr(map_object, "right_lane_id", None)),
+            left_neighbor=[i for i in [getattr(map_object, "left_lane_id", None)] if i is not None],
+            right_neighbor=[i for i in [getattr(map_object, "right_lane_id", None)] if i is not None],
         )
 
     if layer in (map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE):
@@ -343,23 +343,11 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
             controlled_lanes=map_object.lane_ids,
             # NOTE: py123d releases before the signal groups have no such attributes.
             intersection_id=getattr(map_object, "intersection_id", None),  # 123D id, mapped to element id later
-            signal_group_id=_optional_int(getattr(map_object, "signal_group_id", None)),
-            signal_sequence=_optional_int(getattr(map_object, "signal_sequence", None)),
+            signal_group_id=-1 if (group := getattr(map_object, "signal_group_id", None)) is None else int(group),
+            signal_sequence=-1 if (seq := getattr(map_object, "signal_sequence", None)) is None else int(seq),
         )
 
     return None
-
-
-def _optional_int(value: int | None) -> int:
-    return -1 if value is None else int(value)
-
-
-def _speed_limit(speed_limit_mps: float | None) -> float:
-    return -1.0 if not speed_limit_mps or np.isnan(speed_limit_mps) else float(speed_limit_mps)
-
-
-def _optional_id_list(value: int | None) -> list[int]:
-    return [value] if value is not None else []
 
 
 def _write_detection_frame(

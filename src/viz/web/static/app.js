@@ -86,9 +86,6 @@ window.TYPES = {
   TL_STATE_NAMES: {0:'unknown', 1:'red', 2:'yellow', 3:'green', 4:'off'},
   TL_STATE_COLORS: {0:'#808080', 1:'#FF0000', 2:'#FFFF00', 3:'#00FF00', 4:'#808080'},
   LANE_RANGE: [0, 9],
-  ROAD_LINE_RANGE: [10, 19],
-  ROAD_EDGE_RANGE: [20, 29],
-  ROAD_COLORS: {},
 };
 const TC_TYPE_COLORS = {2:[220,38,38], 3:[234,179,8]};
 

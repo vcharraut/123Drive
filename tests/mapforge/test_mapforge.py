@@ -5,6 +5,7 @@ Each is run once through the real map-only conversion path to produce a static `
 payload, which is the input mapforge actually consumes in production.
 """
 
+import copy
 import pathlib
 
 import numpy as np
@@ -134,21 +135,6 @@ def test_write_rejects_non_static(opendrive_bins, tmp_path):
         static_binary.write_static_scenario(scenario, tmp_path / "bad.bin")
 
 
-# ── static_binary: clone ───────────────────────
-
-
-def test_clone_is_independent_deep_copy(opendrive_bins):
-    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
-    clone = static_binary.clone_static_scenario(scenario)
-    first = next(iter(clone.map.values()))
-    key = "polyline" if first.uses_polyline else "polygon"
-    getattr(first, key)[:] = 0.0
-    clone.metadata.id = "mutated"
-    original_first = next(iter(scenario.map.values()))
-    assert getattr(original_first, key).any()  # original geometry untouched
-    assert scenario.metadata.id == "Town02"
-
-
 # ── affine: transform selection ───────────────────────
 
 
@@ -192,7 +178,7 @@ def test_apply_affine_rejects_bad_centroid_shape(opendrive_bins):
 
 def test_flip_mirrors_x_about_centroid(opendrive_bins):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
-    reference = static_binary.clone_static_scenario(scenario)
+    reference = copy.deepcopy(scenario)
     centroid = _centroid(scenario)
     affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["flip"]["FlipX"], centroid)
 
@@ -206,7 +192,7 @@ def test_flip_mirrors_x_about_centroid(opendrive_bins):
 
 def test_scale_grows_extent_and_resamples(opendrive_bins):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
-    reference = static_binary.clone_static_scenario(scenario)
+    reference = copy.deepcopy(scenario)
     centroid = _centroid(scenario)
     before_extent = np.ptp(_all_xy(reference), axis=0)
     before_points = sum(len(e.geometry) for e in reference.map.values())
@@ -223,7 +209,7 @@ def test_scale_grows_extent_and_resamples(opendrive_bins):
 def test_traffic_control_heading_rotates_under_flip(opendrive_bins):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
     assert scenario.traffic_controls, "opendrive fixture should carry traffic controls"
-    reference = static_binary.clone_static_scenario(scenario)
+    reference = copy.deepcopy(scenario)
     centroid = _centroid(scenario)
     matrix = np.asarray(affine.TRANSFORM_GROUPS["flip"]["FlipX"], dtype=np.float64)
     affine.apply_affine_transform(scenario, matrix, centroid)
