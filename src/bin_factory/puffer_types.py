@@ -82,19 +82,3 @@ TL_STATE_NAMES = {t.value: t.name.lower() for t in TLState}
 TC_TYPE_NAMES = {t.value: t.name.lower() for t in TCType}
 OBJECT_TYPE_NAMES = {t.value: t.name.lower() for t in ObjectType}
 
-
-# Road type ranges: 0-9 = lane, 10-19 = line marking, 20-29 = edge, 30+ = misc
-def is_road_lane(t: int) -> bool:
-    return 0 <= t <= 9
-
-
-def is_road_line(t: int) -> bool:
-    return 10 <= t <= 19
-
-
-def is_road_edge(t: int) -> bool:
-    return 20 <= t <= 29
-
-
-def is_crosswalk(t: int) -> bool:
-    return t == MiscRoadType.CROSSWALK

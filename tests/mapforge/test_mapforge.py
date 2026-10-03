@@ -66,15 +66,6 @@ def test_read_static_scenario_is_map_only(opendrive_bins, location):
 
 
 @pytest.mark.parametrize("location", MAP_LOCATIONS)
-def test_read_static_scenario_from_path(opendrive_bins, tmp_path, location):
-    path = tmp_path / f"{location}.bin"
-    path.write_bytes(opendrive_bins[location])
-    from_path = static_binary.read_static_scenario(path)
-    from_bytes = static_binary.static_binary_to_scenario(opendrive_bins[location])
-    assert list(from_path.map) == list(from_bytes.map)
-
-
-@pytest.mark.parametrize("location", MAP_LOCATIONS)
 def test_read_preserves_geometry_to_float32(opendrive_bins, location):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins[location])
     # The reader keeps element ids and shapes; geometry survives to float32 precision.
@@ -116,7 +107,7 @@ def test_write_then_read_round_trips(opendrive_bins, tmp_path):
     out = tmp_path / "out.bin"
     static_binary.write_static_scenario(scenario, out)
     assert out.exists()
-    assert list(static_binary.read_static_scenario(out).map) == list(scenario.map)
+    assert list(static_binary.static_binary_to_scenario(out.read_bytes()).map) == list(scenario.map)
 
 
 def test_write_refuses_overwrite_without_flag(opendrive_bins, tmp_path):
@@ -247,7 +238,7 @@ def test_augment_maps_writes_original_plus_variants(opendrive_bins, tmp_path):
         assert (output_dir / f"opendrive__{loc}.bin").exists()  # untouched copy of the original
         variant = output_dir / f"opendrive__{loc}_FlipX.bin"
         assert variant.exists()
-        assert static_binary.read_static_scenario(variant).metadata.id == f"opendrive__{loc}_FlipX"
+        assert static_binary.static_binary_to_scenario(variant.read_bytes()).metadata.id == f"opendrive__{loc}_FlipX"
 
 
 def test_augment_maps_original_copy_is_byte_identical(opendrive_bins, tmp_path):

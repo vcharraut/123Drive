@@ -66,19 +66,19 @@ class MapElement:
 
     @property
     def is_lane(self) -> bool:
-        return puffer_types.is_road_lane(self.type)
+        return 0 <= self.type <= 9
 
     @property
     def is_line(self) -> bool:
-        return puffer_types.is_road_line(self.type)
+        return 10 <= self.type <= 19
 
     @property
     def is_edge(self) -> bool:
-        return puffer_types.is_road_edge(self.type)
+        return 20 <= self.type <= 29
 
     @property
     def is_crosswalk(self) -> bool:
-        return puffer_types.is_crosswalk(self.type)
+        return self.type == puffer_types.MiscRoadType.CROSSWALK
 
     @property
     def uses_polyline(self) -> bool:

@@ -2,7 +2,6 @@ import numpy as np
 
 from bin_factory import puffer_types, schema
 from bin_factory.transforms.routes import (
-    _extract_lane_centers,
     _is_static,
     build_route_cache,
     compute_agent_route,
@@ -33,7 +32,7 @@ def _track(xy):
 
 def test_route_matching_rejects_stacked_lane_at_wrong_elevation():
     road_map = {1: _lane(0.0), 2: _lane(5.0)}
-    cache = build_route_cache(road_map, _extract_lane_centers(road_map))
+    cache = build_route_cache(road_map)
     positions = np.array([[1.0, 0.0, 5.0], [9.0, 0.0, 5.0]])
 
     route, route_gt_len = compute_agent_route(
@@ -59,7 +58,7 @@ def test_offroad_gate_ignores_wrong_elevation_lane():
             polyline=np.array([[0.0, 6.0, 5.0], [10.0, 6.0, 5.0]]),
         ),
     }
-    cache = build_route_cache(road_map, _extract_lane_centers(road_map))
+    cache = build_route_cache(road_map)
 
     route = compute_agent_route(
         agent_id=1,
@@ -76,7 +75,7 @@ def test_offroad_gate_ignores_wrong_elevation_lane():
 
 
 def test_route_matching_handles_empty_lane_set():
-    cache = build_route_cache({}, _extract_lane_centers({}))
+    cache = build_route_cache({})
 
     assert compute_agent_route(
         agent_id=1,

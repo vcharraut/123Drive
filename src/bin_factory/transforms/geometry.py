@@ -18,10 +18,8 @@ def arc_length(polyline: np.ndarray) -> np.ndarray:
 
 def polyline_length(polyline: np.ndarray) -> float:
     """Total arc-length of a polyline (sum of segment norms over all columns)."""
-    polyline = np.asarray(polyline)
-    if len(polyline) < 2:
-        return 0.0
-    return float(np.sum(np.linalg.norm(np.diff(polyline, axis=0), axis=1)))
+    cum = arc_length(polyline)
+    return float(cum[-1]) if len(cum) else 0.0
 
 
 # ── Interpolate polygons to ensure they are all the same spacing ───────────────────────

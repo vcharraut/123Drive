@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 
-from bin_factory import puffer_types
 from bin_factory.schema import MapElement, PufferScenario, ScenarioMetadata, TrafficControl
 from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES, scenario_to_binary
 
@@ -50,15 +49,6 @@ class _Reader:
         raw = self.data[self.offset : self.offset + n]
         self.offset += n
         return raw.split(b"\0", 1)[0].decode("utf-8")
-
-
-def read_static_scenario(path: str | Path) -> PufferScenario:
-    """Read a static PufferDrive .bin file into a PufferScenario.
-
-    Accepts only static map binaries: no agents and no objects.
-    """
-    path = Path(path)
-    return static_binary_to_scenario(path.read_bytes(), source=str(path))
 
 
 def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> PufferScenario:
@@ -118,17 +108,11 @@ def _read_roads(reader: _Reader, n_roads: int) -> dict[int, MapElement]:
         z = reader.f32_array(n_points)
         reader.f32_array(n_points)  # headings are recomputed by serialize.scenario_to_binary
 
+        element = MapElement(type=road_type)
         xyz = np.column_stack([x, y, z]).astype(np.float64)
-        if (
-            puffer_types.is_road_lane(road_type)
-            or puffer_types.is_road_line(road_type)
-            or puffer_types.is_road_edge(road_type)
-        ):
-            element = MapElement(type=road_type, polyline=xyz)
-        else:
-            element = MapElement(type=road_type, polygon=xyz)
+        setattr(element, "polyline" if element.uses_polyline else "polygon", xyz)
 
-        if puffer_types.is_road_lane(road_type):
+        if element.is_lane:
             element.entry_lanes = reader.int_list()
             element.exit_lanes = reader.int_list()
             element.speed_limit_mps = reader.f32()

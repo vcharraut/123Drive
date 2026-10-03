@@ -90,7 +90,7 @@ def augment_maps(
         written.append(original_output_path)
         logger.info("Wrote %s", original_output_path)
 
-        scenario = static_binary.read_static_scenario(input_path)
+        scenario = static_binary.static_binary_to_scenario(input_path.read_bytes(), source=str(input_path))
         geometries = [
             np.asarray(element.geometry, dtype=np.float64)[:, :2]
             for element in scenario.map.values()
