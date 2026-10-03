@@ -63,14 +63,14 @@ def _build_scenario():
     }
     objects = {0: _track(3, puffer_types.ObjectType.GENERIC_OBJECT, [1, 1, 1])}
     traffic_controls = [
-        {
-            "id": 5,
-            "type": int(puffer_types.TCType.TRAFFIC_LIGHT),
-            "stop_line": np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
-            "heading": 0.5,
-            "states": [int(puffer_types.TLState.GREEN)] * 3,
-            "controlled_lanes": [10],
-        }
+        schema.TrafficControl(
+            id=5,
+            type=int(puffer_types.TCType.TRAFFIC_LIGHT),
+            stop_line=np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+            heading=0.5,
+            states=[int(puffer_types.TLState.GREEN)] * 3,
+            controlled_lanes=[10],
+        )
     ]
     lane_graph = {"lane_ids": [10, 11], "distances": np.array([[0.0, 3.0], [np.inf, 0.0]])}
     return schema.PufferScenario(

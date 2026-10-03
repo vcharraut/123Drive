@@ -10,7 +10,7 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
 
     lanes_by_id = {eid: edata for eid, edata in map_data.items() if edata.is_lane}
 
-    elements: list[dict] = []
+    elements: list[schema.TrafficControl] = []
     covered_lanes: set[int] = set()
     used_ids: set[int] = set()
 
@@ -39,14 +39,14 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
         control_id = int(element_id)
 
         elements.append(
-            {
-                "id": control_id,
-                "type": puffer_types.TCType.TRAFFIC_LIGHT,
-                "controlled_lanes": [traffic_light.controlled_lane],
-                "stop_line": stop_line,
-                "heading": heading,
-                "states": traffic_light.states,
-            },
+            schema.TrafficControl(
+                id=control_id,
+                type=puffer_types.TCType.TRAFFIC_LIGHT,
+                controlled_lanes=[traffic_light.controlled_lane],
+                stop_line=stop_line,
+                heading=heading,
+                states=traffic_light.states,
+            ),
         )
         used_ids.add(control_id)
         covered_lanes.add(traffic_light.controlled_lane)
@@ -55,9 +55,6 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
 
     for element_data in extras.stop_zones:
         stop_zone_type = element_data.type
-        if stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT and scenario_length > 0:
-            continue  # Skip stop zones if traffic lights are already defined, to avoid duplicates
-
         controlled_lanes = [lid for lid in element_data.controlled_lanes if lid not in covered_lanes]
         if not controlled_lanes:
             continue
@@ -83,14 +80,17 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
             states = []
 
         elements.append(
-            {
-                "id": next_id,
-                "type": stop_zone_type,
-                "controlled_lanes": controlled_lanes,
-                "stop_line": stop_line,
-                "heading": heading,
-                "states": states,
-            },
+            schema.TrafficControl(
+                id=next_id,
+                type=stop_zone_type,
+                controlled_lanes=controlled_lanes,
+                stop_line=stop_line,
+                heading=heading,
+                states=states,
+                intersection_id=element_data.intersection_id,
+                signal_group_id=element_data.signal_group_id,
+                signal_sequence=element_data.signal_sequence,
+            ),
         )
         next_id += 1
 

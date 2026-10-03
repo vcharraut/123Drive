@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-ARG PY123D_VERSION=v0.6.0
+ARG PY123D_VERSION=v0.7.0
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     git clone --depth 1 --branch ${PY123D_VERSION} https://github.com/autonomousvision/py123d.git /tmp/py123d && \

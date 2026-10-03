@@ -47,7 +47,7 @@ build.
 123D extractor
 --------------
 
-The extractor image pins 123D to ``v0.6.0``, matching the project's Python dependency. It forces
+The extractor image pins 123D to ``v0.7.0``, matching the project's Python dependency. It forces
 log and map conversion, disables shuffling, requires maps, and excludes camera, lidar, and custom
 modalities for a BEV-oriented output.
 

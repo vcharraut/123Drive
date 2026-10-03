@@ -73,9 +73,21 @@ def _copy_state(state: list[_PhaseState]) -> list[_PhaseState]:
     return [dict(d) for d in state]
 
 
+def _state_from_metric(
+    value: float, green_threshold: float, red_threshold: float, confidence: float, min_confidence: float
+) -> tuple[_TLS | None, float]:
+    if confidence < min_confidence:
+        return None, 0.0
+    if value >= green_threshold:
+        return _TLS.GREEN, confidence
+    if value <= red_threshold:
+        return _TLS.RED, confidence
+    return None, 0.0
+
+
 @dataclass(slots=True)
 class _VehicleState:
-    lane_pos_idx: int
+    station: float
     speed: float
     acceleration: float
 
@@ -86,11 +98,10 @@ class _InJunctionLane:
     shape: np.ndarray
     record_tls: list[_TLS]
     record_vehs: list[dict[int, _VehicleState]]
-    direction: _Direction = field(init=False)
+    direction: _Direction
     new_tls: list[_TLS | None] = field(init=False)
 
     def __post_init__(self) -> None:
-        self.direction = _classify_direction(self.shape[:, :2])
         self.new_tls = [_TLS.UNKNOWN for _ in self.record_tls]
 
 
@@ -182,7 +193,7 @@ class _TrafficLightInterpolator:
         )
 
         traffic_lights = dict(self.extras.traffic_lights)
-        generator = _TLSGenerator(self.length)
+        generator = _TLSGenerator(self.length, self.dt)
         updated_lanes = 0
 
         for intersection_ids in signalized_intersections:
@@ -402,12 +413,17 @@ class _TrafficLightInterpolator:
             for next_lane_id in lane.exit_lanes:
                 if next_lane_id not in internal_ids or next_lane_id not in self.lanes:
                     continue
+                next_lane = self.lanes[next_lane_id]
+                direction = _classify_direction(lane.polyline, next_lane.polyline)
+                if direction is None:
+                    continue
                 approaching.injunction_lanes.append(
                     _InJunctionLane(
                         id=next_lane_id,
-                        shape=self.lanes[next_lane_id].polyline,
-                        record_tls=list(self.lanes[next_lane_id].record_tls),
+                        shape=next_lane.polyline,
+                        record_tls=list(next_lane.record_tls),
                         record_vehs=veh_assignment.get(next_lane_id, [{} for _ in range(self.length)]),
+                        direction=direction,
                     )
                 )
             if approaching.injunction_lanes:
@@ -479,18 +495,26 @@ class _TrafficLightInterpolator:
 
 
 class _TLSGenerator:
-    def __init__(self, horizon: int, delta_t: int = 10, smoothing_width: int = 30, yellow_duration: int = 20) -> None:
+    def __init__(
+        self,
+        horizon: int,
+        dt: float = 0.1,
+        delta_t: int | None = None,
+        smoothing_width: int | None = None,
+        yellow_duration: int | None = None,
+    ) -> None:
         self.horizon = horizon
         self.v_green = 3.0  # m/s — speed above which vehicle likely sees green
         self.v_red = 1.0  # m/s — speed below which vehicle likely sees red
         self.a_green = 0.5  # m/s² — acceleration suggesting green
         self.a_red = -1.0  # m/s² — deceleration suggesting red
-        self.delta_t = delta_t  # timestep window for trajectory observation
+        self.delta_t = max(1, round(1.0 / dt)) if delta_t is None else delta_t
         self.theta = 0.8  # confidence threshold for estimated state
         self.w_big = 100.0  # high-confidence weight (raw + estimated agree)
         self.w_small = 0.1  # low-confidence weight (raw-only, no estimation)
-        self.smoothing_width = smoothing_width  # max span of spurious phase flips to smooth out
-        self.yellow_duration = yellow_duration  # timesteps of yellow before red
+        self.smoothing_width = max(1, round(3.0 / dt)) if smoothing_width is None else smoothing_width
+        self.yellow_duration = max(1, round(2.0 / dt)) if yellow_duration is None else yellow_duration
+        self.must_green_window = max(1, round(0.2 / dt))
         self.container_template: list[_PhaseState] = []
 
     def gen_period(
@@ -573,7 +597,7 @@ class _TLSGenerator:
                     phase = next((c for c in raw_state[index] if conn.direction in c), None)
                     if phase is None:
                         continue
-                    for step in range(curr_step, max(0, curr_step - 10) - 1, -1):
+                    for step in range(curr_step, max(0, curr_step - self.delta_t) - 1, -1):
                         state = conn.record_tls[step]
                         if state in {_TLS.ABSENT, _TLS.UNKNOWN} or raw_state[index][phase] is not None:
                             continue
@@ -603,20 +627,18 @@ class _TLSGenerator:
                     estimated_state[index][phase] = _TLS.GREEN
                     confidence[index][phase] = self.w_big
                     continue
-                if sum_g >= self.theta:
-                    if mean_spd >= self.v_green:
-                        estimated_state[index][phase] = _TLS.GREEN
-                        confidence[index][phase] = sum_g
-                    elif mean_spd <= self.v_red:
-                        estimated_state[index][phase] = _TLS.RED
-                        confidence[index][phase] = sum_g
-                if sum_f >= self.theta:
-                    if mean_acc >= self.a_green:
-                        estimated_state[index][phase] = _TLS.GREEN
-                        confidence[index][phase] = sum_f
-                    elif mean_acc <= self.a_red:
-                        estimated_state[index][phase] = _TLS.RED
-                        confidence[index][phase] = sum_f
+                speed_state, speed_confidence = _state_from_metric(
+                    mean_spd, self.v_green, self.v_red, sum_g, self.theta
+                )
+                acceleration_state, acceleration_confidence = _state_from_metric(
+                    mean_acc, self.a_green, self.a_red, sum_f, self.theta
+                )
+                if acceleration_confidence > speed_confidence:
+                    estimated_state[index][phase] = acceleration_state
+                    confidence[index][phase] = acceleration_confidence
+                elif speed_state is not None:
+                    estimated_state[index][phase] = speed_state
+                    confidence[index][phase] = speed_confidence
 
         return estimated_state, confidence
 
@@ -780,28 +802,32 @@ class _TLSGenerator:
         curr_step: int,
     ) -> tuple[float, float, float, float, bool]:
         selected_lanes = [lane for lane in approach if any(conn.direction in phase for conn in lane.injunction_lanes)]
-        trajectories: dict[int, list[tuple[int, float, float]]] = {}
+        lane_lengths = [polyline_length(lane.shape) for lane in selected_lanes]
+        trajectories: dict[int, list[tuple[float, float, float]]] = {}
 
-        def append_record(veh_id: int, pos_idx: int, speed: float, acceleration: float) -> None:
-            trajectories.setdefault(veh_id, []).append((pos_idx, speed, acceleration))
+        def append_record(veh_id: int, distance: float, speed: float, acceleration: float) -> None:
+            trajectories.setdefault(veh_id, []).append((distance, speed, acceleration))
 
         start = max(0, curr_step - self.delta_t)
         end = min(self.horizon, curr_step + self.delta_t)
         for timestep in range(start, end):
-            for lane in selected_lanes:
+            for lane, lane_length in zip(selected_lanes, lane_lengths, strict=True):
                 for veh_id, record in lane.record_vehs[timestep].items():
-                    pos_idx = len(lane.shape) - record.lane_pos_idx - 1
-                    append_record(veh_id, pos_idx, record.speed, record.acceleration)
+                    append_record(
+                        veh_id,
+                        lane_length - record.station,
+                        record.speed,
+                        record.acceleration,
+                    )
 
                 has_right_turn = any(conn.direction == _Direction.R for conn in lane.injunction_lanes)
                 for conn in lane.injunction_lanes:
                     for veh_id, record in conn.record_vehs[timestep].items():
-                        pos_idx = -record.lane_pos_idx
-                        append_record(veh_id, pos_idx, record.speed, record.acceleration)
+                        append_record(veh_id, -record.station, record.speed, record.acceleration)
                         if (
                             not has_right_turn
-                            and abs(timestep - curr_step) <= 2
-                            and 0 <= record.lane_pos_idx < 10
+                            and abs(timestep - curr_step) <= self.must_green_window
+                            and 0 <= record.station < 5.0
                             and record.speed > 0
                         ):
                             return 0.0, 0.0, 0.0, 0.0, True
@@ -811,9 +837,9 @@ class _TLSGenerator:
 
         per_vehicle = {}
         for veh_id, records in trajectories.items():
-            pos_idx, speeds, accelerations = zip(*records, strict=False)
-            f_values = [self._f(distance, acc) for distance, acc in zip(pos_idx, accelerations, strict=False)]
-            g_values = [self._g(distance, speed) for distance, speed in zip(pos_idx, speeds, strict=False)]
+            distances, speeds, accelerations = zip(*records, strict=False)
+            f_values = [self._f(distance, acc) for distance, acc in zip(distances, accelerations, strict=False)]
+            g_values = [self._g(distance, speed) for distance, speed in zip(distances, speeds, strict=False)]
             per_vehicle[veh_id] = (
                 np.average(accelerations, weights=f_values) if np.sum(f_values) else 0.0,
                 np.average(speeds, weights=g_values) if np.sum(g_values) else 0.0,
@@ -834,11 +860,10 @@ class _TLSGenerator:
         return float(mean_acc), float(mean_spd), float(sum_f), float(sum_g), False
 
     @staticmethod
-    def _f(index: int, acceleration: float) -> float:
+    def _f(distance: float, acceleration: float) -> float:
         """Acceleration relevance weight: how much a vehicle's acceleration at this
         distance from the stop line informs TL state.
         """
-        distance = index * 0.5
         if distance < -8 or (acceleration < 0 and distance < 0):
             return 0.0
         if distance <= 15:
@@ -848,9 +873,8 @@ class _TLSGenerator:
         return ((distance - 30) ** 2) / (15 * 15)
 
     @staticmethod
-    def _g(index: int, speed: float) -> float:
+    def _g(distance: float, speed: float) -> float:
         """Speed relevance weight: how much a vehicle's speed at this distance from the stop line informs TL state."""
-        distance = index * 0.5
         if distance < -12:
             return 0.0
 
@@ -936,6 +960,17 @@ def _assign_vehicle_states_to_lanes(
         return {row_to_lane_id[row]: assignments_by_row[row] for row in row_to_lane_id}
 
     row_idx = np.arange(n_rows)
+    acceleration_steps = max(1, round(0.5 / dt))
+    starts = lane_center_matrix[:, :-1]
+    ends = lane_center_matrix[:, 1:]
+    finite_mask = np.all(np.isfinite(starts), axis=2) & np.all(np.isfinite(ends), axis=2)
+    starts = np.where(finite_mask[:, :, np.newaxis], starts, 0.0)
+    ends = np.where(finite_mask[:, :, np.newaxis], ends, 0.0)
+    segments = ends - starts
+    segment_lengths = np.linalg.norm(segments, axis=2)
+    segment_lengths_sq = np.maximum(segment_lengths**2, 1e-10)
+    segment_stations = np.pad(np.cumsum(segment_lengths, axis=1)[:, :-1], ((0, 0), (1, 0)))
+    lane_headings_all = np.arctan2(segments[:, :, 1], segments[:, :, 0])
     for track_id, track in tracks.items():
         if track.type != puffer_types.AgentType.VEHICLE:
             continue
@@ -948,30 +983,34 @@ def _assign_vehicle_states_to_lanes(
             if not valid[timestep]:
                 continue
             position = positions[timestep]
-            distances = np.linalg.norm(lane_center_matrix - position, axis=2)
+            fractions = np.clip(
+                np.einsum("rsc,rsc->rs", position - starts, segments) / segment_lengths_sq,
+                0.0,
+                1.0,
+            )
+            projections = starts + fractions[:, :, np.newaxis] * segments
+            distances = np.linalg.norm(projections - position, axis=2)
+            distances[~finite_mask] = np.inf
             min_columns = np.argmin(distances, axis=1)
             min_distances = distances[row_idx, min_columns]
 
-            lo_idx = np.maximum(min_columns - 1, 0)
-            hi_idx = lo_idx + 1
-            starts = lane_center_matrix[row_idx, lo_idx]
-            ends = lane_center_matrix[row_idx, hi_idx]
-            finite_mask = np.all(np.isfinite(starts), axis=1) & np.all(np.isfinite(ends), axis=1)
-            seg_xy = ends[:, :2] - starts[:, :2]
-            lane_headings = np.arctan2(seg_xy[:, 1], seg_xy[:, 0])
+            lane_headings = lane_headings_all[row_idx, min_columns]
             diff = np.abs(headings[timestep] - lane_headings) % (2 * np.pi)
             angle = np.minimum(diff, 2 * np.pi - diff)
-            match_mask = (min_distances < _DISTANCE_CRITERIA) & finite_mask & (angle < _ANGLE_CRITERIA)
+            match_mask = (min_distances < _DISTANCE_CRITERIA) & (angle < _ANGLE_CRITERIA)
 
             candidate_rows = np.flatnonzero(match_mask)
             if candidate_rows.size == 0:
                 continue
 
             best_row = int(candidate_rows[np.argmin(min_distances[candidate_rows])])
-            best_col = int(min_columns[best_row])
+            segment = int(min_columns[best_row])
+            station = float(
+                segment_stations[best_row, segment] + fractions[best_row, segment] * segment_lengths[best_row, segment]
+            )
             speed = float(np.linalg.norm(velocities[timestep, :2]))
             acceleration = 0.0
-            prev_step = timestep - 5
+            prev_step = timestep - acceleration_steps
             while prev_step >= 0:
                 if valid[prev_step]:
                     prev_speed = float(np.linalg.norm(velocities[prev_step, :2]))
@@ -980,7 +1019,7 @@ def _assign_vehicle_states_to_lanes(
                 prev_step -= 1
             if abs(acceleration) > _ACCELERATION_MAXLIMIT:
                 acceleration = 0.0
-            assignments_by_row[best_row][timestep][int(track_id)] = _VehicleState(best_col, speed, acceleration)
+            assignments_by_row[best_row][timestep][int(track_id)] = _VehicleState(station, speed, acceleration)
 
     return {row_to_lane_id[row]: assignments_by_row[row] for row in row_to_lane_id}
 
@@ -1021,14 +1060,19 @@ def _group_vectors_by_angles(vectors: list[np.ndarray], angle_threshold: float =
     return union_find.groups()
 
 
-def _classify_direction(points_xy: np.ndarray) -> _Direction:
-    vectors = np.diff(points_xy, axis=0)
-    angles = np.arctan2(vectors[:, 1], vectors[:, 0])
-    angle_diffs = (np.diff(angles) + np.pi) % (2 * np.pi) - np.pi
-    total_turn_angle = float(np.sum(angle_diffs))
-    if abs(total_turn_angle) < np.pi / 6:
+def _classify_direction(incoming: np.ndarray, connector: np.ndarray) -> _Direction | None:
+    incoming_vectors = np.diff(incoming[:, :2], axis=0)
+    connector_vectors = np.diff(connector[:, :2], axis=0)
+    incoming_valid = np.flatnonzero(np.linalg.norm(incoming_vectors, axis=1) > 1e-6)
+    connector_valid = np.flatnonzero(np.linalg.norm(connector_vectors, axis=1) > 1e-6)
+    if len(incoming_valid) == 0 or len(connector_valid) == 0:
+        return None
+    source = incoming_vectors[incoming_valid[-1]]
+    target = connector_vectors[connector_valid[-1]]
+    turn_angle = float(np.arctan2(source[0] * target[1] - source[1] * target[0], np.dot(source, target)))
+    if abs(turn_angle) < np.pi / 6:
         return _Direction.S
-    return _Direction.L if total_turn_angle > 0 else _Direction.R
+    return _Direction.L if turn_angle > 0 else _Direction.R
 
 
 def _neighbor_type(polyline1: np.ndarray, polyline2: np.ndarray) -> str:

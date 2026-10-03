@@ -113,11 +113,5 @@ def _distance_based_interpolate(polyline: np.ndarray, max_segment_length: float)
 
 
 def _simplify_polyline(polyline: np.ndarray, tolerance: float) -> np.ndarray:
-    simplified_2d = np.array(shapely_geom.LineString(polyline[:, :2]).simplify(tolerance).coords)
-
-    # Re-interpolate z from original polyline at simplified 2D positions
-    cum_orig = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1))])
-    cum_simp = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(simplified_2d, axis=0), axis=1))])
-    z_interp = np.interp(cum_simp, cum_orig, polyline[:, 2])
-
-    return np.column_stack([simplified_2d, z_interp])
+    # Shapely simplifies in 2D and keeps the retained vertices' z
+    return np.array(shapely_geom.LineString(polyline).simplify(tolerance).coords)

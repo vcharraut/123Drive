@@ -267,6 +267,7 @@ def _extract_map(
 
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
     next_id = max(result.keys(), default=-1) + 1
+    intersection_element_ids: dict[int, int] = {}
     for obj in non_lane_objects:
         element = _write_map_object(obj, centroid)
         if element is None:
@@ -276,9 +277,16 @@ def _extract_map(
             if controlled_lanes:
                 stop_zones.append(dataclasses.replace(element, controlled_lanes=controlled_lanes))
         else:
+            if obj.layer == map_objects.MapLayer.INTERSECTION:
+                intersection_element_ids[obj.object_id] = next_id
             result[next_id] = element
             next_id += 1
 
+    # Stop zones reference intersections by their 123D id, map elements use sequential ids
+    stop_zones = [
+        dataclasses.replace(stop_zone, intersection_id=intersection_element_ids.get(stop_zone.intersection_id, -1))
+        for stop_zone in stop_zones
+    ]
     return result, stop_zones, lane_ids
 
 
@@ -319,9 +327,9 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
             polyline=_centered_array(map_object.polyline_3d.array, centroid),
         )
 
-    if layer == map_objects.MapLayer.CROSSWALK:
+    if layer in mapping.SURFACE_TYPE_MAP:
         return schema.MapElement(
-            type=mapping.CROSSWALK_TYPE,
+            type=mapping.SURFACE_TYPE_MAP[layer],
             polygon=_centered_array(map_object.outline_3d.array, centroid),
         )
 
@@ -333,9 +341,17 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
             type=puffer_type,
             polygon=_centered_array(map_object.outline_3d.array, centroid),
             controlled_lanes=map_object.lane_ids,
+            # NOTE: py123d releases before the signal groups have no such attributes.
+            intersection_id=getattr(map_object, "intersection_id", None),  # 123D id, mapped to element id later
+            signal_group_id=_optional_int(getattr(map_object, "signal_group_id", None)),
+            signal_sequence=_optional_int(getattr(map_object, "signal_sequence", None)),
         )
 
     return None
+
+
+def _optional_int(value: int | None) -> int:
+    return -1 if value is None else int(value)
 
 
 def _speed_limit(speed_limit_mps: float | None) -> float:

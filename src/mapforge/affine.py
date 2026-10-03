@@ -126,14 +126,14 @@ def apply_affine_transform(scenario: PufferScenario, matrix: np.ndarray, centroi
         setattr(element, key, transformed)
 
     for traffic_control in scenario.traffic_controls:
-        traffic_control["stop_line"] = _transform_xyz(
-            np.asarray(traffic_control["stop_line"], dtype=np.float64),
+        traffic_control.stop_line = _transform_xyz(
+            np.asarray(traffic_control.stop_line, dtype=np.float64),
             matrix,
             centroid,
         )
-        heading = float(traffic_control["heading"])
+        heading = float(traffic_control.heading)
         rotated = matrix @ np.array([np.cos(heading), np.sin(heading)], dtype=np.float64)
-        traffic_control["heading"] = float(np.arctan2(rotated[1], rotated[0]))
+        traffic_control.heading = float(np.arctan2(rotated[1], rotated[0]))
 
     compute_lane_lengths(scenario)
     scenario.lane_graph = build_lane_distance_matrix(scenario.map)

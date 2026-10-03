@@ -18,14 +18,16 @@ DATASETS = {
 }
 
 
+def run(cmd: list[str], dry_run: bool) -> None:
+    print(f"$ {' '.join(cmd)}")
+    if not dry_run and (returncode := subprocess.run(cmd).returncode):
+        sys.exit(returncode)
+
+
 def push_image(tag: str, registry: str, dry_run: bool) -> None:
     remote = f"{registry}/{tag}"
     for cmd in (["docker", "tag", tag, remote], ["docker", "push", remote]):
-        print(f"$ {' '.join(cmd)}")
-        if not dry_run:
-            result = subprocess.run(cmd)
-            if result.returncode:
-                sys.exit(result.returncode)
+        run(cmd, dry_run)
 
 
 def cmd_py123d(args: argparse.Namespace) -> None:
@@ -51,11 +53,7 @@ def cmd_py123d(args: argparse.Namespace) -> None:
         str(DOCKERFILES.parent),
     ]
 
-    print(f"$ {' '.join(cmd)}")
-    if not args.dry_run:
-        result = subprocess.run(cmd)
-        if result.returncode:
-            sys.exit(result.returncode)
+    run(cmd, args.dry_run)
 
     if args.push:
         push_image(tag, args.push, args.dry_run)
@@ -75,11 +73,7 @@ def cmd_123drive(args: argparse.Namespace) -> None:
         str(REPO_ROOT),
     ]
 
-    print(f"$ {' '.join(cmd)}")
-    if not args.dry_run:
-        result = subprocess.run(cmd)
-        if result.returncode:
-            sys.exit(result.returncode)
+    run(cmd, args.dry_run)
 
     if args.push:
         push_image("123drive", args.push, args.dry_run)

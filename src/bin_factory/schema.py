@@ -98,6 +98,22 @@ class StopZone:
     type: int
     polygon: np.ndarray
     controlled_lanes: list = dataclasses.field(default_factory=list)
+    intersection_id: int = -1  # map element id of the intersection, -1 if unknown
+    signal_group_id: int = -1  # stop zones of one signal group share the same light state, -1 if unknown
+    signal_sequence: int = -1  # position of the signal group in the intersection's light cycle, -1 if unknown
+
+
+@dataclasses.dataclass
+class TrafficControl:
+    id: int
+    type: int
+    stop_line: np.ndarray  # (2, 3)
+    heading: float
+    states: list
+    controlled_lanes: list
+    intersection_id: int = -1  # map element id of the intersection, -1 if unknown
+    signal_group_id: int = -1  # controls of one signal group share the same light state, -1 if unknown
+    signal_sequence: int = -1  # position of the signal group in the intersection's light cycle, -1 if unknown
 
 
 @dataclasses.dataclass
@@ -112,5 +128,5 @@ class PufferScenario:
     objects: dict[int, Track]
     map: dict[int, MapElement]
     metadata: ScenarioMetadata
-    traffic_controls: list[dict] = dataclasses.field(default_factory=list)
+    traffic_controls: list[TrafficControl] = dataclasses.field(default_factory=list)
     lane_graph: dict | None = None

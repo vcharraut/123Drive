@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 
 from bin_factory import puffer_types
-from bin_factory.schema import MapElement, PufferScenario, ScenarioMetadata
+from bin_factory.schema import MapElement, PufferScenario, ScenarioMetadata, TrafficControl
 from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES, scenario_to_binary
 
 
@@ -77,6 +77,8 @@ def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> PufferSce
         traffic_controls = _read_traffic_controls(reader, n_traffic)
         lane_graph = _read_lane_graph(reader)
         metadata = _read_metadata(reader)
+        if reader.offset < len(data):
+            _read_traffic_control_groups(reader, traffic_controls)
     except (struct.error, ValueError) as exc:
         if isinstance(exc, StaticBinaryError):
             raise
@@ -142,7 +144,7 @@ def _read_roads(reader: _Reader, n_roads: int) -> dict[int, MapElement]:
     return road_map
 
 
-def _read_traffic_controls(reader: _Reader, n_traffic: int) -> list[dict]:
+def _read_traffic_controls(reader: _Reader, n_traffic: int) -> list[TrafficControl]:
     traffic_controls = []
     for _ in range(n_traffic):
         control_id = reader.i32()
@@ -158,16 +160,25 @@ def _read_traffic_controls(reader: _Reader, n_traffic: int) -> list[dict]:
         states = reader.int_list()
         controlled_lanes = reader.int_list()
         traffic_controls.append(
-            {
-                "id": control_id,
-                "type": control_type,
-                "stop_line": stop_line,
-                "heading": heading,
-                "states": states,
-                "controlled_lanes": controlled_lanes,
-            }
+            TrafficControl(
+                id=control_id,
+                type=control_type,
+                stop_line=stop_line,
+                heading=heading,
+                states=states,
+                controlled_lanes=controlled_lanes,
+            )
         )
     return traffic_controls
+
+
+def _read_traffic_control_groups(reader: _Reader, traffic_controls: list[TrafficControl]) -> None:
+    if reader.i32() != len(traffic_controls):
+        raise ValueError("traffic control group count does not match the traffic controls")
+    for traffic_control in traffic_controls:
+        traffic_control.intersection_id = reader.i32()
+        traffic_control.signal_group_id = reader.i32()
+        traffic_control.signal_sequence = reader.i32()
 
 
 def _read_lane_graph(reader: _Reader) -> dict | None:

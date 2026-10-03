@@ -13,7 +13,9 @@ def prune_invalid_map_elements(scenario: schema.PufferScenario, extras: schema.E
             for element_id, element in scenario.map.items()
             if element_id in valid_ids
         }
-        scenario.agents = {agent_id: _filter_track_route(track, valid_ids) for agent_id, track in scenario.agents.items()}
+        scenario.agents = {
+            agent_id: _filter_track_route(track, valid_ids) for agent_id, track in scenario.agents.items()
+        }
         scenario.objects = {
             object_id: _filter_track_route(track, valid_ids) for object_id, track in scenario.objects.items()
         }

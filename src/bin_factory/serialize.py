@@ -14,6 +14,12 @@ METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
 
 
+def _write_int_list(buf: bytearray, values: list[int]) -> None:
+    buf.extend(struct.pack("<i", len(values)))
+    if values:
+        buf.extend(struct.pack(f"<{len(values)}i", *map(int, values)))
+
+
 def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
     """Write a per-track trajectory block (T + xyz + heading + velocity + bbox + valid). Returns xyz."""
     xyz = np.asarray(track.position, dtype="<f4")
@@ -55,9 +61,7 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         xyz = _write_dynamic_states(buf, track)
 
         # Route
-        buf.extend(struct.pack("<i", len(track.route)))
-        if track.route:
-            buf.extend(struct.pack(f"<{len(track.route)}i", *map(int, track.route)))
+        _write_int_list(buf, track.route)
         buf.extend(struct.pack("<i", int(track.route_gt_len)))
 
         # Goal position from last valid frame
@@ -87,24 +91,20 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
 
         if elem.is_lane:
             for lane_list in [elem.entry_lanes, elem.exit_lanes]:
-                buf.extend(struct.pack("<i", len(lane_list)))
-                if lane_list:
-                    buf.extend(struct.pack(f"<{len(lane_list)}i", *map(int, lane_list)))
+                _write_int_list(buf, lane_list)
             buf.extend(struct.pack("<f", elem.speed_limit_mps))
             buf.extend(struct.pack("<f", float(elem.length)))
             buf.extend(np.asarray(elem.cum_length, dtype="<f4").tobytes())
 
     # Traffic controls: id, type, stop line endpoints, heading, states, controlled lanes
     for tc in tcs:
-        buf.extend(struct.pack("<ii", int(tc["id"]), int(tc["type"])))
-        sl = np.asarray(tc["stop_line"], dtype="<f4")
+        buf.extend(struct.pack("<ii", int(tc.id), int(tc.type)))
+        sl = np.asarray(tc.stop_line, dtype="<f4")
         buf.extend(struct.pack("<fff", *sl[0]))
         buf.extend(struct.pack("<fff", *sl[1]))
-        buf.extend(struct.pack("<f", float(tc["heading"])))
-        for int_list in [tc["states"], tc["controlled_lanes"]]:
-            buf.extend(struct.pack("<i", len(int_list)))
-            if int_list:
-                buf.extend(struct.pack(f"<{len(int_list)}i", *map(int, int_list)))
+        buf.extend(struct.pack("<f", float(tc.heading)))
+        for int_list in [tc.states, tc.controlled_lanes]:
+            _write_int_list(buf, int_list)
 
     # Objects: id, type, trajectory (same layout as agents but no route/goal)
     for eid, track in objects.items():
@@ -128,8 +128,12 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
     buf.extend(struct.pack("<i", int(scenario.metadata.scenario_length)))
     buf.extend(struct.pack("<f", float(scenario.metadata.dt)))
     for int_list in [scenario.metadata.objects_of_interest, scenario.metadata.tracks_to_predict]:
-        buf.extend(struct.pack("<i", len(int_list)))
-        if int_list:
-            buf.extend(struct.pack(f"<{len(int_list)}i", *map(int, int_list)))
+        _write_int_list(buf, int_list)
+
+    # Traffic control groups (optional trailing section, readers stopping after the metadata ignore it):
+    # intersection id, signal group id, signal sequence per traffic control, -1 if unknown
+    buf.extend(struct.pack("<i", len(tcs)))
+    for tc in tcs:
+        buf.extend(struct.pack("<iii", tc.intersection_id, tc.signal_group_id, tc.signal_sequence))
 
     return bytes(buf)

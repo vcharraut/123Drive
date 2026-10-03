@@ -8,8 +8,14 @@ SUPPORTED_MAP_LAYERS = frozenset(
         map_objects.MapLayer.LANE,
         map_objects.MapLayer.ROAD_LINE,
         map_objects.MapLayer.ROAD_EDGE,
+        map_objects.MapLayer.LANE_GROUP,
+        map_objects.MapLayer.INTERSECTION,
         map_objects.MapLayer.CROSSWALK,
+        map_objects.MapLayer.WALKWAY,
+        map_objects.MapLayer.CARPARK,
+        map_objects.MapLayer.GENERIC_DRIVABLE,
         map_objects.MapLayer.STOP_ZONE,
+        map_objects.MapLayer.SPEED_BUMP,
     }
 )
 
@@ -25,11 +31,7 @@ AGENT_TYPE_MAP = {
 }
 
 OBJECT_TYPE_MAP = {
-    detections.DefaultBoxDetectionLabel.TRAFFIC_SIGN: puffer_types.ObjectType.TRAFFIC_SIGN,
-    detections.DefaultBoxDetectionLabel.TRAFFIC_CONE: puffer_types.ObjectType.TRAFFIC_CONE,
-    detections.DefaultBoxDetectionLabel.TRAFFIC_LIGHT: puffer_types.ObjectType.TRAFFIC_LIGHT,
-    detections.DefaultBoxDetectionLabel.BARRIER: puffer_types.ObjectType.BARRIER,
-    detections.DefaultBoxDetectionLabel.GENERIC_OBJECT: puffer_types.ObjectType.GENERIC_OBJECT,
+    getattr(detections.DefaultBoxDetectionLabel, member.name): member for member in puffer_types.ObjectType
 }
 
 LANE_TYPE_MAP = {
@@ -40,7 +42,15 @@ LANE_TYPE_MAP = {
     map_objects.LaneType.BUS_LANE: int(puffer_types.LaneType.BUS_LANE),
 }
 
-CROSSWALK_TYPE = int(puffer_types.MiscRoadType.CROSSWALK)
+SURFACE_TYPE_MAP = {
+    map_objects.MapLayer.CROSSWALK: int(puffer_types.MiscRoadType.CROSSWALK),
+    map_objects.MapLayer.SPEED_BUMP: int(puffer_types.MiscRoadType.SPEED_BUMP),
+    map_objects.MapLayer.CARPARK: int(puffer_types.MiscRoadType.CARPARK),
+    map_objects.MapLayer.LANE_GROUP: int(puffer_types.MiscRoadType.LANE_GROUP),
+    map_objects.MapLayer.INTERSECTION: int(puffer_types.MiscRoadType.INTERSECTION),
+    map_objects.MapLayer.WALKWAY: int(puffer_types.MiscRoadType.WALKWAY),
+    map_objects.MapLayer.GENERIC_DRIVABLE: int(puffer_types.MiscRoadType.GENERIC_DRIVABLE),
+}
 
 STOP_ZONE_TYPE_MAP = {
     map_objects.StopZoneType.TRAFFIC_LIGHT: int(puffer_types.TCType.TRAFFIC_LIGHT),

@@ -22,6 +22,14 @@ duration_s = 20
 invalid_agent_overlap = true
 scenario_id_field = "scene_uuid"
 
+[nuplan-mini]
+datasets = ["nuplan-mini"]
+reverse_road_edges = true
+duration_s = 20
+invalid_agent_overlap = true
+interpolate_tl = true
+scenario_id_field = "scene_uuid"
+
 [nuscenes]
 datasets = ["nuscenes"]
 reverse_road_edges = true

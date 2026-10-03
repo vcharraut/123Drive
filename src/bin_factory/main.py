@@ -11,7 +11,7 @@ from typing import Any
 import joblib
 import tqdm
 
-from bin_factory import loader, serialize, transforms
+from bin_factory import loader, schema, serialize, transforms
 from bin_factory.log_context import bind, log, unbind
 
 
@@ -178,32 +178,32 @@ def _worker_fn(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Name
         unbind(tokens)
 
 
+def _validate(
+    scenario: schema.PufferScenario, level: int, failure: str, extras: schema.ExtractionExtras | None = None
+) -> None:
+    if level <= 0:
+        return
+    errors = loader.validate_scenario(scenario, extras=extras, level=level)
+    for error in errors:
+        log.error(f"{scenario.metadata.id}: {error}")
+    if errors:
+        raise loader.ValidationError(
+            f"{failure} for scenario {scenario.metadata.id} with {len(errors)} errors"
+        )
+
+
 def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Namespace) -> None:
     # 1. Load and convert 123D scenario to PufferDrive format
     scenario, extras = loader.extract_scenario(py123d_data, config.scenario_id_field)
 
     # 2. Validate scenario
-    if config.validate_level > 0:
-        errors = loader.validate_scenario(scenario, extras=extras, level=config.validate_level)
-        scenario_id = scenario.metadata.id
-        for error in errors:
-            log.error(f"{scenario_id}: {error}")
-        if errors:
-            raise loader.ValidationError(f"Validation failed for scenario {scenario_id} with {len(errors)} errors")
+    _validate(scenario, config.validate_level, "Validation failed", extras)
 
     # 3. Process scenario (ordered transform pipeline; see transforms/pipeline.py)
     transforms.run(scenario, extras, config)
 
     # 4. Validate transformed references and derived data
-    if config.validate_level > 0:
-        errors = loader.validate_scenario(scenario, level=config.validate_level)
-        scenario_id = scenario.metadata.id
-        for error in errors:
-            log.error(f"{scenario_id}: {error}")
-        if errors:
-            raise loader.ValidationError(
-                f"Post-transform validation failed for scenario {scenario_id} with {len(errors)} errors"
-            )
+    _validate(scenario, config.validate_level, "Post-transform validation failed")
 
     # 5. Serialize to binary and atomically replace the destination
     binary_data = serialize.scenario_to_binary(scenario)

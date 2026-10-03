@@ -43,6 +43,35 @@ Map-only discovery
 ``ArrowMapAPI``. Dataset filters match path components. OpenDRIVE conversion automatically
 enables map-only mode when ``opendrive`` is explicitly selected.
 
+CARLA road edges
+----------------
+
+Road-edge geometry is computed upstream in py123d. The local OpenDRIVE parser
+includes shoulders in generic-drivable surfaces and extends the driving surface
+to the road-facing walkway boundary where one exists. Standalone corner sidewalks
+can face the road on their outer boundary, so lane ordering alone does not select
+the curb. Elsewhere, edges follow the drivable footprint.
+
+The parser compares holes before and after adding shoulders and curb connections.
+At junctions, it discards detached fragments of a larger island while retaining
+the main island, walkway-supported islands, and mapped medians. Walkway polygons
+then clip the resulting footprint; a centimetre grid removes sampling slivers.
+Narrow holes introduced only by shoulder seams are also discarded. Elevation
+lifting splits an edge when nearest boundaries switch between bridge decks.
+
+Regenerate Arrow maps with the modified sibling checkout before converting them
+to binaries. From the 123Drive root:
+
+.. code-block:: bash
+
+   PYTHONPATH=../py123d/src .venv/bin/python -m py123d.script.run_conversion \
+     dataset=opendrive execution=sequential_executor \
+     dataset_paths.py123d_data_root=output/carla-source
+   .venv/bin/python -m bin_factory.main --preset opendrive \
+     --py123d_path output/carla-source --output output --workers 1
+
+Existing Arrow maps do not acquire the corrected edges just by rerunning 123Drive.
+
 Required source data
 --------------------
 
@@ -53,9 +82,10 @@ A scene conversion requires:
 * a positive iteration duration;
 * box detections for dynamic actors.
 
-Supported map layers are lanes, road lines, road edges, crosswalks, and stop zones. Unsupported
-layers and unrecognized object labels are ignored. Waymo Motion auxiliary metadata is used,
-when present, to preserve ``objects_of_interest`` and ``tracks_to_predict``.
+All py123d map layers are supported: lanes, lane groups, intersections, crosswalks, walkways,
+carparks, generic-drivable areas, stop zones, road edges, road lines, and speed bumps. Unrecognized
+object labels are ignored. Waymo Motion auxiliary metadata is used, when present, to preserve
+``objects_of_interest`` and ``tracks_to_predict``.
 
 Coordinate system
 -----------------

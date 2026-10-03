@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+
 pytest.importorskip("fastapi")
 
 from starlette.requests import ClientDisconnect
@@ -20,8 +21,11 @@ def test_viewer_is_self_contained_and_handles_lane_zero():
     app = (STATIC / "app.js").read_text()
 
     assert "deck.gl-9.0.0.min.js" in index
-    assert "http://" not in index and "https://" not in index and "@import" not in css
-    assert "pf.source !== null" in app and "pf.source === null" in app
+    assert "http://" not in index
+    assert "https://" not in index
+    assert "@import" not in css
+    assert "pf.source !== null" in app
+    assert "pf.source === null" in app
     assert "1000 * state.scenario.metadata.dt / state.speed" in app
     assert (STATIC / "deck.gl-9.0.0.LICENSE.txt").is_file()
 
@@ -51,7 +55,10 @@ def test_csp_and_export_media_limit(monkeypatch):
 
     async def response_with_csp():
         middleware = server.NoCacheStaticMiddleware(server.app)
-        return await middleware.dispatch(server.Request(scope), lambda request: asyncio.sleep(0, result=server.Response()))
+        return await middleware.dispatch(
+            server.Request(scope),
+            lambda request: asyncio.sleep(0, result=server.Response()),
+        )
 
     response = asyncio.run(response_with_csp())
     assert "object-src 'none'" in response.headers["content-security-policy"]

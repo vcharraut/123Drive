@@ -44,6 +44,11 @@ class MiscRoadType(enum.IntEnum):
     UNKNOWN = 30
     CROSSWALK = 31
     SPEED_BUMP = 32
+    CARPARK = 33
+    LANE_GROUP = 34
+    INTERSECTION = 35
+    WALKWAY = 36
+    GENERIC_DRIVABLE = 37
 
 
 class TLState(enum.IntEnum):

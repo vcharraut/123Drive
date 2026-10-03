@@ -229,9 +229,9 @@ def test_traffic_control_heading_rotates_under_flip(opendrive_bins):
     affine.apply_affine_transform(scenario, matrix, centroid)
 
     for tc, ref in zip(scenario.traffic_controls, reference.traffic_controls, strict=False):
-        h = float(ref["heading"])
+        h = float(ref.heading)
         rotated = matrix @ np.array([np.cos(h), np.sin(h)])
-        assert tc["heading"] == pytest.approx(float(np.arctan2(rotated[1], rotated[0])))
+        assert tc.heading == pytest.approx(float(np.arctan2(rotated[1], rotated[0])))
 
 
 def test_apply_affine_rebuilds_lane_graph(opendrive_bins):

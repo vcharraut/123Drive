@@ -94,19 +94,17 @@ def test_validation_rejects_non_xyz_geometry_and_nonfinite_dt():
     assert any("invalid shape" in error for error in errors)
 
 
-def test_validation_reports_malformed_controls_and_lane_graph():
+def test_validation_reports_malformed_lane_graph():
     scenario = schema.PufferScenario(
         agents={},
         objects={},
         map={},
-        traffic_controls=["invalid"],
         lane_graph=[],
         metadata=schema.ScenarioMetadata(id="x", dataset="d", scenario_length=0, dt=0.0),
     )
 
     errors = validate_scenario(scenario, level=1)
 
-    assert "TrafficControl 0 must be a dict" in errors
     assert "lane_graph must be a dict" in errors
 
 

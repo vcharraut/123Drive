@@ -2,8 +2,8 @@ PufferDrive binary format
 =========================
 
 ``bin_factory.serialize.scenario_to_binary`` writes a header followed by agents, map elements,
-traffic controls, objects, lane-graph distances, and metadata. There is no magic number or
-version field.
+traffic controls, objects, lane-graph distances, metadata, and traffic control groups. There is no
+magic number or version field.
 
 All multi-byte values and NumPy channels are explicitly little-endian. Integers are signed
 32-bit. Floats are IEEE 754 32-bit unless noted. Variable-length arrays are prefixed by an
@@ -208,7 +208,7 @@ lane's length. Unreachable pairs are IEEE 754 positive infinity.
 Metadata
 --------
 
-Metadata always ends the file:
+Metadata ends the file, optionally followed by the traffic control groups:
 
 .. list-table::
    :header-rows: 1
@@ -241,6 +241,40 @@ Metadata always ends the file:
      - ``tracks_to_predict_ids``
      - Agent IDs
 
+Traffic control groups
+----------------------
+
+Optional section after the metadata. Readers that stop after the metadata ignore it; readers that
+support it read it when bytes remain. It groups traffic lights for synchronized signal cycles:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Type
+     - Field
+     - Notes
+   * - ``int32``
+     - ``n_traffic_controls``
+     - Equals the header's traffic control count
+
+Then repeat the following block ``n_traffic_controls`` times, in traffic control order:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Type
+     - Field
+     - Notes
+   * - ``int32``
+     - ``intersection_id``
+     - Road map ID of the intersection element, ``-1`` if unknown
+   * - ``int32``
+     - ``signal_group_id``
+     - Controls of one group always share the same light state, ``-1`` if unknown
+   * - ``int32``
+     - ``signal_sequence``
+     - Position of the group in the intersection's light cycle (phase order), ``-1`` if unknown
+
 Enum values
 -----------
 
@@ -262,7 +296,9 @@ Enum values
    * - ``ObjectType``
      - 1 sign, 2 cone, 3 traffic light, 4 barrier, 5 generic object
 
-Road lines occupy values 10--18, road edges 20--22, and miscellaneous road elements 30--32.
+Road lines occupy values 10--18, road edges 20--22, and miscellaneous elements use 30 unknown,
+31 crosswalk, 32 speed bump, 33 carpark, 34 lane group, 35 intersection, 36 walkway, and
+37 generic drivable.
 ``src/bin_factory/puffer_types.py`` is the authoritative numeric definition.
 
 Compatibility

@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Iterable
 
 from bin_factory import schema
@@ -8,7 +9,7 @@ def reindex_scenario(scenario: schema.PufferScenario) -> None:
     map_id_map = _build_id_map(scenario.map)
     agent_id_map = _build_id_map(scenario.agents)
     object_id_map = _build_id_map(scenario.objects)
-    traffic_control_id_map = _build_id_map([tc["id"] for tc in scenario.traffic_controls])
+    traffic_control_id_map = _build_id_map([tc.id for tc in scenario.traffic_controls])
 
     scenario.map = {
         map_id_map[element_id]: remap_element_refs(element, map_id_map) for element_id, element in scenario.map.items()
@@ -20,7 +21,7 @@ def reindex_scenario(scenario: schema.PufferScenario) -> None:
         object_id_map[track_id]: _remap_track(track, map_id_map) for track_id, track in scenario.objects.items()
     }
     scenario.traffic_controls = [
-        _remap_traffic_control(tc, map_id_map, traffic_control_id_map[tc["id"]]) for tc in scenario.traffic_controls
+        _remap_traffic_control(tc, map_id_map, traffic_control_id_map[tc.id]) for tc in scenario.traffic_controls
     ]
     if scenario.lane_graph:
         keep = [index for index, lane_id in enumerate(scenario.lane_graph["lane_ids"]) if lane_id in map_id_map]
@@ -44,9 +45,12 @@ def _remap_track(track: schema.Track, map_id_map: dict[int, int]) -> schema.Trac
     return track
 
 
-def _remap_traffic_control(tc: dict, map_id_map: dict[int, int], control_id: int) -> dict:
-    return {
-        **tc,
-        "id": control_id,
-        "controlled_lanes": [map_id_map[lid] for lid in tc["controlled_lanes"] if lid in map_id_map],
-    }
+def _remap_traffic_control(
+    tc: schema.TrafficControl, map_id_map: dict[int, int], control_id: int
+) -> schema.TrafficControl:
+    return dataclasses.replace(
+        tc,
+        id=control_id,
+        controlled_lanes=[map_id_map[lid] for lid in tc.controlled_lanes if lid in map_id_map],
+        intersection_id=map_id_map.get(tc.intersection_id, -1),
+    )

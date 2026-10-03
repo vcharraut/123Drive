@@ -22,6 +22,8 @@
  *   Metadata:  id(char[128]), dataset(char[32]),
  *              scenario_length(i32), dt(f32),
  *              n_ooi(i32), ooi[](i32), n_ttp(i32), ttp[](i32)
+ *   TrafficGroups (optional): n(i32) == num_traffic,
+ *              per traffic control: intersection_id(i32), signal_group_id(i32), signal_sequence(i32), -1 if unknown
  */
 'use strict';
 
@@ -89,6 +91,20 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       };
     };
 
+    const readDynamicEntity = (hasRoute) => {
+      const id = i32();
+      const type = i32();
+      const states = readDynamicStateArrays(i32());
+      if (!hasRoute) return {id, type, ...states};
+      const route = intList();
+      const route_gt_len = i32();
+      f32();
+      f32();
+      f32();
+      const control_state = i32();
+      return {id, type, ...states, route, route_gt_len, control_state};
+    };
+
     // --- Header ---
     const numAgents = i32();
     const numRoads = i32();
@@ -97,26 +113,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
 
     // --- Agents ---
     const agents = new Array(numAgents);
-    for (let a = 0; a < numAgents; a++) {
-      const id = i32();
-      const type = i32();
-      const T = i32();
-      const states = readDynamicStateArrays(T);
-      const route = intList();
-      const route_gt_len = i32();
-      f32();
-      f32();
-      f32();
-      const control_state = i32();
-
-      agents[a] = {
-        id, type,
-        ...states,
-        route,
-        route_gt_len,
-        control_state,
-      };
-    }
+    for (let a = 0; a < numAgents; a++) agents[a] = readDynamicEntity(true);
 
     // --- Roads ---
     const road_map_elements = new Array(numRoads);
@@ -158,12 +155,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
 
     // --- Objects ---
     const objects = new Array(numObjects);
-    for (let o = 0; o < numObjects; o++) {
-      const id = i32();
-      const type = i32();
-      const T = i32();
-      objects[o] = { id, type, ...readDynamicStateArrays(T) };
-    }
+    for (let o = 0; o < numObjects; o++) objects[o] = readDynamicEntity(false);
 
     // --- Lane Graph Distances ---
     const nGraphLanes = i32();
@@ -181,6 +173,16 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     const dt = f32();
     const objects_of_interest = intList();
     const tracks_to_predict = intList();
+
+    // --- Traffic control groups (optional trailing section) ---
+    if (off < buffer.byteLength) {
+      const nGroups = i32();
+      for (let t = 0; t < nGroups && t < numTraffic; t++) {
+        traffic_control_elements[t].intersection_id = i32();
+        traffic_control_elements[t].signal_group_id = i32();
+        traffic_control_elements[t].signal_sequence = i32();
+      }
+    }
 
     return {
       agents,

@@ -46,9 +46,9 @@ def test_bike_lane_traffic_light_is_dropped():
 
     process_traffic_controls(scenario, extras)
 
-    controlled = {lid for tc in scenario.traffic_controls for lid in tc["controlled_lanes"]}
+    controlled = {lid for tc in scenario.traffic_controls for lid in tc.controlled_lanes}
     assert controlled == {1}  # the bike-lane signal (lane 2) is dropped
-    assert all(tc["type"] == puffer_types.TCType.TRAFFIC_LIGHT for tc in scenario.traffic_controls)
+    assert all(tc.type == puffer_types.TCType.TRAFFIC_LIGHT for tc in scenario.traffic_controls)
     assert 2 in scenario.map  # the bike lane itself stays in the map
 
 
@@ -58,9 +58,9 @@ def test_vehicle_lane_traffic_light_is_kept_at_lane_start():
 
     process_traffic_controls(scenario, extras)
 
-    assert [tc["controlled_lanes"] for tc in scenario.traffic_controls] == [[1]]
+    assert [tc.controlled_lanes for tc in scenario.traffic_controls] == [[1]]
     # stop line straddles the controlled lane's first point
-    stop_line = np.asarray(scenario.traffic_controls[0]["stop_line"], dtype=np.float64)
+    stop_line = np.asarray(scenario.traffic_controls[0].stop_line, dtype=np.float64)
     np.testing.assert_allclose(stop_line.mean(axis=0), [0.0, 0.0, 0.0], atol=1e-9)
 
 
@@ -71,7 +71,7 @@ def test_bus_lane_traffic_light_is_kept():
 
     process_traffic_controls(scenario, extras)
 
-    assert [tc["controlled_lanes"] for tc in scenario.traffic_controls] == [[1]]
+    assert [tc.controlled_lanes for tc in scenario.traffic_controls] == [[1]]
 
 
 def test_only_bike_lane_signal_yields_no_traffic_controls():
@@ -99,5 +99,5 @@ def test_static_traffic_light_keeps_only_uncovered_lanes():
 
     process_traffic_controls(scenario, extras)
 
-    assert [control["controlled_lanes"] for control in scenario.traffic_controls] == [[1], [2]]
-    assert scenario.traffic_controls[1]["states"] == [puffer_types.TLState.UNKNOWN] * 5
+    assert [control.controlled_lanes for control in scenario.traffic_controls] == [[1], [2]]
+    assert scenario.traffic_controls[1].states == [puffer_types.TLState.UNKNOWN] * 5

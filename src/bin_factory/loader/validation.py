@@ -9,7 +9,7 @@ from shapely.geometry import LineString, MultiPoint, Point
 from shapely.geometry.base import BaseGeometry
 from shapely.strtree import STRtree
 
-from bin_factory import schema
+from bin_factory import puffer_types, schema
 
 
 _Z_BRIDGE_MIN = 0.5
@@ -54,7 +54,9 @@ def validate_scenario(
     # ── Schema ──
     if length < 0:
         errors.append("metadata.scenario_length must be non-negative")
-    if length > 0 and meta.dt <= 0:
+    if not np.isfinite(meta.dt):
+        errors.append("metadata.dt must be finite")
+    elif length > 0 and meta.dt <= 0:
         errors.append("metadata.dt must be > 0 when scenario_length > 0")
 
     _validate_dynamic_states(scenario.agents, "Agent", length, errors)
@@ -62,6 +64,8 @@ def validate_scenario(
     _validate_map_elements(scenario.map, errors)
     _validate_stop_zones(stop_zones, errors)
     _validate_traffic_lights(traffic_lights, length, scenario.map, errors)
+    _validate_traffic_controls(scenario.traffic_controls, length, errors)
+    _validate_lane_graph(scenario.lane_graph, errors)
 
     if errors or level < 2:
         return errors
@@ -71,8 +75,9 @@ def validate_scenario(
     lane_ids = {eid for eid, e in scenario.map.items() if e.is_lane}
     _validate_lane_topology(scenario.map, lane_ids, errors)
     _validate_tl_lane_refs(traffic_lights, lane_ids, errors)
+    _validate_lane_refs(scenario, stop_zones, lane_ids, errors)
     if scenario.agents:
-        _validate_ego(scenario.agents, length, errors)
+        _validate_ego(scenario.agents, length, meta.dt, errors)
         _validate_agent_sizes(scenario.agents, "Agent", errors)
     if scenario.objects:
         _validate_agent_sizes(scenario.objects, "Object", errors)
@@ -93,7 +98,7 @@ def _validate_dynamic_states(items: dict[int, schema.Track], prefix: str, length
                 continue
             if dim1 is not None and arr.shape[-1] != dim1:
                 errors.append(f"{prefix} {eid} {field} last dim must be {dim1}, got {arr.shape}")
-            if length > 0 and arr.shape[0] != length:
+            if arr.shape[0] != length:
                 errors.append(f"{prefix} {eid} {field} length {arr.shape[0]} != scenario_length {length}")
 
 
@@ -101,13 +106,14 @@ def _validate_geometry(elem: object, key: str, label: str, min_points: int, erro
     geom = getattr(elem, key, None)
     if geom is None:
         errors.append(f"{label} missing {key}")
-    elif not isinstance(geom, np.ndarray) or geom.ndim != 2 or geom.shape[1] < 2:
+    elif not isinstance(geom, np.ndarray) or geom.ndim != 2 or geom.shape[1] != 3:
         errors.append(f"{label} {key} invalid shape {getattr(geom, 'shape', None)}")
     elif len(geom) < min_points:
         errors.append(f"{label} {key} needs >= {min_points} points, got {len(geom)}")
 
 
 def _validate_map_elements(map_data: dict[int, schema.MapElement], errors: list[str]) -> None:
+    has_lane_lengths = any(elem.is_lane and elem.cum_length is not None for elem in map_data.values())
     for eid, elem in map_data.items():
         if elem.uses_polyline:
             _validate_geometry(elem, "polyline", f"Map {eid}", 2, errors)
@@ -115,9 +121,17 @@ def _validate_map_elements(map_data: dict[int, schema.MapElement], errors: list[
                 for key in ("entry_lanes", "exit_lanes"):
                     if not isinstance(getattr(elem, key, None), list):
                         errors.append(f"Map {eid} missing or invalid {key}")
-
-        elif elem.is_crosswalk:
+                if has_lane_lengths:
+                    expected = len(elem.polyline) if isinstance(elem.polyline, np.ndarray) else 0
+                    if not isinstance(elem.cum_length, np.ndarray) or elem.cum_length.shape != (expected,):
+                        errors.append(f"Map {eid} cum_length must be shape ({expected},)")
+        else:
             _validate_geometry(elem, "polygon", f"Map {eid}", 3, errors)
+
+        if elem.is_lane:
+            for key in ("left_boundary", "right_boundary"):
+                if getattr(elem, key) is not None:
+                    _validate_geometry(elem, key, f"Map {eid}", 0, errors)
 
 
 def _validate_stop_zones(stop_zones: list[schema.StopZone], errors: list[str]) -> None:
@@ -136,10 +150,50 @@ def _validate_traffic_lights(
     for eid, tl in tl_data.items():
         if not isinstance(tl.position, np.ndarray) or tl.position.shape != (3,):
             errors.append(f"TL {eid} position must be shape (3,), got {getattr(tl.position, 'shape', None)}")
-        if length > 0 and len(tl.states) != length:
+        if not isinstance(tl.states, list):
+            errors.append(f"TL {eid} states must be a list")
+        elif any(not isinstance(state, (int, np.integer)) for state in tl.states):
+            errors.append(f"TL {eid} states must contain integers")
+        elif len(tl.states) != length:
             errors.append(f"TL {eid} states length {len(tl.states)} != scenario_length {length}")
         if tl.controlled_lane not in map_data:
             errors.append(f"TL {eid} controlled_lane {tl.controlled_lane} not in map")
+
+
+def _validate_traffic_controls(
+    traffic_controls: list[schema.TrafficControl], length: int, errors: list[str]
+) -> None:
+    for index, control in enumerate(traffic_controls):
+        if control.type not in puffer_types.TC_TYPE_NAMES:
+            errors.append(f"TrafficControl {index} type is invalid")
+        if control.stop_line.shape != (2, 3):
+            errors.append(f"TrafficControl {index} stop_line must be shape (2, 3), got {control.stop_line.shape}")
+        if not control.controlled_lanes:
+            errors.append(f"TrafficControl {index} controlled_lanes must be non-empty")
+        if any(not isinstance(state, (int, np.integer)) for state in control.states):
+            errors.append(f"TrafficControl {index} states must contain integers")
+        elif control.type == puffer_types.TCType.TRAFFIC_LIGHT and len(control.states) != length:
+            errors.append(f"TrafficControl {index} states length {len(control.states)} != scenario_length {length}")
+    if len({control.id for control in traffic_controls}) != len(traffic_controls):
+        errors.append("TrafficControl ids must be unique")
+
+
+def _validate_lane_graph(lane_graph: dict | None, errors: list[str]) -> None:
+    if lane_graph is None:
+        return
+    if not isinstance(lane_graph, dict):
+        errors.append("lane_graph must be a dict")
+        return
+    lane_ids = lane_graph.get("lane_ids")
+    distances = lane_graph.get("distances")
+    if not isinstance(lane_ids, list):
+        errors.append("lane_graph.lane_ids must be a list")
+        return
+    if not isinstance(distances, np.ndarray) or distances.shape != (len(lane_ids), len(lane_ids)):
+        errors.append(
+            f"lane_graph.distances must be shape ({len(lane_ids)}, {len(lane_ids)}), "
+            f"got {getattr(distances, 'shape', None)}"
+        )
 
 
 # ── Semantic checks ──
@@ -154,7 +208,7 @@ def _validate_no_nan_inf(scenario: schema.PufferScenario, errors: list[str]) -> 
                     errors.append(f"{prefix} {eid} {field} contains NaN or Inf")
 
     for eid, elem in scenario.map.items():
-        for key in ("polyline", "polygon"):
+        for key in ("polyline", "polygon", "left_boundary", "right_boundary", "cum_length"):
             if (
                 (arr := getattr(elem, key, None)) is not None
                 and isinstance(arr, np.ndarray)
@@ -162,8 +216,17 @@ def _validate_no_nan_inf(scenario: schema.PufferScenario, errors: list[str]) -> 
             ):
                 errors.append(f"Map {eid} {key} contains NaN or Inf")
 
+    for index, control in enumerate(scenario.traffic_controls):
+        if not np.all(np.isfinite(control.stop_line)):
+            errors.append(f"TrafficControl {index} stop_line contains NaN or Inf")
+        if not np.isfinite(control.heading):
+            errors.append(f"TrafficControl {index} heading must be finite")
 
-def _validate_ego(agents: dict[int, schema.Track], length: int, errors: list[str]) -> None:
+    if scenario.lane_graph is not None and np.any(np.isnan(scenario.lane_graph["distances"])):
+        errors.append("lane_graph.distances contains NaN")
+
+
+def _validate_ego(agents: dict[int, schema.Track], length: int, dt: float, errors: list[str]) -> None:
     if 0 not in agents:
         errors.append("Ego agent (id=0) missing")
         return
@@ -184,7 +247,7 @@ def _validate_ego(agents: dict[int, schema.Track], length: int, errors: list[str
     xyz = ego.position
     dists = np.linalg.norm(np.diff(xyz[:, :2], axis=0), axis=1)
     both_valid = valid[:-1] & valid[1:]
-    for i in np.flatnonzero((dists > 5.0) & both_valid):
+    for i in np.flatnonzero((dists > 50.0 * dt) & both_valid):
         errors.append(f"Ego teleports at timestep {i}: moved {dists[i]:.2f}m")
 
 
@@ -202,6 +265,45 @@ def _validate_tl_lane_refs(tl_data: dict[int, schema.TrafficLightTrack], lane_id
     for eid, tl in tl_data.items():
         if tl.controlled_lane not in lane_ids:
             errors.append(f"TL {eid} controlled_lane {tl.controlled_lane} references non-lane element")
+        if not np.all(np.isfinite(tl.position)):
+            errors.append(f"TL {eid} position contains NaN or Inf")
+        if any(int(state) not in puffer_types.TL_STATE_NAMES for state in tl.states):
+            errors.append(f"TL {eid} contains invalid state")
+
+
+def _validate_lane_refs(
+    scenario: schema.PufferScenario, stop_zones: list[schema.StopZone], lane_ids: set[int], errors: list[str]
+) -> None:
+    for index, zone in enumerate(stop_zones):
+        if not np.all(np.isfinite(zone.polygon)):
+            errors.append(f"StopZone {index} polygon contains NaN or Inf")
+        for lane_id in zone.controlled_lanes:
+            if lane_id not in lane_ids:
+                errors.append(f"StopZone {index} controlled_lanes references non-lane element {lane_id}")
+
+    for index, control in enumerate(scenario.traffic_controls):
+        for lane_id in control.controlled_lanes:
+            if lane_id not in lane_ids:
+                errors.append(f"TrafficControl {index} controlled_lanes references non-lane element {lane_id}")
+        if any(int(state) not in puffer_types.TL_STATE_NAMES for state in control.states):
+            errors.append(f"TrafficControl {index} contains invalid state")
+
+    for items in (scenario.agents, scenario.objects):
+        for track_id, track in items.items():
+            if not 0 <= track.route_gt_len <= len(track.route):
+                errors.append(f"Track {track_id} route_gt_len is outside its route")
+            for lane_id in track.route:
+                if lane_id not in lane_ids:
+                    errors.append(f"Track {track_id} route references non-lane element {lane_id}")
+
+    if scenario.lane_graph is None:
+        return
+    graph_lane_ids = scenario.lane_graph["lane_ids"]
+    if len(graph_lane_ids) != len(set(graph_lane_ids)):
+        errors.append("lane_graph.lane_ids contains duplicates")
+    for lane_id in graph_lane_ids:
+        if lane_id not in lane_ids:
+            errors.append(f"lane_graph.lane_ids references non-lane element {lane_id}")
 
 
 def _validate_agent_sizes(items: dict[int, schema.Track], prefix: str, errors: list[str]) -> None:

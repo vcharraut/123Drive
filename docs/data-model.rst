@@ -29,7 +29,7 @@ Scenario
      - ``ScenarioMetadata``
      - Identity, dataset, timing, location, and prediction targets
    * - ``traffic_controls``
-     - ``list[dict]``
+     - ``list[TrafficControl]``
      - Final traffic lights, stop signs, and yield controls
    * - ``lane_graph``
      - ``dict | None``
@@ -54,9 +54,9 @@ positions around each frame. Invalid frames receive zero velocity.
 Map elements
 ------------
 
-Lanes, lines, and edges use a ``polyline``. Crosswalks and other areas use a ``polygon``. Lanes
-also keep predecessor and successor IDs, neighbor IDs, boundaries, speed limit, total length,
-and cumulative per-point length.
+Lanes, lines, and edges use a ``polyline``. Lane groups, intersections, crosswalks, walkways,
+carparks, generic-drivable areas, and speed bumps use a ``polygon``. Lanes also keep predecessor
+and successor IDs, neighbor IDs, boundaries, speed limit, total length, and cumulative per-point length.
 
 Road types reserve numeric ranges:
 

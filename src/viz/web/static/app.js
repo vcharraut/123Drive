@@ -125,12 +125,7 @@ const state = {
   speed: 1,
   viewMode: '2d',
   followEgo: false,
-  layers: {
-    lanes: true, road_lines: true, road_edges: true, crosswalks: true,
-    agents: true, objects: true, trajectories: true, traffic_controls: true, agent_ids: true,
-    unknowns: false,
-    scatter_roads: false,
-  },
+  layers: { scatter_roads: false },  // checkbox layers are seeded from #layer-toggles
   selected: null,
   pathFinder: { active: false, source: null, dest: null, path: null, distance: null },
   ruler: { active: false, p1: null, p2: null, distance: null },
@@ -1039,12 +1034,19 @@ function getStaticLayers(scenario, layerFlags) {
     if (layerFlags.unknowns && unknownEdges.length) layers.push(roadLayer('edges-unknown', unknownEdges, [124, 58, 237], 1.5));
   }
 
-  // Crosswalks + speed bumps
-  if (layerFlags.crosswalks) {
-    const cw = roads.filter(r => r.type === 31);
-    const sb = roads.filter(r => r.type === 32);
-    if (cw.length) layers.push(roadLayer('crosswalks', cw, [217,119,6], 2));
-    if (sb.length) layers.push(roadLayer('speed-bumps', sb, [219,39,119], 2));
+  // Surface layers (types 31–37)
+  for (const [flag, type, id, color] of [
+    ['crosswalks',       31, 'crosswalks',       [217,119,6]],
+    ['speed_bumps',      32, 'speed-bumps',      [219,39,119]],
+    ['carparks',         33, 'carparks',          [8,145,178]],
+    ['lane_groups',      34, 'lane-groups',      [96,165,250]],
+    ['intersections',    35, 'intersections',     [147,51,234]],
+    ['walkways',         36, 'walkways',          [22,163,74]],
+    ['generic_drivable', 37, 'generic-drivable', [100,116,139]],
+  ]) {
+    if (!layerFlags[flag]) continue;
+    const elements = roads.filter(r => r.type === type);
+    if (elements.length) layers.push(roadLayer(id, elements, color, 2));
   }
 
 
@@ -1379,41 +1381,34 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         jointRounded: true, capRounded: true,
       }));
 
-    } else if (selected.type === 'agent') {
-      const a = selected.data;
-      const egoId = getEgoAgentId(scenario);
-      const agentColor = getAgentDisplayColor(a, egoId);
-      const routeSegments = getAgentRouteSegments(a, roadMap);
-      const historySegments = buildValidSegments(a.xyz, a.valid, 0, Math.min(t + 1, a.xyz.length), [...agentColor, 255]);
-      const futureSegments = buildValidSegments(a.xyz, a.valid, t, a.xyz.length, [...agentColor, 180]);
+    } else if (selected.type === 'agent' || selected.type === 'object') {
+      const item = selected.data;
+      const isAgent = selected.type === 'agent';
+      const color = isAgent ? getAgentDisplayColor(item, getEgoAgentId(scenario)) : BLUE;
+      const historySegments = buildValidSegments(
+        item.xyz, item.valid, 0, Math.min(t + 1, item.xyz.length), [...color, 255],
+      );
+      const futureSegments = buildValidSegments(item.xyz, item.valid, t, item.xyz.length, [...color, 180]);
 
-      if (routeSegments.observed.length) {
-        layers.push(new PathLayer({
-          id: 'sel-agent-route-observed', data: routeSegments.observed,
+      if (isAgent) {
+        const routeSegments = getAgentRouteSegments(item, roadMap);
+        for (const [kind, data, alpha, dash] of [
+          ['observed', routeSegments.observed, 200, [1, 0]],
+          ['extension', routeSegments.extension, 120, [8, 5]],
+        ]) if (data.length) layers.push(new PathLayer({
+          id: `sel-agent-route-${kind}`, data,
           getPath: toPath,
-          getColor: [...BROWN, 200],
+          getColor: [...BROWN, alpha],
           getWidth: 2, widthUnits: 'pixels',
-          getDashArray: [1, 0], dashJustified: false,
-          extensions: [],
-          jointRounded: true, capRounded: true,
-        }));
-      }
-
-      if (routeSegments.extension.length) {
-        layers.push(new PathLayer({
-          id: 'sel-agent-route-extension', data: routeSegments.extension,
-          getPath: toPath,
-          getColor: [...BROWN, 120],
-          getWidth: 2, widthUnits: 'pixels',
-          getDashArray: [8, 5], dashJustified: true,
-          extensions: [new PathStyleExtension({ dash: true })],
+          getDashArray: dash, dashJustified: kind === 'extension',
+          extensions: kind === 'extension' ? [new PathStyleExtension({dash: true})] : [],
           jointRounded: true, capRounded: true,
         }));
       }
 
       if (historySegments.length) {
         layers.push(new PathLayer({
-          id: 'sel-agent-history', data: historySegments,
+          id: `sel-${selected.type}-history`, data: historySegments,
           getPath: toPath,
           getColor: d => d.color,
           getWidth: 2.5, widthUnits: 'pixels',
@@ -1423,7 +1418,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
 
       if (futureSegments.length) {
         layers.push(new PathLayer({
-          id: 'sel-agent-future', data: futureSegments,
+          id: `sel-${selected.type}-future`, data: futureSegments,
           getPath: toPath,
           getColor: d => d.color,
           getWidth: 2.5, widthUnits: 'pixels',
@@ -1433,68 +1428,20 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         }));
       }
 
-      if (t < a.xyz.length && a.valid[t]) {
+      if (t < item.xyz.length && item.valid[t]) {
+        const [length, width, height] = isAgent ? [4.5, 2, 1.5] : [1.0, 1.0, 1.0];
         const corners = getVehiclePolygon(
-          a.xyz[t][0], a.xyz[t][1], a.heading[t],
-          a.length[t] || 4.5, a.width[t] || 2,
-          getEntityZ(a, t),
+          item.xyz[t][0], item.xyz[t][1], item.heading[t],
+          item.length[t] || length, item.width[t] || width,
+          getEntityZ(item, t),
         );
         layers.push(new PolygonLayer({
-          id: 'sel-agent',
-          data: [{
-            corners,
-            height: a.height[t] || 1.5,
-          }],
+          id: `sel-${selected.type}`,
+          data: [{corners, height: item.height[t] || height}],
           getPolygon: d => d.corners,
           getElevation: d => d.height,
-          getFillColor: [...agentColor, 55],
-          getLineColor: [...agentColor, 255],
-          getLineWidth: 3, lineWidthUnits: 'pixels',
-          stroked: true, filled: true,
-          extruded: state.viewMode === '3d',
-        }));
-      }
-
-    } else if (selected.type === 'object') {
-      const o = selected.data;
-      const historySegments = buildValidSegments(o.xyz, o.valid, 0, Math.min(t + 1, o.xyz.length), [...BLUE, 255]);
-      const futureSegments = buildValidSegments(o.xyz, o.valid, t, o.xyz.length, [...BLUE, 180]);
-
-      if (historySegments.length) {
-        layers.push(new PathLayer({
-          id: 'sel-object-history', data: historySegments,
-          getPath: toPath,
-          getColor: d => d.color,
-          getWidth: 2.5, widthUnits: 'pixels',
-          jointRounded: true, capRounded: true,
-        }));
-      }
-
-      if (futureSegments.length) {
-        layers.push(new PathLayer({
-          id: 'sel-object-future', data: futureSegments,
-          getPath: toPath,
-          getColor: d => d.color,
-          getWidth: 2.5, widthUnits: 'pixels',
-          getDashArray: [6, 4], dashJustified: true,
-          extensions: [new PathStyleExtension({ dash: true })],
-          jointRounded: true, capRounded: true,
-        }));
-      }
-
-      if (t < o.xyz.length && o.valid[t]) {
-        const corners = getVehiclePolygon(
-          o.xyz[t][0], o.xyz[t][1], o.heading[t],
-          o.length[t] || 1.0, o.width[t] || 1.0,
-          getEntityZ(o, t),
-        );
-        layers.push(new PolygonLayer({
-          id: 'sel-object',
-          data: [{corners, height: o.height[t] || 1.0}],
-          getPolygon: d => d.corners,
-          getElevation: d => d.height,
-          getFillColor: [...BLUE, 55],
-          getLineColor: [...BLUE, 255],
+          getFillColor: [...color, 55],
+          getLineColor: [...color, 255],
           getLineWidth: 3, lineWidthUnits: 'pixels',
           stroked: true, filled: true,
           extruded: state.viewMode === '3d',
@@ -1532,9 +1479,6 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
   // ── Path finder highlights ───────────────────────────────────────────────
   const pf = state.pathFinder;
   if (pf.active || pf.path) {
-    const roadMap = (selected && selected.type === 'road')
-      ? null  // already built above, but we need our own reference
-      : null;
     const pfRoadMap = buildRoadMap(scenario.road_map_elements);
     const SRC_COLOR  = [16, 185, 129]; // green
     const DST_COLOR  = [239, 68, 68];  // red
@@ -2192,6 +2136,7 @@ document.getElementById('scenario-search').addEventListener('input', e => {
 });
 
 document.querySelectorAll('#layer-toggles input[type=checkbox]').forEach(cb => {
+  state.layers[cb.dataset.layer] = cb.checked;
   cb.addEventListener('change', () => {
     state.layers[cb.dataset.layer] = cb.checked;
     state.staticLayerCacheKey = null;
@@ -2205,19 +2150,14 @@ document.getElementById('btn-search-go').addEventListener('click', () => {
   const type = document.getElementById('search-type').value;
   if (isNaN(id)) return;
 
-  if (type === 'agent') {
-    const a = state.scenario.agents.find(a => a.id === id);
-    if (a) selectElement('agent', a);
-  } else if (type === 'object') {
-    const o = (state.scenario.objects || []).find(o => o.id === id);
-    if (o) selectElement('object', o);
-  } else if (type === 'road') {
-    const r = state.scenario.road_map_elements.find(r => r.id === id);
-    if (r) selectElement('road', r);
-  } else if (type === 'traffic_control') {
-    const tc = state.scenario.traffic_control_elements.find(t => t.id === id);
-    if (tc) selectElement('traffic_control', tc);
-  }
+  const collections = {
+    agent: state.scenario.agents,
+    object: state.scenario.objects || [],
+    road: state.scenario.road_map_elements,
+    traffic_control: state.scenario.traffic_control_elements,
+  };
+  const item = collections[type]?.find(item => item.id === id);
+  if (item) selectElement(type, item);
 });
 
 document.getElementById('btn-search-clear').addEventListener('click', () => {
