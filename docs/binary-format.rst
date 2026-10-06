@@ -62,6 +62,9 @@ Repeat the following block ``n_agents`` times:
      - ``vx``, then ``vy``
      - Velocity channels
    * - ``float32[T]``
+     - ``yaw_rate``
+     - Log yaw rate (rad/s) from heading differences across valid neighbours; 0 on invalid or isolated frames
+   * - ``float32[T]``
      - ``length``, then ``width``, then ``height``
      - Bounding-box channels
    * - ``int32[T]``
@@ -130,6 +133,18 @@ Types 0 through 9 are lanes and append:
    * - ``int32[n_exit_lanes]``
      - ``exit_lane_ids``
      - Successors
+   * - ``int32``
+     - ``n_left_neighbors``
+     - Left neighbour count
+   * - ``int32[n_left_neighbors]``
+     - ``left_neighbor_ids``
+     - Parallel lanes reachable by a left lane change
+   * - ``int32``
+     - ``n_right_neighbors``
+     - Right neighbour count
+   * - ``int32[n_right_neighbors]``
+     - ``right_neighbor_ids``
+     - Parallel lanes reachable by a right lane change
    * - ``float32``
      - ``speed_limit``
      - Metres per second; -1 when unknown
@@ -139,6 +154,9 @@ Types 0 through 9 are lanes and append:
    * - ``float32[N]``
      - ``cum_length``
      - Per-point cumulative arc length
+   * - ``float32[N]``
+     - ``curvature``
+     - Per-point signed curvature (1/m, left positive): heading change over ±5 m of lane, divided by that length
 
 Traffic controls
 ----------------
@@ -180,8 +198,8 @@ Objects
 -------
 
 Repeat the same dynamic-state prefix used by agents ``n_objects`` times: ``id``, ``type``, ``T``,
-position, heading, velocity, dimensions, and valid channels. Objects do not append route, goal,
-or control-state fields.
+position, heading, velocity, dimensions, and valid channels. Objects have no ``yaw_rate`` channel and
+do not append route, goal, or control-state fields.
 
 Lane graph
 ----------
@@ -202,8 +220,8 @@ Lane graph
      - ``distances``
      - Row-major all-pairs directed distances
 
-Distances are precomputed over freeway and surface-street lanes. Each edge costs the source
-lane's length. Unreachable pairs are IEEE 754 positive infinity.
+Distances are precomputed over freeway and surface-street lanes. Each successor edge costs the
+source lane's length; lane changes to a left or right neighbour cost 25 m in either direction. Unreachable pairs are IEEE 754 positive infinity.
 
 Metadata
 --------

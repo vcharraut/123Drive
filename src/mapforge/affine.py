@@ -119,11 +119,19 @@ def apply_affine_transform(scenario: PufferScenario, matrix: np.ndarray, centroi
         raise ValueError(f"Centroid must have shape (2,), got {centroid.shape}")
 
     resample_points = float(np.max(np.linalg.svd(matrix, compute_uv=False))) > 1.0 + SINGULAR_VALUE_TOLERANCE
+    mirrored = np.linalg.det(matrix) < 0
     for element in scenario.map.values():
+        if mirrored:  # a reflection turns every lane's left neighbour into its right one
+            element.left_neighbor, element.right_neighbor = element.right_neighbor, element.left_neighbor
         key = "polyline" if element.uses_polyline else "polygon"
-        transformed = _transform_xyz(np.asarray(getattr(element, key), dtype=np.float64), matrix, centroid)
+        xyz = np.asarray(getattr(element, key), dtype=np.float64)
+        transformed = _transform_xyz(xyz, matrix, centroid)
         if resample_points:
-            transformed = _resample_xyz_segments(transformed, MAX_AUGMENTED_SEGMENT_LENGTH)
+            # Road edges keep their converted spacing (convert's --edge_max_segment_length can be below 10 m)
+            max_length = MAX_AUGMENTED_SEGMENT_LENGTH
+            if element.is_edge:
+                max_length = min(max_length, float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).max()))
+            transformed = _resample_xyz_segments(transformed, max_length)
         setattr(element, key, transformed)
 
     for traffic_control in scenario.traffic_controls:

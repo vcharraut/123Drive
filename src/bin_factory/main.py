@@ -58,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--validate_level", type=int, choices=[0, 1, 2], default=1, help="0=off, 1=schema, 2=semantic")
     parser.add_argument("--max_segment_length", type=float, default=10.0, help="Max segment length for interpolation")
     parser.add_argument(
+        "--edge_max_segment_length",
+        type=float,
+        default=10.0,
+        help="Max segment length for road-edge interpolation (0=disabled)",
+    )
+    parser.add_argument(
         "--area_threshold",
         type=float,
         default=0.1,

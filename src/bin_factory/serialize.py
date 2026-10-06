@@ -12,6 +12,7 @@ from bin_factory import schema
 
 METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
+CURVATURE_HALF_WINDOW = 5.0  # metres of lane on each side of a point averaged into its curvature
 
 
 def _write_int_list(buf: bytearray, values: list[int]) -> None:
@@ -20,8 +21,8 @@ def _write_int_list(buf: bytearray, values: list[int]) -> None:
         buf.extend(struct.pack(f"<{len(values)}i", *map(int, values)))
 
 
-def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
-    """Write a per-track trajectory block (T + xyz + heading + velocity + bbox + valid). Returns xyz."""
+def _write_dynamic_states(buf: bytearray, track: schema.Track, yaw_rate: np.ndarray | None = None) -> np.ndarray:
+    """Write a per-track trajectory block (T + xyz + heading + velocity [+ yaw rate] + bbox + valid). Returns xyz."""
     xyz = np.asarray(track.position, dtype="<f4")
     buf.extend(struct.pack("<i", len(xyz)))
     for col in [
@@ -31,6 +32,7 @@ def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
         track.heading,
         track.velocity[:, 0],
         track.velocity[:, 1],
+        *([] if yaw_rate is None else [yaw_rate]),
         track.length,
         track.width,
         track.height,
@@ -55,10 +57,20 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
 
     buf.extend(struct.pack("<iiii", len(agents), len(road_map), len(tcs), len(objects)))
 
-    # Agents: id, type, trajectory, route, route_gt_len, goal, control_state
+    # Agents: id, type, trajectory (with log yaw rate), route, route_gt_len, goal, control_state
     for eid, track in agents.items():
         buf.extend(struct.pack("<ii", int(eid), int(track.type)))
-        xyz = _write_dynamic_states(buf, track)
+        # Log yaw rate: heading difference across valid neighbours (central, one-sided at gaps, 0 when isolated)
+        valid = np.asarray(track.valid) > 0
+        heading = np.asarray(track.heading, dtype=np.float64)
+        prev_ok = np.concatenate([[False], valid[:-1]]) & valid
+        next_ok = np.concatenate([valid[1:], [False]]) & valid
+        start = np.where(prev_ok, np.concatenate([heading[:1], heading[:-1]]), heading)
+        end = np.where(next_ok, np.concatenate([heading[1:], heading[-1:]]), heading)
+        steps = prev_ok.astype(np.int64) + next_ok.astype(np.int64)
+        dtheta = (end - start + np.pi) % (2 * np.pi) - np.pi
+        yaw_rate = np.where(steps > 0, dtheta / (np.maximum(steps, 1) * scenario.metadata.dt), 0.0)
+        xyz = _write_dynamic_states(buf, track, yaw_rate)
 
         # Route
         _write_int_list(buf, track.route)
@@ -73,7 +85,7 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
             buf.extend(struct.pack("<fff", 0.0, 0.0, 0.0))
         buf.extend(struct.pack("<i", int(track.control_state)))
 
-    # Road map: id, type, geometry, heading; lanes get topology + speed limit
+    # Road map: id, type, geometry, heading; lanes get topology (entry/exit/left/right), speed limit, lengths and curvature
     for eid, elem in road_map.items():
         road_type = elem.type
         xyz = elem.geometry
@@ -90,11 +102,24 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         buf.extend(heading.tobytes())
 
         if elem.is_lane:
-            for lane_list in [elem.entry_lanes, elem.exit_lanes]:
+            for lane_list in [elem.entry_lanes, elem.exit_lanes, elem.left_neighbor, elem.right_neighbor]:
                 _write_int_list(buf, lane_list)
             buf.extend(struct.pack("<f", elem.speed_limit_mps))
             buf.extend(struct.pack("<f", float(elem.length)))
             buf.extend(np.asarray(elem.cum_length, dtype="<f4").tobytes())
+            # Signed curvature (1/m, left positive): heading change over +-CURVATURE_HALF_WINDOW of 2D arc length
+            # (clipped to the lane) divided by that length. Heading is interpolated between the midpoints of the
+            # polyline's chords; collinear points inserted by resampling are merged so they don't split a chord.
+            s = np.concatenate([[0.0], np.cumsum(np.hypot(np.diff(pts[:, 0]), np.diff(pts[:, 1])))])
+            unwrapped = np.unwrap(seg)
+            corner = np.concatenate([[True], np.abs(np.diff(unwrapped)) > 1e-4, [True]])  # rad; float32 jitter is ~1e-5
+            chord_s = s[corner]
+            chord_heading = unwrapped[np.flatnonzero(corner)[:-1]]
+            lo = np.maximum(s - CURVATURE_HALF_WINDOW, 0.0)
+            hi = np.minimum(s + CURVATURE_HALF_WINDOW, s[-1])
+            chord_mid = (chord_s[:-1] + chord_s[1:]) / 2
+            turn = np.interp(hi, chord_mid, chord_heading) - np.interp(lo, chord_mid, chord_heading)
+            buf.extend((turn / (hi - lo)).astype("<f4").tobytes())
 
     # Traffic controls: id, type, stop line endpoints, heading, states, controlled lanes
     for tc in tcs:

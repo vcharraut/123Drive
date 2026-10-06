@@ -115,9 +115,12 @@ def _read_roads(reader: _Reader, n_roads: int) -> dict[int, MapElement]:
         if element.is_lane:
             element.entry_lanes = reader.int_list()
             element.exit_lanes = reader.int_list()
+            element.left_neighbor = reader.int_list()
+            element.right_neighbor = reader.int_list()
             element.speed_limit_mps = reader.f32()
             element.length = reader.f32()
             element.cum_length = reader.f32_array(n_points).astype(np.float64)
+            reader.f32_array(n_points)  # curvature is recomputed by serialize.scenario_to_binary
 
         road_map[element_id] = element
     return road_map

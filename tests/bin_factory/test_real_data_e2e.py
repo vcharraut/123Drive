@@ -86,9 +86,9 @@ class _Reader:
         self.off += n
         return chunk
 
-    def skip_dynamic(self):
+    def skip_dynamic(self, channels=9):
         (t,) = self.ints(1)
-        self.floats(9 * t)  # xyz, heading, vx, vy, length, width, height
+        self.floats(channels * t)  # xyz, heading, vx, vy, [yaw_rate,] length, width, height
         self.ints(t)  # valid
         return t
 
@@ -100,7 +100,7 @@ def _parse(data):
     agents = []
     for _ in range(n_agents):
         eid, _type = r.ints(2)
-        n_points = r.skip_dynamic()
+        n_points = r.skip_dynamic(channels=10)
         route = r.ints(r.ints(1)[0])
         (route_gt_len,) = r.ints(1)
         r.floats(3)  # goal
@@ -125,9 +125,11 @@ def _parse(data):
         if is_lane:
             entry = r.ints(r.ints(1)[0])
             exit_ = r.ints(r.ints(1)[0])
+            r.ints(r.ints(1)[0])  # left neighbours
+            r.ints(r.ints(1)[0])  # right neighbours
             r.floats(1)  # speed
             r.floats(1)  # length
-            r.floats(npts)  # cum_length
+            r.floats(2 * npts)  # cum_length, curvature
         else:
             entry, exit_ = [], []
         roads.append({"id": eid, "type": road_type, "npts": npts, "lane": is_lane, "entry": entry, "exit": exit_})

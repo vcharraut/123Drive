@@ -47,6 +47,8 @@ def _interpolate_polygon(xyz: np.ndarray | None, spacing: float) -> np.ndarray:
 
 
 def reverse_road_edges(scenario: schema.PufferScenario) -> None:
+    # PY123D-REPORT[nuplan,carla,opendrive,nuscenes]: py123d road edges run opposite to the WOMD orientation;
+    # enabled per dataset via the `reverse_road_edges` preset key.
     for element in scenario.map.values():
         if element.is_edge and element.polyline is not None:
             element.polyline = element.polyline[::-1]
@@ -56,7 +58,10 @@ def reverse_road_edges(scenario: schema.PufferScenario) -> None:
 
 
 def process_polylines(
-    scenario: schema.PufferScenario, max_segment_length: float = 2.0, area_threshold: float = 0.1
+    scenario: schema.PufferScenario,
+    max_segment_length: float = 2.0,
+    area_threshold: float = 0.1,
+    edge_max_segment_length: float = 10.0,
 ) -> None:
     map_elements = scenario.map
     if not map_elements:
@@ -76,8 +81,11 @@ def process_polylines(
         if area_threshold > 0 and len(polyline) >= 3:
             polyline = _simplify_polyline(polyline, area_threshold)
 
-        if max_segment_length > 0:
-            polyline = _distance_based_interpolate(polyline, max_segment_length)
+        # Road edges can get shorter segments: PufferDrive culls and grids each segment by its midpoint,
+        # so long edge segments drop corners near the observation window border.
+        segment_length = edge_max_segment_length if element.is_edge else max_segment_length
+        if segment_length > 0:
+            polyline = _distance_based_interpolate(polyline, segment_length)
 
         element.polyline = polyline
 

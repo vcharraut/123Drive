@@ -7,6 +7,7 @@ from bin_factory.transforms.geometry import arc_length
 
 
 GRAPH_LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}
+LANE_CHANGE_COST = 25.0  # metres, about the distance a lane change takes; keeps the right lane ahead of a split
 
 
 def build_lane_distance_matrix(map_elements: dict[int, schema.MapElement]) -> dict | None:
@@ -14,7 +15,8 @@ def build_lane_distance_matrix(map_elements: dict[int, schema.MapElement]) -> di
 
     Only SURFACE_STREET and FREEWAY lanes participate. Directed edges follow each lane's
     ``exit_lanes`` and are weighted by the source lane's polyline length, so distances
-    measure travel along the lane network (row = source, col = destination).
+    measure travel along the lane network (row = source, col = destination). Lane changes
+    to a left/right neighbour (both directions) cost ``LANE_CHANGE_COST``.
 
     Arguments:
         map_elements: Scenario map dict ``{id: element}`` as on ``PufferScenario.map``.
@@ -31,18 +33,20 @@ def build_lane_distance_matrix(map_elements: dict[int, schema.MapElement]) -> di
     id_to_idx = {lid: i for i, lid in enumerate(lane_ids)}
     n = len(lanes)
 
-    lane_lengths = [e.length for _, e in lanes]
-
-    rows, cols, weights = [], [], []
+    # Keyed by (src, dst) so a pair listed twice is not summed by csr_matrix; the cheaper edge wins.
+    edges: dict[tuple[int, int], float] = {}
     for eid, element in lanes:
-        src = id_to_idx[eid]
         for exit_id in element.exit_lanes:
             if exit_id in id_to_idx:
-                rows.append(src)
-                cols.append(id_to_idx[exit_id])
-                weights.append(lane_lengths[src])
+                edges[(id_to_idx[eid], id_to_idx[exit_id])] = element.length
+    for eid, element in lanes:
+        for neighbor_id in [*element.left_neighbor, *element.right_neighbor]:
+            if neighbor_id in id_to_idx:
+                for pair in ((id_to_idx[eid], id_to_idx[neighbor_id]), (id_to_idx[neighbor_id], id_to_idx[eid])):
+                    edges[pair] = min(edges.get(pair, np.inf), LANE_CHANGE_COST)
 
-    graph = scipy_sparse.csr_matrix((weights, (rows, cols)), shape=(n, n)) if rows else scipy_sparse.csr_matrix((n, n))
+    rows, cols = zip(*edges, strict=False) if edges else ((), ())
+    graph = scipy_sparse.csr_matrix((list(edges.values()), (rows, cols)), shape=(n, n))
     dist_matrix = scipy_csgraph.dijkstra(graph, directed=True).astype(np.float64)
 
     return {"lane_ids": lane_ids, "distances": dist_matrix}

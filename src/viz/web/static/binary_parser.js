@@ -4,13 +4,13 @@
  *   Header: num_agents(i32), num_roads(i32), num_traffic(i32), num_objects(i32)
  *   Agents[]:  id(i32), type(i32), T(i32),
  *              x[T](f32), y[T](f32), z[T](f32),
- *              heading[T](f32), vx[T](f32), vy[T](f32),
+ *              heading[T](f32), vx[T](f32), vy[T](f32), yaw_rate[T](f32),
  *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32),
  *              n_route(i32), route[n_route](i32), route_gt_len(i32),
  *              goal_x(f32), goal_y(f32), goal_z(f32), control_state(i32)
  *   Roads[]:   id(i32), type(i32), S(i32),
  *              x[S](f32), y[S](f32), z[S](f32), heading[S](f32),
- *              [if lane (type 0-9): n_entry(i32), entry[](i32), n_exit(i32), exit[](i32), speed_limit(f32), length(f32), cum_length[S](f32)]
+ *              [if lane (type 0-9): n_entry(i32), entry[](i32), n_exit(i32), exit[](i32), n_left(i32), left[](i32), n_right(i32), right[](i32), speed_limit(f32), length(f32), cum_length[S](f32), curvature[S](f32)]
  *   Traffic[]: id(i32), type(i32), stop_line(6xf32), heading(f32),
  *              n_states(i32), states[](i32), n_ctrl(i32), ctrl[](i32)
  *   Objects[]: id(i32), type(i32), T(i32),
@@ -69,13 +69,14 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       return rows;
     };
 
-    const readDynamicStateArrays = (T) => {
+    const readDynamicStateArrays = (T, hasYawRate) => {
       const xArr = f32arr(T);
       const yArr = f32arr(T);
       const zArr = f32arr(T);
       const heading = f32arr(T);
       const vxArr = f32arr(T);
       const vyArr = f32arr(T);
+      const yawRate = hasYawRate ? Array.from(f32arr(T)) : null;
       const length = f32arr(T);
       const width = f32arr(T);
       const height = f32arr(T);
@@ -84,6 +85,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
         xyz: colsToRows([xArr, yArr, zArr]),
         heading: Array.from(heading),
         velocity: colsToRows([vxArr, vyArr]),
+        ...(yawRate ? { yaw_rate: yawRate } : {}),
         length: Array.from(length),
         width: Array.from(width),
         height: Array.from(height),
@@ -94,7 +96,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     const readDynamicEntity = (hasRoute) => {
       const id = i32();
       const type = i32();
-      const states = readDynamicStateArrays(i32());
+      const states = readDynamicStateArrays(i32(), hasRoute); // only agents carry yaw rate
       if (!hasRoute) return {id, type, ...states};
       const route = intList();
       const route_gt_len = i32();
@@ -127,16 +129,19 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       const zArr = f32arr(S);
       const heading = Array.from(f32arr(S));
 
-      let entry_lanes = [], exit_lanes = [], speed_limit = 0, length = 0, cum_length = [];
+      let entry_lanes = [], exit_lanes = [], left_neighbors = [], right_neighbors = [], speed_limit = 0, length = 0, cum_length = [], curvature = [];
       if (type >= TYPES.LANE_RANGE[0] && type <= TYPES.LANE_RANGE[1]) {
         entry_lanes = intList();
         exit_lanes = intList();
+        left_neighbors = intList();
+        right_neighbors = intList();
         speed_limit = f32();
         length = f32();
         cum_length = Array.from(f32arr(S));
+        curvature = Array.from(f32arr(S));
       }
 
-      road_map_elements[r] = { id, type, xyz: colsToRows([xArr, yArr, zArr]), heading, entry_lanes, exit_lanes, speed_limit, length, cum_length };
+      road_map_elements[r] = { id, type, xyz: colsToRows([xArr, yArr, zArr]), heading, entry_lanes, exit_lanes, left_neighbors, right_neighbors, speed_limit, length, cum_length, curvature };
     }
 
     // --- Traffic ---

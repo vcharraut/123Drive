@@ -96,6 +96,9 @@ Transforms
    * - ``--max_segment_length METRES``
      - ``10.0``
      - Maximum processed polyline segment length
+   * - ``--edge_max_segment_length METRES``
+     - ``10.0``
+     - Maximum processed road-edge segment length; zero disables it
    * - ``--area_threshold METRES``
      - ``0.1``
      - Shapely simplification tolerance; zero disables it

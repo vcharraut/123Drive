@@ -33,7 +33,7 @@ def run(scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config
         interpolate_traffic_lights(scenario, extras)
     if config.reverse_road_edges:
         reverse_road_edges(scenario)
-    process_polylines(scenario, config.max_segment_length, config.area_threshold)
+    process_polylines(scenario, config.max_segment_length, config.area_threshold, config.edge_max_segment_length)
     interpolate_all_polygons(scenario)
     prune_invalid_map_elements(scenario, extras)
     process_traffic_controls(scenario, extras)

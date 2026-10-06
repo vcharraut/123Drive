@@ -255,7 +255,7 @@ def _validate_lane_topology(map_data: dict[int, schema.MapElement], lane_ids: se
     for eid, elem in map_data.items():
         if not elem.is_lane:
             continue
-        for key in ("entry_lanes", "exit_lanes"):
+        for key in ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor"):
             for ref in getattr(elem, key):
                 if ref not in lane_ids:
                     errors.append(f"Lane {eid} {key} references non-existent lane {ref}")

@@ -52,10 +52,23 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
         covered_lanes.add(traffic_light.controlled_lane)
 
     next_id = max(used_ids, default=-1) + 1
+    light_lanes = set(covered_lanes)
 
     for element_data in extras.stop_zones:
         stop_zone_type = element_data.type
-        controlled_lanes = [lid for lid in element_data.controlled_lanes if lid not in covered_lanes]
+        # PY123D-REPORT[nuplan]: TL stop polygons reference the approach lanes while TL detections reference the
+        # connectors after them, so each signalized approach came out twice (the polygon copy stuck at UNKNOWN).
+        # Drop approach lanes whose successor already carries a light. Lanes already controlled are skipped too, so
+        # overlapping zones (nuPlan TL polygons, WOMD stop signs listing the same lanes) don't duplicate controls.
+        controlled_lanes = [
+            lid
+            for lid in element_data.controlled_lanes
+            if lid not in covered_lanes
+            and not (
+                stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT
+                and light_lanes.intersection(lanes_by_id[lid].exit_lanes)
+            )
+        ]
         if not controlled_lanes:
             continue
 
@@ -92,6 +105,7 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
                 signal_sequence=element_data.signal_sequence,
             ),
         )
+        covered_lanes.update(controlled_lanes)
         next_id += 1
 
     scenario.traffic_controls = elements

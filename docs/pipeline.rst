@@ -84,7 +84,9 @@ Geometry processing
 Polyline processing first removes consecutive points closer than ``1e-9``. Shapely simplification
 uses ``--area_threshold`` as its tolerance and retains the original three-dimensional points.
 Distance-based interpolation then subdivides every segment longer than
-``--max_segment_length``.
+``--max_segment_length`` (``--edge_max_segment_length`` for road edges). Shorter road-edge
+segments keep corners closer to the segment midpoints the simulator culls and grids by, at the
+cost of more edge segments competing for observation slots.
 
 Polygon processing closes open outlines and uses Shapely ``segmentize`` with 5 metre spacing.
 Elements with fewer than two polyline points or three polygon points are removed.
@@ -106,7 +108,8 @@ Lane distances
 
 Only freeway and surface-street lanes participate in the serialized lane graph. A directed edge
 follows each source lane's ``exit_lanes`` and is weighted by that source lane's final arc length.
-SciPy Dijkstra produces the all-pairs matrix; unreachable destinations remain infinity.
+Lane changes to a left or right neighbour are edges in both directions costing 25 metres, about the
+distance a lane change takes, so the lane that leads to the goal reads closer than its neighbours. SciPy Dijkstra produces the all-pairs matrix; unreachable destinations remain infinity.
 
 Overlap filtering
 -----------------

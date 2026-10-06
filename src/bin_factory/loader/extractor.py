@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import dataclasses
 from typing import TYPE_CHECKING, Any, cast
 
@@ -129,6 +130,10 @@ def _extract_objects(
             raise ValueError(f"Missing ego state at frame {frame_idx}")
 
         _write_detection_frame(ego, frame_idx, ego_state.center_se3, ego_state.bounding_box_se3, centroid)
+        # PY123D-REPORT[nuplan]: raw ego_pose velocity has a lateral bias (body vy ~ -2% of vx) and reads ~1.4%
+        # fast against the logged poses. Leave it NaN so _fill_missing_velocities derives it from positions.
+        if scene_api.dataset.startswith("nuplan"):
+            continue
         ego.velocity[frame_idx] = [
             float(ego_state.box_detection_se3.velocity_3d.x),
             float(ego_state.box_detection_se3.velocity_3d.y),
@@ -264,6 +269,7 @@ def _extract_map(
 
     lane_ids = set(result.keys())
     _fix_lane_topology(result, undefined_lane, lane_ids)
+    _fill_missing_speed_limits(result)
 
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
     next_id = max(result.keys(), default=-1) + 1
@@ -455,49 +461,40 @@ def _fix_lane_topology(
     undefined_lane_ids: list[int],
     valid_lane_ids: set[int],
 ) -> None:
-    """Infer undefined lane types from neighbors + fix reversed entry/exit refs (nuPlan bandage)."""
-    for lane_id, lane in lanes.items():
-        if lane_id in undefined_lane_ids:
-            connected_types = {
-                lanes[nid].type for key in ("entry_lanes", "exit_lanes") for nid in getattr(lane, key) if nid in lanes
-            }
-            if len(connected_types) == 1:
-                lane.type = connected_types.pop()
+    """Infer undefined lane types from connected lanes + drop refs to lanes outside the extracted map.
 
-        polyline = lane.polyline
-        if polyline is None:
-            continue
-        lane_start, lane_end = polyline[0], polyline[-1]
-
-        new_entry, new_exit = [], []
-        for entry_id in lane.entry_lanes:
-            entry_polyline = lanes[entry_id].polyline if entry_id in lanes else None
-            if entry_polyline is None:
-                new_entry.append(entry_id)
-                continue
-            entry_end = entry_polyline[-1]
-            if np.linalg.norm(entry_end - lane_start) > np.linalg.norm(entry_end - lane_end):
-                new_exit.append(entry_id)
-            else:
-                new_entry.append(entry_id)
-
-        for exit_id in lane.exit_lanes:
-            exit_polyline = lanes[exit_id].polyline if exit_id in lanes else None
-            if exit_polyline is None:
-                new_exit.append(exit_id)
-                continue
-            exit_start = exit_polyline[0]
-            if np.linalg.norm(exit_start - lane_end) > np.linalg.norm(exit_start - lane_start):
-                new_entry.append(exit_id)
-            else:
-                new_exit.append(exit_id)
-
-        lane.entry_lanes = new_entry
-        lane.exit_lanes = new_exit
+    Entry/exit refs are trusted as-is: py123d already orients nuPlan connections, and the old
+    endpoint-distance reversal only misfired on broken WOMD links (creating cycles).
+    """
+    # PY123D-REPORT[nuplan]: most nuPlan lanes (lane connectors) come out of py123d as LaneType.UNDEFINED.
+    # PY123D-REPORT[wod-motion]: some WOMD entry/exit refs point at lanes up to ~100 m away; kept as-is.
+    for lane_id in undefined_lane_ids:
+        lane = lanes[lane_id]
+        connected_types = {
+            lanes[nid].type for key in ("entry_lanes", "exit_lanes") for nid in getattr(lane, key) if nid in lanes
+        }
+        if len(connected_types) == 1:
+            lane.type = connected_types.pop()
 
     for element in lanes.values():
         element.entry_lanes = [lid for lid in element.entry_lanes if lid in valid_lane_ids]
         element.exit_lanes = [lid for lid in element.exit_lanes if lid in valid_lane_ids]
+        element.left_neighbor = [lid for lid in element.left_neighbor if lid in valid_lane_ids]
+        element.right_neighbor = [lid for lid in element.right_neighbor if lid in valid_lane_ids]
+
+
+def _fill_missing_speed_limits(lanes: dict[int, schema.MapElement]) -> None:
+    """Give each lane with an unknown speed limit the limit of its nearest connected lane (BFS over entry/exit)."""
+    # PY123D-REPORT[opendrive]: py123d only copies road-type speeds one hop into junction lanes (and matches the
+    # unit "mps" where OpenDRIVE spells "m/s"), leaving ~50% of CARLA Town01-10 lanes without a limit.
+    # PY123D-REPORT[wod-motion]: WOMD lanes with speed_limit_mph == 0 come through as unknown.
+    queue = collections.deque(lane_id for lane_id, lane in lanes.items() if lane.speed_limit_mps > 0)
+    while queue:
+        lane = lanes[queue.popleft()]
+        for ref in [*lane.entry_lanes, *lane.exit_lanes]:
+            if lanes[ref].speed_limit_mps <= 0:
+                lanes[ref].speed_limit_mps = lane.speed_limit_mps
+                queue.append(ref)
 
 
 def _centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
