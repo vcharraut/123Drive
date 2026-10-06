@@ -106,7 +106,7 @@ def _read_roads(reader: _Reader, n_roads: int) -> dict[int, MapElement]:
         x = reader.f32_array(n_points)
         y = reader.f32_array(n_points)
         z = reader.f32_array(n_points)
-        reader.f32_array(n_points)  # headings are recomputed by serialize.scenario_to_binary
+        reader.f32_array(n_points)
 
         element = MapElement(type=road_type)
         xyz = np.column_stack([x, y, z]).astype(np.float64)
@@ -120,7 +120,7 @@ def _read_roads(reader: _Reader, n_roads: int) -> dict[int, MapElement]:
             element.speed_limit_mps = reader.f32()
             element.length = reader.f32()
             element.cum_length = reader.f32_array(n_points).astype(np.float64)
-            reader.f32_array(n_points)  # curvature is recomputed by serialize.scenario_to_binary
+            reader.f32_array(n_points)
 
         road_map[element_id] = element
     return road_map
