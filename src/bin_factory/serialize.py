@@ -21,8 +21,8 @@ def _write_int_list(buf: bytearray, values: list[int]) -> None:
         buf.extend(struct.pack(f"<{len(values)}i", *map(int, values)))
 
 
-def _write_dynamic_states(buf: bytearray, track: schema.Track, yaw_rate: np.ndarray | None = None) -> np.ndarray:
-    """Write a per-track trajectory block (T + xyz + heading + velocity [+ yaw rate] + bbox + valid). Returns xyz."""
+def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
+    """Write a per-track trajectory block (T + xyz + heading + velocity + bbox + valid). Returns xyz."""
     xyz = np.asarray(track.position, dtype="<f4")
     buf.extend(struct.pack("<i", len(xyz)))
     for col in [
@@ -32,7 +32,6 @@ def _write_dynamic_states(buf: bytearray, track: schema.Track, yaw_rate: np.ndar
         track.heading,
         track.velocity[:, 0],
         track.velocity[:, 1],
-        *([] if yaw_rate is None else [yaw_rate]),
         track.length,
         track.width,
         track.height,
@@ -57,20 +56,10 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
 
     buf.extend(struct.pack("<iiii", len(agents), len(road_map), len(tcs), len(objects)))
 
-    # Agents: id, type, trajectory (with log yaw rate), route, route_gt_len, goal, control_state
+    # Agents: id, type, trajectory, route, route_gt_len, goal, control_state
     for eid, track in agents.items():
         buf.extend(struct.pack("<ii", int(eid), int(track.type)))
-        # Log yaw rate: heading difference across valid neighbours (central, one-sided at gaps, 0 when isolated)
-        valid = np.asarray(track.valid) > 0
-        heading = np.asarray(track.heading, dtype=np.float64)
-        prev_ok = np.concatenate([[False], valid[:-1]]) & valid
-        next_ok = np.concatenate([valid[1:], [False]]) & valid
-        start = np.where(prev_ok, np.concatenate([heading[:1], heading[:-1]]), heading)
-        end = np.where(next_ok, np.concatenate([heading[1:], heading[-1:]]), heading)
-        steps = prev_ok.astype(np.int64) + next_ok.astype(np.int64)
-        dtheta = (end - start + np.pi) % (2 * np.pi) - np.pi
-        yaw_rate = np.where(steps > 0, dtheta / (np.maximum(steps, 1) * scenario.metadata.dt), 0.0)
-        xyz = _write_dynamic_states(buf, track, yaw_rate)
+        xyz = _write_dynamic_states(buf, track)
 
         # Route
         _write_int_list(buf, track.route)

@@ -4,7 +4,7 @@
  *   Header: num_agents(i32), num_roads(i32), num_traffic(i32), num_objects(i32)
  *   Agents[]:  id(i32), type(i32), T(i32),
  *              x[T](f32), y[T](f32), z[T](f32),
- *              heading[T](f32), vx[T](f32), vy[T](f32), yaw_rate[T](f32),
+ *              heading[T](f32), vx[T](f32), vy[T](f32),
  *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32),
  *              n_route(i32), route[n_route](i32), route_gt_len(i32),
  *              goal_x(f32), goal_y(f32), goal_z(f32), control_state(i32)
@@ -69,14 +69,13 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       return rows;
     };
 
-    const readDynamicStateArrays = (T, hasYawRate) => {
+    const readDynamicStateArrays = (T) => {
       const xArr = f32arr(T);
       const yArr = f32arr(T);
       const zArr = f32arr(T);
       const heading = f32arr(T);
       const vxArr = f32arr(T);
       const vyArr = f32arr(T);
-      const yawRate = hasYawRate ? Array.from(f32arr(T)) : null;
       const length = f32arr(T);
       const width = f32arr(T);
       const height = f32arr(T);
@@ -85,7 +84,6 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
         xyz: colsToRows([xArr, yArr, zArr]),
         heading: Array.from(heading),
         velocity: colsToRows([vxArr, vyArr]),
-        ...(yawRate ? { yaw_rate: yawRate } : {}),
         length: Array.from(length),
         width: Array.from(width),
         height: Array.from(height),
@@ -96,7 +94,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     const readDynamicEntity = (hasRoute) => {
       const id = i32();
       const type = i32();
-      const states = readDynamicStateArrays(i32(), hasRoute); // only agents carry yaw rate
+      const states = readDynamicStateArrays(i32());
       if (!hasRoute) return {id, type, ...states};
       const route = intList();
       const route_gt_len = i32();

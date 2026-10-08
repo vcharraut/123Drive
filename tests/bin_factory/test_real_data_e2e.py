@@ -88,7 +88,7 @@ class _Reader:
 
     def skip_dynamic(self, channels=9):
         (t,) = self.ints(1)
-        self.floats(channels * t)  # xyz, heading, vx, vy, [yaw_rate,] length, width, height
+        self.floats(channels * t)  # xyz, heading, vx, vy, length, width, height
         self.ints(t)  # valid
         return t
 
@@ -100,7 +100,7 @@ def _parse(data):
     agents = []
     for _ in range(n_agents):
         eid, _type = r.ints(2)
-        n_points = r.skip_dynamic(channels=10)
+        n_points = r.skip_dynamic()
         route = r.ints(r.ints(1)[0])
         (route_gt_len,) = r.ints(1)
         r.floats(3)  # goal
