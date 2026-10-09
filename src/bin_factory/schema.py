@@ -112,6 +112,7 @@ class ExtractionExtras:
     stop_zones: list = dataclasses.field(default_factory=list)
     non_junction_shoulders: list = dataclasses.field(default_factory=list)  # centred (N, 3) shoulder outlines
     junction_drivables: list = dataclasses.field(default_factory=list)  # centred (N, 3) intersection + junction-shoulder outlines
+    centroid: list | None = None
 
 
 @dataclasses.dataclass

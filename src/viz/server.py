@@ -6,6 +6,7 @@ import re
 import shutil
 import tempfile
 from collections.abc import Callable
+from contextlib import AsyncExitStack
 from pathlib import Path
 
 
@@ -26,12 +27,22 @@ from viz.utils import as_json_dict
 app = FastAPI()
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+EXPORT_MAX_BYTES = 250 * 1024 * 1024
+EXPORT_TIMEOUT_S = 120
+EXPORT_MEDIA_TYPES = {"video/mp4": ".mp4", "video/webm": ".webm"}
+EXPORT_SEMAPHORE = asyncio.Semaphore(1)
+
 
 class NoCacheStaticMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         response = await call_next(request)
         if request.url.path.endswith((".js", ".css", ".html")):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "connect-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; "
+            "worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        )
         return response
 
 
@@ -52,15 +63,6 @@ def _resolve_scenario_path(filename: str) -> Path:
     if not path.is_relative_to(base) or path.suffix != ".bin":
         raise HTTPException(status_code=400, detail="Invalid scenario filename")
     return path
-
-
-def _input_suffix(content_type: str) -> str:
-    lowered = content_type.lower()
-    if "mp4" in lowered:
-        return ".mp4"
-    if "webm" in lowered:
-        return ".webm"
-    return ".dat"
 
 
 def _sanitize_export_name(name: str) -> str:
@@ -99,50 +101,78 @@ async def export_mp4(request: Request, name: str = "scenario") -> FileResponse:
     if shutil.which("ffmpeg") is None:
         raise HTTPException(status_code=500, detail="ffmpeg is not available on the server")
 
-    payload = await request.body()
-    if not payload:
-        raise HTTPException(status_code=400, detail="Missing recording payload")
+    expected_origin = f"{request.url.scheme}://{request.url.netloc}"
+    origin = request.headers.get("origin")
+    if origin and origin.rstrip("/") != expected_origin:
+        raise HTTPException(status_code=403, detail="Cross-origin exports are not allowed")
 
-    tempdir = Path(tempfile.mkdtemp(prefix="viz-export-"))
-    input_path = tempdir / f"input{_input_suffix(request.headers.get('content-type', ''))}"
-    output_path = tempdir / "output.mp4"
-    input_path.write_bytes(payload)
+    media_type = request.headers.get("content-type", "").split(";", 1)[0].lower()
+    if media_type not in EXPORT_MEDIA_TYPES:
+        raise HTTPException(status_code=415, detail="Recording must be video/webm or video/mp4")
+    if int(request.headers.get("content-length", "0")) > EXPORT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Recording exceeds the 250 MiB limit")
+    if EXPORT_SEMAPHORE.locked():
+        raise HTTPException(status_code=429, detail="Another recording is being encoded")
 
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        str(input_path),
-        "-vf",
-        "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "slow",
-        "-crf",
-        "18",
-        "-pix_fmt",
-        "yuv420p",
-        "-movflags",
-        "+faststart",
-        str(output_path),
-    ]
-    proc = await asyncio.create_subprocess_exec(*cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0 or not output_path.exists():
-        shutil.rmtree(tempdir, ignore_errors=True)
-        detail = stderr.decode(errors="replace").strip() or "ffmpeg export failed"
-        raise HTTPException(status_code=500, detail=detail)
+    async with EXPORT_SEMAPHORE:
+        async with AsyncExitStack() as cleanup:
+            tempdir = Path(tempfile.mkdtemp(prefix="viz-export-"))
+            cleanup.callback(shutil.rmtree, tempdir, ignore_errors=True)
+            input_path = tempdir / f"input{EXPORT_MEDIA_TYPES[media_type]}"
+            output_path = tempdir / "output.mp4"
+            received = 0
+            with input_path.open("wb") as input_handle:
+                async for chunk in request.stream():
+                    received += len(chunk)
+                    if received > EXPORT_MAX_BYTES:
+                        raise HTTPException(status_code=413, detail="Recording exceeds the 250 MiB limit")
+                    input_handle.write(chunk)
+            if received == 0:
+                raise HTTPException(status_code=400, detail="Missing recording payload")
 
-    return FileResponse(
-        output_path,
-        media_type="video/mp4",
-        filename=_sanitize_export_name(name),
-        background=BackgroundTask(shutil.rmtree, tempdir, ignore_errors=True),
-    )
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-i",
+                str(input_path),
+                "-vf",
+                "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "slow",
+                "-crf",
+                "18",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+                str(output_path),
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                _, stderr = await asyncio.wait_for(proc.communicate(), timeout=EXPORT_TIMEOUT_S)
+            except TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise HTTPException(status_code=504, detail="ffmpeg export timed out") from None
+            if proc.returncode != 0 or not output_path.exists():
+                detail = stderr.decode(errors="replace").strip() or "ffmpeg export failed"
+                raise HTTPException(status_code=500, detail=detail)
+
+            return FileResponse(
+                output_path,
+                media_type="video/mp4",
+                filename=_sanitize_export_name(name),
+                background=BackgroundTask(cleanup.pop_all().aclose),
+            )
 
 
 def main() -> None:

@@ -17,8 +17,12 @@ SUPPORTED_MAP_LAYERS = frozenset(
 AGENT_TYPE_MAP = {
     detections.DefaultBoxDetectionLabel.EGO: puffer_types.AgentType.VEHICLE,
     detections.DefaultBoxDetectionLabel.VEHICLE: puffer_types.AgentType.VEHICLE,
+    detections.DefaultBoxDetectionLabel.TRAIN: puffer_types.AgentType.OTHER,
     detections.DefaultBoxDetectionLabel.PERSON: puffer_types.AgentType.PEDESTRIAN,
     detections.DefaultBoxDetectionLabel.TWO_WHEELER: puffer_types.AgentType.CYCLIST,
+    detections.DefaultBoxDetectionLabel.ANIMAL: puffer_types.AgentType.OTHER,
+    detections.DefaultBoxDetectionLabel.OTHER: puffer_types.AgentType.OTHER,
+    detections.DefaultBoxDetectionLabel.GENERIC_OBJECT: puffer_types.AgentType.OTHER,
 }
 
 OBJECT_TYPE_MAP = {
@@ -26,7 +30,6 @@ OBJECT_TYPE_MAP = {
     detections.DefaultBoxDetectionLabel.TRAFFIC_CONE: puffer_types.ObjectType.TRAFFIC_CONE,
     detections.DefaultBoxDetectionLabel.TRAFFIC_LIGHT: puffer_types.ObjectType.TRAFFIC_LIGHT,
     detections.DefaultBoxDetectionLabel.BARRIER: puffer_types.ObjectType.BARRIER,
-    detections.DefaultBoxDetectionLabel.GENERIC_OBJECT: puffer_types.ObjectType.GENERIC_OBJECT,
 }
 
 LANE_TYPE_MAP = {

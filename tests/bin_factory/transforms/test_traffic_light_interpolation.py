@@ -61,6 +61,7 @@ def _inj(shape, *, record_tls=None, record_vehs=None, horizon=40, id=0):
         shape=shape,
         record_tls=[_TLS.ABSENT] * horizon if record_tls is None else record_tls,
         record_vehs=[{} for _ in range(horizon)] if record_vehs is None else record_vehs,
+        direction=_classify_direction(S_SHAPE, shape),
     )
 
 
@@ -161,7 +162,11 @@ def test_angle_of_headings(a, b, expected):
     ],
 )
 def test_classify_direction(shape, direction):
-    assert _classify_direction(np.asarray(shape, float)[:, :2]) == direction
+    assert _classify_direction(S_SHAPE, np.asarray(shape, float)) == direction
+
+
+def test_classify_direction_skips_degenerate_geometry():
+    assert _classify_direction(S_SHAPE, np.zeros((2, 3))) is None
 
 
 # ── _neighbor_type (locks the "trust py123d" decision: parallel non-low -> "real") ──────────
@@ -326,62 +331,62 @@ def test_group_lanes_into_ways_3way_orders_opposites_first():
 
 
 @pytest.mark.parametrize(
-    ("index", "acc", "expected"),
+    ("distance", "acc", "expected"),
     [
         (0, 1.0, 1.0),  # at stop line
-        (30, 1.0, 1.0),  # d=15, edge of plateau
-        (31, 1.0, (15.5 - 30) ** 2 / 225),  # decaying
-        (60, 1.0, 0.0),  # d=30, far before
-        (-20, 1.0, 0.0),  # d=-10 < -8, far past
-        (-16, 1.0, 1.0),  # d=-8 exactly -> still relevant
-        (-17, 1.0, 0.0),  # d=-8.5 < -8
-        (-2, -1.0, 0.0),  # just past line & decelerating -> irrelevant
-        (-2, 1.0, 1.0),  # just past line & accelerating -> relevant
+        (15, 1.0, 1.0),  # edge of plateau
+        (15.5, 1.0, (15.5 - 30) ** 2 / 225),  # decaying
+        (30, 1.0, 0.0),  # far before
+        (-10, 1.0, 0.0),  # far past
+        (-8, 1.0, 1.0),  # boundary remains relevant
+        (-8.5, 1.0, 0.0),
+        (-1, -1.0, 0.0),  # just past line and decelerating
+        (-1, 1.0, 1.0),
     ],
 )
-def test_relevance_weight_f(index, acc, expected):
-    assert _TLSGenerator._f(index, acc) == pytest.approx(expected)
+def test_relevance_weight_f(distance, acc, expected):
+    assert _TLSGenerator._f(distance, acc) == pytest.approx(expected)
 
 
 # ── _TLSGenerator._g (speed relevance weight) — locks corrected [-12, D2] plateau ───────────
 
 
 @pytest.mark.parametrize(
-    ("index", "speed", "expected"),
+    ("distance", "speed", "expected"),
     [
         # speed 0 -> D2 = 15
         (0, 0.0, 1.0),
-        (30, 0.0, 1.0),
-        (31, 0.0, (15.5 - 30) ** 2 / 225),
-        (60, 0.0, 0.0),
-        (-24, 0.0, 1.0),  # d=-12 exactly
-        (-25, 0.0, 0.0),  # d=-12.5 < -12
+        (15, 0.0, 1.0),
+        (15.5, 0.0, (15.5 - 30) ** 2 / 225),
+        (30, 0.0, 0.0),
+        (-12, 0.0, 1.0),
+        (-12.5, 0.0, 0.0),
         # speed 6 -> D2 = 6: these are the cases where upstream's typo'd `g` diverges
         (0, 6.0, 1.0),  # upstream would give 4.0
-        (8, 6.0, 1.0),  # d=4 inside plateau; upstream ~1.78
-        (12, 6.0, 1.0),  # d=6 == D2
-        (16, 6.0, (8 - 12) ** 2 / 36),  # d=8 decaying
-        (24, 6.0, 0.0),  # d=12 == 2*D2
-        (-10, 6.0, 1.0),  # just past stop line
+        (4, 6.0, 1.0),  # inside plateau; upstream ~1.78
+        (6, 6.0, 1.0),
+        (8, 6.0, (8 - 12) ** 2 / 36),
+        (12, 6.0, 0.0),
+        (-5, 6.0, 1.0),
         # speed 20 -> D2 = 23
         (0, 20.0, 1.0),
-        (46, 20.0, 1.0),
-        (60, 20.0, (30 - 46) ** 2 / 23**2),
-        (92, 20.0, 0.0),
+        (23, 20.0, 1.0),
+        (30, 20.0, (30 - 46) ** 2 / 23**2),
+        (46, 20.0, 0.0),
         # speed 30 -> D2 capped at 30
-        (60, 30.0, 1.0),
-        (90, 30.0, 0.25),
-        (120, 30.0, 0.0),
+        (30, 30.0, 1.0),
+        (45, 30.0, 0.25),
+        (60, 30.0, 0.0),
     ],
 )
-def test_relevance_weight_g(index, speed, expected):
-    assert _TLSGenerator._g(index, speed) == pytest.approx(expected)
+def test_relevance_weight_g(distance, speed, expected):
+    assert _TLSGenerator._g(distance, speed) == pytest.approx(expected)
 
 
 def test_g_plateau_is_flat_unlike_upstream():
     # Whole plateau [-12, D2] is exactly 1.0 (upstream peaks >1 near the stop line for v~6).
     gen_g = _TLSGenerator._g
-    assert all(gen_g(idx, 6.0) == 1.0 for idx in range(-20, 13))  # d in [-10, 6]
+    assert all(gen_g(distance, 6.0) == 1.0 for distance in range(-10, 7))
 
 
 # ── container / feasible-state generation ───────────────────────────────────────────────────
@@ -450,6 +455,25 @@ def test_make_candidate():
     assert candidate == [{S: _TLS.GREEN}, {S: _TLS.RED}]
 
 
+def test_generator_windows_scale_with_dt():
+    gen = _TLSGenerator(40, dt=0.2)
+
+    assert gen.delta_t == 5
+    assert gen.smoothing_width == 15
+    assert gen.yellow_duration == 10
+
+
+def test_speed_wins_equal_confidence_conflict():
+    gen = _TLSGenerator(40)
+    gen.container_template = [{S: None}]
+    gen._get_traj_metrics_at_phase = lambda approach, phase, curr_step: (2.0, 0.0, 1.0, 1.0, False)
+
+    estimated, confidence = gen._derive_estimated_state([[]], 10)
+
+    assert estimated == [{S: _TLS.RED}]
+    assert confidence == [{S: 1.0}]
+
+
 # ── _derive_imputed_state (the raw/estimated merge table) ───────────────────────────────────
 
 
@@ -509,12 +533,24 @@ def test_estimated_state_must_green_from_vehicle_past_stop_line():
     horizon, curr = 40, 20
     inj_vehs = [{} for _ in range(horizon)]
     inj_vehs[curr] = {1: _VehicleState(3, 5.0, 0.0)}  # just past the stop line, moving
-    approach = _approach([_inj(S_SHAPE, record_vehs=inj_vehs)])
+    approach = _approach([_inj(S_SHAPE, record_vehs=inj_vehs)], horizon=horizon)
     gen = _TLSGenerator(horizon)
     gen.container_template = gen._gen_state_container([[approach]])
     est, conf = gen._derive_estimated_state([[approach]], curr)
     assert est[0][S] == _TLS.GREEN
     assert conf[0][S] == gen.w_big
+
+
+def test_must_green_window_scales_with_dt():
+    horizon, curr = 80, 40
+    inj_vehs = [{} for _ in range(horizon)]
+    inj_vehs[curr + 3] = {1: _VehicleState(3, 5.0, 0.0)}
+    approach = _approach([_inj(S_SHAPE, record_vehs=inj_vehs)], horizon=horizon)
+    gen = _TLSGenerator(horizon, dt=0.05)
+
+    *_metrics, must_green = gen._get_traj_metrics_at_phase([approach], S, curr)
+
+    assert must_green
 
 
 def test_estimated_state_green_from_fast_approaching_vehicles():
@@ -721,7 +757,7 @@ def test_assignment_acceleration_uses_five_step_window():
     track = _vehicle_track(horizon, speed_fn=lambda t: 0.01 * t * t)  # nonlinear -> window matters
     result = _assign_vehicle_states_to_lanes({7: track}, _single_lane_matrix(), {0: 0}, dt=0.1, horizon=horizon)
     state = result[0][10][7]
-    assert state.lane_pos_idx == 5  # nearest lane point to x=5
+    assert state.station == pytest.approx(5.0)
     assert state.speed == pytest.approx(1.0)  # 0.01 * 100
     # (v[10] - v[5]) / (5 * 0.1) = (1.0 - 0.25) / 0.5 = 1.5  (a tt-1 window would give 1.9)
     assert state.acceleration == pytest.approx(1.5)
@@ -754,6 +790,16 @@ def test_assignment_rejects_far_vehicle():
     track = _vehicle_track(horizon, speed_fn=lambda t: 1.0, position=(5.0, 100.0, 0.0))  # 100 m off lane
     result = _assign_vehicle_states_to_lanes({7: track}, _single_lane_matrix(), {0: 0}, dt=0.1, horizon=horizon)
     assert all(step == {} for step in result[0])
+
+
+def test_assignment_projects_onto_sparse_segment():
+    horizon = 5
+    track = _vehicle_track(horizon, speed_fn=lambda t: 1.0, position=(10.0, 0.0, 0.0))
+    lane = np.array([[[0.0, 0.0, 0.0], [20.0, 0.0, 0.0]]])
+
+    result = _assign_vehicle_states_to_lanes({7: track}, lane, {0: 0}, dt=0.1, horizon=horizon)
+
+    assert result[0][0][7].station == pytest.approx(10.0)
 
 
 def test_assignment_rejects_misaligned_heading():

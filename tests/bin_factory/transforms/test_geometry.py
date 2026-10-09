@@ -1,7 +1,13 @@
 import numpy as np
 
 from bin_factory import puffer_types, schema
-from bin_factory.transforms.geometry import DEFAULT_LANE_WIDTH_M, arc_length, compute_lane_widths, polyline_length
+from bin_factory.transforms.geometry import (
+    DEFAULT_LANE_WIDTH_M,
+    _simplify_polyline,
+    arc_length,
+    compute_lane_widths,
+    polyline_length,
+)
 
 
 def test_arc_length_cumulative():
@@ -56,3 +62,23 @@ def test_compute_lane_widths_skips_non_lanes():
     lane.type = int(puffer_types.RoadLineType.SOLID_SINGLE_WHITE)
     compute_lane_widths(scenario)
     assert lane.width is None
+
+
+def test_simplification_recovers_z_from_original_station():
+    line = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 1.0, 10.0], [2.0, 0.0, 20.0], [3.0, 0.0, 30.0], [3.0, 1.0, 40.0]]
+    )
+
+    simplified = _simplify_polyline(line, 0.5)
+
+    np.testing.assert_allclose(simplified[:, 2], [0.0, 10.0, 30.0, 40.0])
+
+
+def test_simplification_preserves_z_when_xy_revisits():
+    line = np.array(
+        [[0.0, 0.0, 0.0], [1.0, 1.0, 10.0], [2.0, 0.0, 20.0], [1.0, 1.0, 30.0], [0.0, 2.0, 40.0]]
+    )
+
+    simplified = _simplify_polyline(line, 0.1)
+
+    np.testing.assert_array_equal(simplified, line)

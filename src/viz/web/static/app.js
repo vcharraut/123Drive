@@ -59,11 +59,10 @@ const {renderElementInfoHtml} = window.VizInfoPanel;
 // ── Constants ──────────────────────────────────────────────────────────────
 
 const AGENT_COLORS = {
-  0: [107, 114, 128],   // unset   – gray-500
+  0: [107, 114, 128],   // other   – gray-500
   1: [37,  99, 235],    // vehicle – blue-600
   2: [5,  150, 105],    // pedestrian – emerald-600
   3: [217, 119,  6],    // cyclist – amber-600
-  4: [107, 114, 128],   // other   – gray-500
 };
 const OBJECT_COLORS = {
   1: [220, 38, 38],
@@ -80,12 +79,12 @@ const EGO_ROUTE_COLOR = [220, 38, 38, 96];
 
 // Type constants — loaded from /api/types, fallbacks until fetched
 window.TYPES = {
-  AGENT_TYPE_NAMES: {0:'unset', 1:'vehicle', 2:'pedestrian', 3:'cyclist', 4:'other'},
+  AGENT_TYPE_NAMES: {0:'other', 1:'vehicle', 2:'pedestrian', 3:'cyclist'},
   ROAD_TYPE_NAMES: {},
   TC_TYPE_NAMES: {1:'traffic_light', 2:'stop_sign', 3:'yield_sign'},
   OBJECT_TYPE_NAMES: {1:'traffic_sign', 2:'traffic_cone', 3:'traffic_light', 4:'barrier', 5:'generic_object'},
-  TL_STATE_NAMES: {0:'unknown', 1:'green', 2:'yellow', 3:'red', 4:'off'},
-  TL_STATE_COLORS: {0:'#808080', 1:'#00FF00', 2:'#FFFF00', 3:'#FF0000', 4:'#808080'},
+  TL_STATE_NAMES: {0:'unknown', 1:'red', 2:'yellow', 3:'green', 4:'off'},
+  TL_STATE_COLORS: {0:'#808080', 1:'#FF0000', 2:'#FFFF00', 3:'#00FF00', 4:'#808080'},
   LANE_RANGE: [0, 9],
   ROAD_LINE_RANGE: [10, 19],
   ROAD_EDGE_RANGE: [20, 29],
@@ -106,7 +105,6 @@ function getTlStateColorRgb(state) {
 }
 
 
-const SPEED_MS = {0.5: 200, 1: 100, 2: 50, 4: 25};
 const RECORDING_FPS = 30;
 const RECORDING_GRID_STEP = 24;
 const RECORDING_VIDEO_BITS_PER_SECOND = 16_000_000;
@@ -209,6 +207,7 @@ function getRecordingLabel() {
 function getRecordingTitle() {
   if (!supportsRecording()) return 'Recording unsupported in this browser';
   if (!state.scenario) return 'Load a scenario to record';
+  if (state.scenario.metadata.scenario_length <= 1) return 'Static maps cannot be recorded';
   if (state.recording.status === 'recording') return 'Stop recording and export mp4';
   if (state.recording.status === 'encoding') return 'Encoding mp4';
   return 'Start mp4 recording';
@@ -218,7 +217,12 @@ function updateRecordingUi() {
   if (!btnRec) return;
   btnRec.textContent = getRecordingLabel();
   btnRec.title = getRecordingTitle();
-  btnRec.disabled = !supportsRecording() || !state.scenario || state.recording.status === 'encoding';
+  btnRec.disabled = (
+    !supportsRecording()
+    || !state.scenario
+    || state.scenario.metadata.scenario_length <= 1
+    || state.recording.status === 'encoding'
+  );
   btnRec.classList.toggle('active', state.recording.status === 'recording');
 }
 
@@ -1536,7 +1540,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     const DST_COLOR  = [239, 68, 68];  // red
     const PATH_COLOR = [6, 182, 212];  // cyan/teal
 
-    if (pf.source) {
+    if (pf.source !== null) {
       const srcElem = pfRoadMap.get(pf.source);
       if (srcElem) layers.push(new PathLayer({
         id: 'pf-source', data: [srcElem], getPath: toXY,
@@ -1544,7 +1548,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
         jointRounded: true, capRounded: true,
       }));
     }
-    if (pf.dest) {
+    if (pf.dest !== null) {
       const dstElem = pfRoadMap.get(pf.dest);
       if (dstElem) layers.push(new PathLayer({
         id: 'pf-dest', data: [dstElem], getPath: toXY,
@@ -1678,10 +1682,10 @@ function render() {
   }
   updateZoomDisplay(state.viewState.zoom);
 
-  document.getElementById('timestep-display').textContent =
-    `${t} / ${s.metadata.scenario_length - 1}`;
+  const finalTimestep = Math.max(s.metadata.scenario_length - 1, 0);
+  document.getElementById('timestep-display').textContent = `${t} / ${finalTimestep}`;
   document.getElementById('timeline').value = t;
-  document.getElementById('timeline').max = s.metadata.scenario_length - 1;
+  document.getElementById('timeline').max = finalTimestep;
 
   // Update info panel if agent selected (position changes per timestep)
   if (state.selected && state.selected.type === 'agent') {
@@ -1705,7 +1709,7 @@ function handlePathFinderClick(laneId) {
   const pf = state.pathFinder;
   const el = document.getElementById('element-detail');
 
-  if (!pf.source) {
+  if (pf.source === null) {
     // Set source
     pf.source = laneId;
     pf.dest = null;
@@ -1714,7 +1718,7 @@ function handlePathFinderClick(laneId) {
     el.innerHTML = `<div class="info-row"><span class="info-label">Path Finder</span><span class="info-val">Source: ${laneId}</span></div>
       <div class="info-row"><span class="info-label">Status</span><span class="info-val">Click destination lane</span></div>`;
     setAppStatus('Path Finder: click destination lane', 'info');
-  } else if (!pf.dest) {
+  } else if (pf.dest === null) {
     // Set destination and compute
     pf.dest = laneId;
     const result = reconstructPath(state.scenario, pf.source, pf.dest);
@@ -1853,6 +1857,7 @@ async function loadScenario(filename) {
     renderScenarioMeta(data);
     document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
     setAppStatus(`Loaded ${filename}`, 'ok');
+    updatePlaybackUi();
     updateRecordingUi();
 
     fitView();
@@ -1873,6 +1878,7 @@ async function loadScenario(filename) {
     document.getElementById('scenario-meta').innerHTML = '<span class="empty-state">Failed to load scenario. Select another file and retry.</span>';
     document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
     setAppStatus(`Failed to load ${filename}: ${errMsg}`, 'error');
+    updatePlaybackUi();
     updateRecordingUi();
   }
 }
@@ -1993,11 +1999,18 @@ function setTimestep(t) {
   render();
 }
 
+function updatePlaybackUi() {
+  const disabled = !state.scenario || state.scenario.metadata.scenario_length <= 1;
+  for (const id of ['btn-prev-first', 'btn-prev', 'btn-play', 'btn-next', 'btn-next-last', 'timeline', 'speed-select']) {
+    document.getElementById(id).disabled = disabled;
+  }
+}
+
 function startPlay() {
-  if (state.playTimer) return;
+  if (state.playTimer || !state.scenario || state.scenario.metadata.scenario_length <= 1) return;
   state.playing = true;
   document.getElementById('btn-play').textContent = '⏸';
-  const ms = SPEED_MS[state.speed] || 100;
+  const ms = 1000 * state.scenario.metadata.dt / state.speed;
   state.playTimer = setInterval(() => {
     if (!state.scenario) return;
     const next = state.timestep + 1;
@@ -2252,6 +2265,7 @@ document.getElementById('btn-theme').addEventListener('click', () => {
   setTheme(getTheme() === 'dark' ? 'light' : 'dark');
 });
 setTheme(savedTheme);
+updatePlaybackUi();
 updateRecordingUi();
 
 window.addEventListener('beforeunload', event => {

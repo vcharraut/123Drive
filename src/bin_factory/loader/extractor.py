@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -60,18 +61,21 @@ def extract_scenario(
         else None
     )
 
-    if not map_only and ego_states is None:
-        raise ValueError("Ego states are required to convert scenario with SceneAPI")
+    if not map_only and (ego_states is None or any(state is None for state in ego_states)):
+        raise ValueError("Ego states are required at every frame to convert scenario with SceneAPI")
 
     centroid = _compute_centroid(ego_states, map_api)
     map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, ego_states, map_only)
 
     if scene_api is not None and ego_states is not None:
-        dt = round(scene_api.scene_metadata.iteration_duration_s, 3)
-        if dt <= 0:
+        dt = float(scene_api.scene_metadata.iteration_duration_s)
+        if not np.isfinite(dt) or dt <= 0:
             raise ValueError(f"Invalid time step dt={dt} computed from scene metadata")
 
         all_objects, labels, tokens_to_object_id = _extract_objects(scene_api, centroid, ego_states)
+        for obj in all_objects.values():
+            _fill_missing_velocities(obj, dt)
+        dropped_labels: dict[str, int] = {}
         for oid, obj in all_objects.items():
             label = labels[oid]
             if label in mapping.AGENT_TYPE_MAP:
@@ -80,6 +84,16 @@ def extract_scenario(
             elif label in mapping.OBJECT_TYPE_MAP:
                 obj.type = mapping.OBJECT_TYPE_MAP[label]
                 objects[oid] = obj
+            else:
+                dropped_labels[label.name] = dropped_labels.get(label.name, 0) + 1
+        if dropped_labels:
+            log.warning(
+                "Scenario %s: dropped %d track(s) whose labels are in neither AGENT_TYPE_MAP "
+                "nor OBJECT_TYPE_MAP, so they are absent from the bin: %s",
+                metadata.id,
+                sum(dropped_labels.values()),
+                dropped_labels,
+            )
 
         _extract_prediction_targets(scene_api, tokens_to_object_id, agents, metadata)
 
@@ -102,6 +116,7 @@ def extract_scenario(
         stop_zones=stop_zones,
         non_junction_shoulders=non_junction_shoulders,
         junction_drivables=junction_drivables,
+        centroid=centroid.tolist(),
     )
     return scenario, extras
 
@@ -247,7 +262,9 @@ def _extract_map(
     if map_only or map_api.map_is_per_log or ego_states is None:
         map_objs = list(map_api.get_all_map_objects_in_layers(layers))
     else:
-        corridor = shapely.LineString([(s.center_se3.x, s.center_se3.y) for s in ego_states]).buffer(SCENE_MAP_MARGIN)
+        ego_xy = [(s.center_se3.x, s.center_se3.y) for s in ego_states]
+        centerline = shapely.Point(ego_xy[0]) if len(ego_xy) == 1 else shapely.LineString(ego_xy)
+        corridor = centerline.buffer(SCENE_MAP_MARGIN)
         map_objects_by_layer = map_api.query(corridor, layers, predicate="intersects")
         map_objs = cast("list[Any]", [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])])
 
@@ -274,7 +291,9 @@ def _extract_map(
         if element is None:
             continue
         if isinstance(element, schema.StopZone):
-            stop_zones.append(element)
+            controlled_lanes = [lane_id for lane_id in element.controlled_lanes if lane_id in lane_ids]
+            if controlled_lanes:
+                stop_zones.append(dataclasses.replace(element, controlled_lanes=controlled_lanes))
         else:
             result[next_id] = element
             next_id += 1
@@ -421,12 +440,33 @@ def _make_empty_track(episode_length: int) -> schema.Track:
         type=-1,  # placeholder until the 123D label is mapped to a puffer type
         position=np.zeros((episode_length, 3), dtype=np.float64),
         heading=np.zeros((episode_length,), dtype=np.float64),
-        velocity=np.zeros((episode_length, 2), dtype=np.float64),
+        velocity=np.full((episode_length, 2), np.nan, dtype=np.float64),
         valid=np.zeros((episode_length,), dtype=np.int32),
         length=np.zeros((episode_length,), dtype=np.float64),
         width=np.zeros((episode_length,), dtype=np.float64),
         height=np.zeros((episode_length,), dtype=np.float64),
     )
+
+
+def _fill_missing_velocities(track: schema.Track, dt: float) -> None:
+    valid_indices = np.flatnonzero(track.valid)
+    observed = np.all(np.isfinite(track.velocity), axis=1)
+    track.velocity[~track.valid.astype(bool)] = 0.0
+
+    for index in valid_indices[~observed[valid_indices]]:
+        neighbors = valid_indices[valid_indices != index]
+        previous = neighbors[neighbors < index]
+        following = neighbors[neighbors > index]
+        if len(previous) and len(following):
+            left, right = previous[-1], following[0]
+        elif len(previous):
+            left, right = previous[-1], index
+        elif len(following):
+            left, right = index, following[0]
+        else:
+            track.velocity[index] = 0.0
+            continue
+        track.velocity[index] = (track.position[right, :2] - track.position[left, :2]) / ((right - left) * dt)
 
 
 def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) -> np.ndarray:

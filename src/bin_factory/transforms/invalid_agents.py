@@ -75,7 +75,7 @@ def invalid_agent_overlap(scenario: schema.PufferScenario) -> None:
         track.valid[:] = 0
         track.route = []
         track.route_gt_len = 0
-        track.control_state = _compute_control_state(track)
+        track.control_state = _compute_control_state(track, scenario.metadata.dt)
 
     if flagged_ids:
         log.debug("zeroed %d overlapping log agents", len(flagged_ids))

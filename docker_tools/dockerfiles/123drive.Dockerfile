@@ -12,9 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY . /app/123Drive
-
 WORKDIR /app/123Drive
+
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY src ./src
+COPY docker_tools ./docker_tools
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
