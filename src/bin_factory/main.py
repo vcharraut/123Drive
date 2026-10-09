@@ -104,6 +104,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Zero out log-only agent trajectories that overlap with active agents during replay",
     )
     parser.add_argument(
+        "--non_drivable_shoulders",
+        action="store_true",
+        help="Add road edges along lane boundaries that border shoulder surfaces outside junctions (shoulders become off-road)",
+    )
+    parser.add_argument(
         "--reverse_road_edges",
         action="store_true",
         help="Reverse road-edge polyline order (Waymo convention) for nuplan/carla/opendrive",

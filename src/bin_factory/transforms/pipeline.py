@@ -17,9 +17,12 @@ Ordering is load-bearing:
 
 from __future__ import annotations
 
+import logging
+
 from typing import TYPE_CHECKING
 
 from .geometry import compute_lane_widths, interpolate_all_polygons, process_polylines, reverse_road_edges
+from .shoulder_edges import add_shoulder_edges
 from .graph import build_lane_distance_matrix, compute_lane_lengths
 from .invalid_agents import invalid_agent_overlap
 from .reindex import reindex_scenario
@@ -28,6 +31,8 @@ from .sanitize import prune_invalid_map_elements
 from .speed_zones import compute_speed_zones
 from .traffic_controls import process_traffic_controls
 from .traffic_light_interpolation import interpolate_traffic_lights
+
+logger = logging.getLogger("bin_factory")
 
 
 if TYPE_CHECKING:
@@ -43,6 +48,13 @@ def _interpolate_traffic_lights(
     scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
 ) -> None:
     interpolate_traffic_lights(scenario, extras)
+
+
+def _add_shoulder_edges(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
+    added = add_shoulder_edges(scenario, extras.non_junction_shoulders, extras.junction_drivables)
+    logger.info("non-drivable shoulders: %d road edges added along lane boundaries", added)
 
 
 def _reverse_road_edges(
@@ -122,6 +134,8 @@ def build_stages(config: argparse.Namespace) -> list[_Stage]:
     stages: list[_Stage] = []
     if config.interpolate_tl:
         stages.append(_interpolate_traffic_lights)
+    if config.non_drivable_shoulders:
+        stages.append(_add_shoulder_edges)
     if config.reverse_road_edges:
         stages.append(_reverse_road_edges)
     stages += [

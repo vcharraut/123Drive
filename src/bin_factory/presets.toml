@@ -31,6 +31,7 @@ scenario_id_field = "scene_uuid"
 [opendrive]
 datasets = ["opendrive"]
 reverse_road_edges = true
+non_drivable_shoulders = true
 scenario_id_field = "location"
 
 [wod-motion]

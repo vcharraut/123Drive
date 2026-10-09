@@ -7,6 +7,7 @@ def _config(**overrides):
     base = {
         "interpolate_tl": False,
         "reverse_road_edges": False,
+        "non_drivable_shoulders": False,
         "invalid_agent_overlap": False,
         "no_reindex": False,
         "max_segment_length": 10.0,
@@ -71,3 +72,9 @@ def test_no_reindex_drops_reindex_and_default_runs_it_last():
 def test_lane_graph_runs_immediately_after_lane_lengths():
     names = _names(_config())
     assert names.index("_build_lane_graph") == names.index("_compute_lane_lengths") + 1
+
+
+def test_non_drivable_shoulders_runs_before_road_edge_reversal():
+    names = _names(_config(non_drivable_shoulders=True, reverse_road_edges=True))
+    assert names.index("_add_shoulder_edges") < names.index("_reverse_road_edges") < names.index("_process_polylines")
+    assert "_add_shoulder_edges" not in _names(_config())

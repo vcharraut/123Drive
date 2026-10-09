@@ -96,7 +96,13 @@ def extract_scenario(
         objects=objects,
         metadata=metadata,
     )
-    extras = schema.ExtractionExtras(traffic_lights=traffic_lights, stop_zones=stop_zones)
+    non_junction_shoulders, junction_drivables = _extract_shoulder_context(map_api, centroid)
+    extras = schema.ExtractionExtras(
+        traffic_lights=traffic_lights,
+        stop_zones=stop_zones,
+        non_junction_shoulders=non_junction_shoulders,
+        junction_drivables=junction_drivables,
+    )
     return scenario, extras
 
 
@@ -335,6 +341,35 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
         )
 
     return None
+
+
+def _extract_shoulder_context(
+    map_api: py123d_api.MapAPI, centroid: np.ndarray
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Centred outlines of (shoulders outside intersections, intersections + shoulders inside them), read by the
+    non-drivable-shoulder transform."""
+    shoulder_layer = getattr(map_objects.MapLayer, "SHOULDER", None)  # py123d releases without the layer
+    layers = map_api.available_map_layers
+    if shoulder_layer is None or shoulder_layer not in layers:
+        return [], []
+    intersections: list[Any] = []
+    if map_objects.MapLayer.INTERSECTION in layers:
+        intersections = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.INTERSECTION))
+    intersection_polygons = [shapely.Polygon(obj.outline_2d.array[:, :2]) for obj in intersections]
+    intersection_tree = shapely.STRtree(intersection_polygons) if intersection_polygons else None
+    non_junction: list[np.ndarray] = []
+    junction: list[np.ndarray] = [_centered_array(obj.outline_3d.array, centroid) for obj in intersections]
+    for shoulder in map_api.get_all_map_objects_in_layer(shoulder_layer):
+        polygon = shapely.Polygon(shoulder.outline_2d.array[:, :2])
+        if polygon.is_empty:
+            continue
+        outline = _centered_array(shoulder.outline_3d.array, centroid)
+        centre = polygon.representative_point()
+        in_junction = intersection_tree is not None and any(
+            intersection_polygons[i].contains(centre) for i in intersection_tree.query(centre)
+        )
+        (junction if in_junction else non_junction).append(outline)
+    return non_junction, junction
 
 
 def _speed_limit(speed_limit_mps: float | None) -> float:
