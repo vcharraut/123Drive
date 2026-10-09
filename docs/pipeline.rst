@@ -66,15 +66,12 @@ The following stages run in exactly this order:
      - Compute agent routes
      - Match vehicle trajectories to the directed lane network
    * - 8
-     - Invalidate overlapping log agents
-     - Optional ``--invalid_agent_overlap`` removal of unrouted actors intersecting active actors
-   * - 9
      - Compute lane lengths
      - Store total and cumulative arc lengths over final lane geometry
-   * - 10
+   * - 9
      - Build lane graph
      - Precompute all-pairs directed distances for freeway and surface-street lanes
-   * - 11
+   * - 10
      - Reindex
      - Remap IDs and every surviving cross-reference unless ``--no_reindex`` is set
 
@@ -110,14 +107,6 @@ Only freeway and surface-street lanes participate in the serialized lane graph. 
 follows each source lane's ``exit_lanes`` and is weighted by that source lane's final arc length.
 Lane changes to a left or right neighbour are edges in both directions costing 25 metres, about the
 distance a lane change takes, so the lane that leads to the goal reads closer than its neighbours. SciPy Dijkstra produces the all-pairs matrix; unreachable destinations remain infinity.
-
-Overlap filtering
------------------
-
-When enabled, routed agents are considered active and unrouted agents log-only. For each frame,
-the transform uses axis-aligned boxes as a fast prefilter, then exact oriented Shapely polygons.
-The first intersection with any active agent clears the log-only actor's entire ``valid`` array
-and recomputes its control state.
 
 Reindexing
 ----------

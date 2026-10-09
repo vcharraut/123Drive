@@ -41,8 +41,9 @@ A moving vehicle must be within 5 metres of an elevation-compatible lane centerl
 stationary vehicle uses a stricter 0.3 metre threshold. A vehicle is also off-road if its oriented
 footprint intersects a road edge within 2 metres of its elevation.
 
-Static classification median-smooths the XY trajectory. An extent at or below 1.5 metres is
-parked. Larger accumulated jitter is still considered parked when peak motion over 1.5 seconds
+Static agents are frozen during self-play. A track shorter than 1.5 seconds is static when its
+median speed is at most 1 m/s. Otherwise, static classification median-smooths the XY trajectory.
+An extent at or below 1.5 metres is parked. Larger accumulated jitter is still considered parked when peak motion over 1.5 seconds
 stays below 1.5 metres and net displacement is less than 80% of the smoothed path length.
 
 Ground-truth lane candidates
@@ -94,3 +95,13 @@ Control state follows the result:
      - ``NON_CONTROLLABLE_MOVING``
    * - Vehicle is parked
      - ``NON_CONTROLLABLE_STATIC``
+
+The state is a flag read at simulator initialisation: controllable vehicles may be driven by the
+policy or IDM, moving ones are replayed from the log, static ones are frozen in self-play. No
+transform removes or invalidates log data.
+
+A final pass hands a non-ego ``CONTROLLABLE`` vehicle to ``NON_CONTROLLABLE_MOVING`` when its
+logged box overlaps another agent at ``--route_check_timestep``, or overlaps a moving or static
+agent at any later frame (duplicate tracks, perception noise). Controlling it would start the
+policy in, or drive it into, a collision the log already contains. A vehicle handed over counts as
+log-driven, so controllable vehicles it overlaps later are handed over too. The route is kept.

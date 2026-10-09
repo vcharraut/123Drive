@@ -56,8 +56,7 @@ Why presets matter
 ------------------
 
 Raw nuPlan logs can be much longer than simulator scenarios; the duration limit prevents excessive
-memory use. Road-edge direction differs for several sources. Overlap invalidation removes
-log-only actors that conflict with controllable replay actors. Traffic-light interpolation fills
+memory use. Road-edge direction differs for several sources. Traffic-light interpolation fills
 known signal gaps for selected datasets.
 
 Use a preset whenever one exists. Override only the values required by a specific experiment.

@@ -85,11 +85,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Interpolate/correct traffic light states from vehicle trajectories (Yan et al. 2025)",
     )
     parser.add_argument(
-        "--invalid_agent_overlap",
-        action="store_true",
-        help="Zero out log-only agent trajectories that overlap with active agents during replay",
-    )
-    parser.add_argument(
         "--reverse_road_edges",
         action="store_true",
         help="Reverse road-edge polyline order (Waymo convention) for nuplan/carla/opendrive",

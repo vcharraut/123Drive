@@ -111,9 +111,6 @@ Transforms
    * - ``--interpolate_tl`` / ``--impute_tl``
      - off
      - Infer and correct light phases from vehicle motion
-   * - ``--invalid_agent_overlap``
-     - off
-     - Invalidate unrouted actors overlapping active agents
    * - ``--reverse_road_edges``
      - off
      - Reverse road-edge point order for opposite source conventions

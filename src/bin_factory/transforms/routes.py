@@ -13,6 +13,7 @@ from collections import deque
 from typing import Any
 
 import numpy as np
+import shapely
 from shapely import geometry as shapely_geom
 
 from bin_factory import puffer_types, schema
@@ -95,6 +96,49 @@ def process_agent_routes(scenario: schema.PufferScenario, route_check_timestep: 
             if route
             else puffer_types.ControlState.NON_CONTROLLABLE_MOVING
         )
+    _replay_log_conflicts(scenario.agents, route_check_timestep)
+
+
+def _replay_log_conflicts(agents: dict[int, schema.Track], start: int) -> None:
+    """Hand to log replay (NON_CONTROLLABLE_MOVING) the controllable vehicles whose logged box overlaps another agent
+    at the start frame, or a log-driven (replayed or frozen) agent at any later frame.
+
+    Controlling them would start the policy in, or drive it along its route into, a collision the log already holds
+    (duplicate tracks, perception noise). Ego stays controllable. Only the control state changes: trajectories,
+    validity and routes are kept, so log replay and WOSAC still see the whole scene.
+    """
+    tracks = list(agents.values())
+    corners = _box_corners(tracks) if tracks else np.zeros((0, 0, 4, 2))
+    hits = []  # (agent, other, frame) index triples of intersecting boxes
+    for t in range(start, corners.shape[1]):
+        live = np.flatnonzero([track.valid[t] for track in tracks])
+        if len(live) < 2:
+            continue
+        boxes = shapely.polygons(corners[live, t])
+        i, j = shapely.STRtree(boxes).query(boxes, predicate="intersects")
+        hits.append(np.stack([live[i[i != j]], live[j[i != j]], np.full((i != j).sum(), t)], 1))
+    if not hits:
+        return
+    agent, other, frame = np.concatenate(hits).T
+    was_controllable = np.array([track.control_state == puffer_types.ControlState.CONTROLLABLE for track in tracks])
+    is_ego = np.array([aid == 0 for aid in agents])
+    controlled = was_controllable.copy()
+    # A vehicle handed to replay is log-driven too, so controlled vehicles it overlaps later are handed over in turn
+    while (hit := controlled[agent] & ~is_ego[agent] & ((frame == start) | ~controlled[other])).any():
+        controlled[agent[hit]] = False
+    for k in np.flatnonzero(was_controllable & ~controlled):
+        tracks[k].control_state = int(puffer_types.ControlState.NON_CONTROLLABLE_MOVING)
+
+
+def _box_corners(tracks: list[schema.Track]) -> np.ndarray:
+    """Oriented box corners (N, T, 4, 2) of every track at every frame."""
+    position = np.stack([track.position[:, :2] for track in tracks])
+    heading = np.stack([track.heading for track in tracks])
+    half = np.stack([np.stack([track.length, track.width], -1) / 2 for track in tracks])
+    local = half[:, :, None] * np.array([[1, 1], [1, -1], [-1, -1], [-1, 1]])
+    cos, sin = np.cos(heading)[..., None], np.sin(heading)[..., None]
+    rotated = np.stack([cos * local[..., 0] - sin * local[..., 1], sin * local[..., 0] + cos * local[..., 1]], -1)
+    return rotated + position[:, :, None]
 
 
 def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _RouteCache:
@@ -429,9 +473,13 @@ def _elevation_ok(
 
 
 def _is_static(agent_data: schema.Track, dt: float) -> bool:
-    trajectory = agent_data.position[:, :2][np.asarray(agent_data.valid, dtype=bool)]
-    if len(trajectory) < 2:
-        return True
+    valid = np.asarray(agent_data.valid, dtype=bool)
+    trajectory = agent_data.position[:, :2][valid]
+    # Static agents are frozen in self-play. A track shorter than the motion window can't show 1.5 m of travel even
+    # at speed (a car passing by for 1 s would freeze mid-lane), so judge it by its velocity at the same 1 m/s rate.
+    if len(trajectory) * dt < PARKED_MOTION_WINDOW_SECONDS:
+        speed = np.linalg.norm(agent_data.velocity[valid], axis=1)
+        return len(speed) == 0 or float(np.median(speed)) <= PARKED_MOTION_THRESHOLD / PARKED_MOTION_WINDOW_SECONDS
     smoothed = _median_smooth(trajectory, SMOOTH_WINDOW)
     if np.linalg.norm(np.ptp(smoothed, axis=0)) <= PARKED_MOTION_THRESHOLD:
         return True
