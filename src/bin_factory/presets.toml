@@ -35,7 +35,7 @@ non_drivable_shoulders = true
 scenario_id_field = "location"
 
 [nurec]
-datasets = ["nurec"]
+datasets = ["nurec", "nurec-2601", "nurec-2604"]
 scenario_id_field = "location"
 emit_metadata = true
 # No reverse_road_edges: NuRec boundaries already come with drivable-side-left.
