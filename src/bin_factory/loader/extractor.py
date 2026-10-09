@@ -19,6 +19,10 @@ if TYPE_CHECKING:
 
 
 SCENE_MAP_MARGIN = 250.0  # Lateral buffer (m) around the ego path for non-map-only scenarios
+MIN_LINE_LENGTH = 0.1  # m; shorter road lines are dropped
+LINE_DUPLICATE_DISTANCE = 0.05  # m; a road line this close (Hausdorff) to another of its type is a duplicate
+HOOK_MAX_LENGTH = 0.5  # m; an end segment shorter than this that turns sharply is a hook, not lane geometry
+HOOK_MIN_TURN = np.radians(30.0)
 
 
 def extract_scenario(
@@ -285,6 +289,13 @@ def _extract_map(
         element = _write_map_object(obj, centroid)
         if element is None:
             continue
+        # PY123D-REPORT[opendrive]: 36% of CARLA road lines are shorter than 10 cm.
+        if (
+            isinstance(element, schema.MapElement)
+            and element.is_line
+            and np.linalg.norm(np.diff(element.polyline[:, :2], axis=0), axis=1).sum() < MIN_LINE_LENGTH
+        ):
+            continue
         if isinstance(element, schema.StopZone):
             controlled_lanes = [lane_id for lane_id in element.controlled_lanes if lane_id in lane_ids]
             if controlled_lanes:
@@ -294,6 +305,7 @@ def _extract_map(
                 intersection_element_ids[obj.object_id] = next_id
             result[next_id] = element
             next_id += 1
+    _drop_duplicate_lines(result)
 
     # Stop zones reference intersections by their 123D id, map elements use sequential ids
     stop_zones = [
@@ -318,7 +330,7 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
             return None
         return schema.MapElement(
             type=puffer_type,
-            polyline=_centered_array(map_object.centerline_3d.array, centroid),
+            polyline=_trim_end_hooks(_centered_array(map_object.centerline_3d.array, centroid)),
             speed_limit_mps=float(speed) if (speed := map_object.speed_limit_mps) and not np.isnan(speed) else -1.0,
             entry_lanes=map_object.predecessor_ids,
             exit_lanes=map_object.successor_ids,
@@ -502,6 +514,41 @@ def _fill_missing_speed_limits(lanes: dict[int, schema.MapElement]) -> None:
             if lanes[ref].speed_limit_mps <= 0:
                 lanes[ref].speed_limit_mps = lane.speed_limit_mps
                 queue.append(ref)
+
+
+def _trim_end_hooks(line: np.ndarray) -> np.ndarray:
+    """Drop the inner points of a centerline's first and last ``HOOK_MAX_LENGTH`` when a segment there turns over
+    ``HOOK_MIN_TURN`` off the lane's direction (chord to the first point 1 m+ away). Both endpoints stay put."""
+    # PY123D-REPORT[opendrive]: ~2% of Town12/13 junction lane centerlines start or end with a 0.25 m zig-zag
+    # (sideways 0.125 m, or 90 degrees out and 178 back), turning the lane's end heading and spiking its curvature.
+    for _ in range(2):
+        dist = np.linalg.norm(line[:, :2] - line[0, :2], axis=1)
+        if (dist >= 1.0).any() and (dist >= HOOK_MAX_LENGTH).any():
+            chord = line[np.argmax(dist >= 1.0), :2] - line[0, :2]
+            end = int(np.argmax(dist >= HOOK_MAX_LENGTH))  # first point past the end stretch
+            steps = np.diff(line[: end + 1, :2], axis=0)
+            cos_turn = steps @ chord / np.maximum(np.linalg.norm(steps, axis=1) * np.linalg.norm(chord), 1e-12)
+            if (cos_turn < np.cos(HOOK_MIN_TURN)).any():
+                line = np.delete(line, np.arange(1, end), axis=0)
+        line = line[::-1]
+    return line
+
+
+def _drop_duplicate_lines(elements: dict[int, schema.MapElement]) -> None:
+    """Remove road lines that repeat an earlier line of the same type, in either direction or resampled."""
+    # PY123D-REPORT[nuplan,opendrive]: ~40% of road lines come twice, once per adjacent lane, often reversed and
+    # sometimes sampled differently.
+    ids = [eid for eid, element in elements.items() if element.is_line]
+    geoms = np.array([shapely.LineString(elements[eid].polyline[:, :2]) for eid in ids], dtype=object)
+    types = np.array([elements[eid].type for eid in ids], dtype=int)
+    ends = np.array([elements[eid].polyline[[0, -1], :2] for eid in ids]).reshape(-1, 2, 2)
+    i, j = shapely.STRtree(geoms).query(geoms, predicate="dwithin", distance=LINE_DUPLICATE_DISTANCE)
+    same = np.linalg.norm(ends[i] - ends[j], axis=-1).max(-1) < LINE_DUPLICATE_DISTANCE
+    flipped = np.linalg.norm(ends[i] - ends[j, ::-1], axis=-1).max(-1) < LINE_DUPLICATE_DISTANCE
+    pairs = (i < j) & (types[i] == types[j]) & (same | flipped)
+    pairs[pairs] = shapely.hausdorff_distance(geoms[i[pairs]], geoms[j[pairs]]) < LINE_DUPLICATE_DISTANCE
+    for k in np.unique(j[pairs]):
+        del elements[ids[k]]
 
 
 def _map_speed_limits(map_api: py123d_api.MapAPI) -> dict[int, float]:
