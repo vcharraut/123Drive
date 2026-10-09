@@ -246,7 +246,8 @@ def _extract_map(
     ]
 
     map_objs: list[Any]
-    if map_only or map_api.map_is_per_log or ego_states is None:
+    cropped = not (map_only or map_api.map_is_per_log or ego_states is None)
+    if not cropped:
         map_objs = list(map_api.get_all_map_objects_in_layers(layers))
     else:
         ego_xy = [(s.center_se3.x, s.center_se3.y) for s in ego_states]
@@ -269,6 +270,12 @@ def _extract_map(
 
     lane_ids = set(result.keys())
     _fix_lane_topology(result, undefined_lane, lane_ids)
+    if cropped and any(lane.speed_limit_mps <= 0 for lane in result.values()):
+        # Fill over the whole map: the crop often cuts a lane off every lane that has a limit (Boston: 6% vs 99%)
+        map_limits = _map_speed_limits(map_api)
+        for lane_id, lane in result.items():
+            if lane.speed_limit_mps <= 0:
+                lane.speed_limit_mps = map_limits.get(lane_id, -1.0)
     _fill_missing_speed_limits(result)
 
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
@@ -495,6 +502,23 @@ def _fill_missing_speed_limits(lanes: dict[int, schema.MapElement]) -> None:
             if lanes[ref].speed_limit_mps <= 0:
                 lanes[ref].speed_limit_mps = lane.speed_limit_mps
                 queue.append(ref)
+
+
+def _map_speed_limits(map_api: py123d_api.MapAPI) -> dict[int, float]:
+    """Speed limit of every lane in the whole map, unknown ones filled by ``_fill_missing_speed_limits``."""
+    objs = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE))
+    ids = {obj.object_id for obj in objs}
+    lanes = {
+        obj.object_id: schema.MapElement(
+            type=-1,
+            speed_limit_mps=float(speed) if (speed := obj.speed_limit_mps) and not np.isnan(speed) else -1.0,
+            entry_lanes=[ref for ref in obj.predecessor_ids if ref in ids],
+            exit_lanes=[ref for ref in obj.successor_ids if ref in ids],
+        )
+        for obj in objs
+    }
+    _fill_missing_speed_limits(lanes)
+    return {lane_id: lane.speed_limit_mps for lane_id, lane in lanes.items()}
 
 
 def _centered_array(array: np.ndarray, center: np.ndarray) -> np.ndarray:
