@@ -196,6 +196,11 @@ def _validate(
 def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Namespace) -> None:
     # 1. Load and convert 123D scenario to PufferDrive format
     scenario, extras = loader.extract_scenario(py123d_data, config.scenario_id_field)
+    # py123d reports the measured mean step (0.0995-0.1002 s for --dt 0.1): store the nominal one it sampled at
+    if scenario.metadata.scenario_length:
+        if abs(scenario.metadata.dt - config.dt) > 0.05 * config.dt:
+            raise ValueError(f"Scene step {scenario.metadata.dt:.4f} s is not the requested --dt {config.dt} s")
+        scenario.metadata.dt = config.dt
 
     # 2. Validate scenario
     _validate(scenario, config.validate_level, "Validation failed", extras)

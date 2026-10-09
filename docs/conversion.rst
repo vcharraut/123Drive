@@ -36,7 +36,8 @@ Timing
 ------
 
 ``--dt`` controls the requested sample period. Its default, ``0.1``, produces 10 Hz
-trajectories. ``--duration_s`` limits scene duration; zero means the full scene.
+trajectories. The binary stores this nominal ``dt``; a scene whose measured mean step is more than
+5% away from it fails. ``--duration_s`` limits scene duration; zero means the full scene.
 
 Raw nuPlan logs can span minutes. Converting them without a duration can exhaust memory. The
 ``nuplan`` and ``nuplan-mini`` presets use 20 seconds.
