@@ -57,7 +57,7 @@ Map elements
 Lanes, lines, and edges use a ``polyline``. Lane groups, intersections, crosswalks, walkways,
 carparks, generic-drivable areas, and speed bumps use a ``polygon``. Lanes also keep predecessor
 and successor IDs, neighbor IDs, boundaries, speed limit, total length, and cumulative per-point length.
-Lane curvature and agent yaw rate are derived at serialization.
+Lane curvature is derived at serialization.
 
 Road types reserve numeric ranges:
 

@@ -62,9 +62,6 @@ Repeat the following block ``n_agents`` times:
      - ``vx``, then ``vy``
      - Velocity channels
    * - ``float32[T]``
-     - ``yaw_rate``
-     - Log yaw rate (rad/s) from heading differences across valid neighbours; 0 on invalid or isolated frames
-   * - ``float32[T]``
      - ``length``, then ``width``, then ``height``
      - Bounding-box channels
    * - ``int32[T]``
@@ -198,8 +195,8 @@ Objects
 -------
 
 Repeat the same dynamic-state prefix used by agents ``n_objects`` times: ``id``, ``type``, ``T``,
-position, heading, velocity, dimensions, and valid channels. Objects have no ``yaw_rate`` channel and
-do not append route, goal, or control-state fields.
+position, heading, velocity, dimensions, and valid channels. Objects do not append route, goal, or
+control-state fields.
 
 Lane graph
 ----------

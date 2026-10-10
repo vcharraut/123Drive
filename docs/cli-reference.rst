@@ -110,7 +110,7 @@ Transforms
      - Preserve surviving source identifiers
    * - ``--interpolate_tl`` / ``--impute_tl``
      - off
-     - Infer and correct light phases from vehicle motion
+     - Fill missing light states from intersection geometry and vehicle motion
    * - ``--reverse_road_edges``
      - off
      - Reverse road-edge point order for opposite source conventions

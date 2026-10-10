@@ -28,6 +28,7 @@ MAX_CANDIDATES_PER_POINT = 7
 MAX_TRANSITION_HOPS = 3
 BACKWARD_PROGRESS_TOLERANCE = 2.0  # meters — allow small projection noise on same lane
 OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters — max lane distance at the check timestep
+MIN_ROUTE_REMAINING = 15.0  # meters of route ahead at the check timestep; above the simulator's largest goal radius
 ELEVATION_THRESHOLD = 2.0  # meters — reject matches to vertically separated roads
 SMOOTH_WINDOW = 7  # frames — odd median-filter window; kills per-frame perception spikes
 PARKED_MOTION_THRESHOLD = 1.5
@@ -85,15 +86,28 @@ def process_agent_routes(scenario: schema.PufferScenario, route_check_timestep: 
                 route_check_timestep=route_check_timestep,
             )
         )
-        if is_ego and not route:
-            raise ValueError(f"Route computation failed for ego vehicle (agent 0) in scenario {scenario.metadata.id}")
+        t = route_check_timestep
+        # The simulator retires an agent that spawns at its route end, so such a vehicle is replayed, not controlled
+        has_road_ahead = bool(route) and (
+            _route_remaining(agent_data.position[t], route, route_cache) >= MIN_ROUTE_REMAINING
+        )
+        if is_ego and (
+            not has_road_ahead
+            or _is_offroad(
+                agent_data.position[t], agent_data.heading[t], agent_data.length[t], agent_data.width[t], route_cache
+            )
+        ):
+            raise ValueError(
+                f"Ego vehicle (agent 0) has no route, under {MIN_ROUTE_REMAINING:g} m of route ahead or an off-road "
+                f"start in scenario {scenario.metadata.id}"
+            )
         agent_data.route = route
         agent_data.route_gt_len = route_gt_len
         agent_data.control_state = int(
             puffer_types.ControlState.NON_CONTROLLABLE_STATIC
             if is_static
             else puffer_types.ControlState.CONTROLLABLE
-            if route
+            if has_road_ahead
             else puffer_types.ControlState.NON_CONTROLLABLE_MOVING
         )
     _replay_log_conflicts(scenario.agents, route_check_timestep)
@@ -122,12 +136,30 @@ def _replay_log_conflicts(agents: dict[int, schema.Track], start: int) -> None:
     agent, other, frame = np.concatenate(hits).T
     was_controllable = np.array([track.control_state == puffer_types.ControlState.CONTROLLABLE for track in tracks])
     is_ego = np.array([aid == 0 for aid in agents])
+    if (is_ego[agent] & was_controllable[agent] & (frame == start)).any():
+        raise ValueError("Ego vehicle (agent 0) overlaps another agent at the start frame")
     controlled = was_controllable.copy()
     # A vehicle handed to replay is log-driven too, so controlled vehicles it overlaps later are handed over in turn
     while (hit := controlled[agent] & ~is_ego[agent] & ((frame == start) | ~controlled[other])).any():
         controlled[agent[hit]] = False
     for k in np.flatnonzero(was_controllable & ~controlled):
         tracks[k].control_state = int(puffer_types.ControlState.NON_CONTROLLABLE_MOVING)
+
+
+def _route_remaining(position: np.ndarray, route: list[int], route_cache: _RouteCache) -> float:
+    """Route length (m) ahead of ``position``: the rest of the nearest route lane plus every later lane."""
+    idx = np.array([route_cache["lane_id_to_idx"][lane_id] for lane_id in route])
+    distances, closest, closest_t = _points_to_polylines_distance(
+        position[:2].reshape(1, 2), route_cache["lane_polylines"][idx], route_cache["lane_lengths"][idx]
+    )
+    nearest = int(np.argmin(distances[0]))
+    segment = closest[0, nearest]
+    lengths = route_cache["lane_cum_lengths"][idx, route_cache["lane_lengths"][idx] - 1]
+    progress = (
+        route_cache["lane_cum_lengths"][idx[nearest], segment]
+        + closest_t[0, nearest] * route_cache["lane_segment_lengths"][idx[nearest], segment]
+    )
+    return float(lengths[nearest] - progress + lengths[nearest + 1 :].sum())
 
 
 def _box_corners(tracks: list[schema.Track]) -> np.ndarray:

@@ -1,1185 +1,255 @@
-"""Traffic light interpolation from vehicle trajectories.
+"""Traffic-light state completion from detections, intersection geometry and vehicle behaviour.
 
-This module implements the traffic-light interpolation algorithm described in the paper
-Improving Traffic Signal Data Quality for the Waymo Open Motion Dataset (Yan et al. 2025).
-
-Creates the traffic-light signals for an already-existing intersection by interpolating the
-signal phases from how vehicles move through it.
-
-Algorithm overview:
-1. Build lane graph and assign observed TL states to lanes.
-2. Identify signalized intersections via lane connectivity (diverge/merge groups).
-3. Assign vehicle states to lanes at each timestep (position, speed, acceleration).
-4. For each intersection and timestep:
-   a. raw_state: directly observed TL detections (from dataset).
-   b. estimated_state: inferred from vehicle kinematics (speed/acceleration near stop line).
-   c. interpolated_state: merge raw + estimated with confidence weighting.
-   d. Select closest feasible phase pattern (physically valid signal combination).
-5. Smooth short spurious phase flips, insert yellow transitions.
-6. Write interpolated states back to traffic_lights extras dict.
+Signalized connectors are the lanes carrying a TL track plus the successors of lanes in TL stop zones. Connectors of
+one intersection with the same approach and turn share a light (a movement group), unless their detections disagree.
+Groups linked by conflicts (crossing paths from different approaches) or by a shared approach run one hidden Markov
+model over joint states (every group GO or STOP), restricted to states where no two conflicting groups are both GO
+and softly favouring same-approach groups that agree. Per-frame evidence:
+- detections: strong, and detected frames are copied to the output, except the last seconds of a RED run before a
+  gap (detectors switch to green late), where the inference may overrule them,
+- vehicles crossing the stop line onto a connector: GO,
+- vehicles stopped right at the stop line: STOP.
+Forward-backward yields a GO posterior per group and frame. Confident frames become GREEN or RED, inferred GREEN
+ending in RED gets a yellow tail, everything else stays UNKNOWN.
 """
 
 from __future__ import annotations
 
-import enum
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
-
 import numpy as np
+import shapely
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
 
 from bin_factory import puffer_types, schema
-from bin_factory.log_context import log
-from bin_factory.transforms.geometry import polyline_length
 
 
-if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+_SWITCH_S = 30.0  # mean time between two switches of one group
+_DETECTION_LLR = 4.0  # log-likelihood ratio GO/STOP of one detection frame
+_ENTRY_LLR = 12.0  # vehicle crossing the stop line
+_FREE_ENTRY_LLR = 1.0  # same on a free turn (right turn on red is legal)
+_WAIT_LLR = -0.2  # per frame a vehicle stands at the stop line
+_MAX_GROUP_LLR = 16.0
+_COUPLING = 0.05  # per-frame log bonus for each pair of same-approach groups showing the same state
+_CONFIDENCE = 0.9
+_YELLOW_S = 3.0
+_LAG_S = 2.0  # RED detections lag the switch to green: their last seconds before a gap can be overruled
+_LAG_LLR = 1.0  # detection evidence in those seconds
+_ENTRY_S = 0.5  # GO evidence spread before the crossing frame
+_DEPART_S = 2.0  # last part of a stop dropped: the light is already green while the vehicle starts
+_PATH_S = 3.0  # vehicle path length used to tell connectors sharing a start apart
+_MAX_JOINT_GROUPS = 14
+_MAX_JOINT_STATES = 1024
 
-    from numpy.typing import ArrayLike
-
-
-_LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}
-_LANE_SHORT_THRESHOLD = 2.0
-_POINT_CLOSE_THRESHOLD = 5.0
-_LINE_PARALLEL_THRESHOLD = 15.0
-_DISTANCE_CRITERIA = 4.0
-_ANGLE_CRITERIA = np.pi / 12
-_ACCELERATION_MAXLIMIT = 10.0
-_TAIL_LANE_LENGTH_THRESHOLD = 8.0
-_TAIL_ENTRY_LENGTH_THRESHOLD = 20.0
-_TAIL_ALIGNMENT_THRESHOLD = np.pi / 9
-
-
-class _TLS(enum.IntEnum):
-    ABSENT = -1
-    UNKNOWN = 0
-    RED = 1
-    YELLOW = 2
-    GREEN = 3
-
-
-class _Direction(enum.IntEnum):
-    L = 0
-    S = 1
-    R = 2
-
-
-# Per-way signal state: maps each phase (grouped turn directions) to its light state,
-# None while not yet derived.
-_PhaseState = dict[tuple[_Direction, ...], "_TLS | None"]
-
-
-def _copy_state(state: list[_PhaseState]) -> list[_PhaseState]:
-    return [dict(d) for d in state]
-
-
-def _state_from_metric(
-    value: float, green_threshold: float, red_threshold: float, confidence: float, min_confidence: float
-) -> tuple[_TLS | None, float]:
-    if confidence < min_confidence:
-        return None, 0.0
-    if value >= green_threshold:
-        return _TLS.GREEN, confidence
-    if value <= red_threshold:
-        return _TLS.RED, confidence
-    return None, 0.0
-
-
-@dataclass(slots=True)
-class _VehicleState:
-    station: float
-    speed: float
-    acceleration: float
-
-
-@dataclass(slots=True)
-class _InJunctionLane:
-    id: int
-    shape: np.ndarray
-    record_tls: list[_TLS]
-    record_vehs: list[dict[int, _VehicleState]]
-    direction: _Direction
-    new_tls: list[_TLS | None] = field(init=False)
-
-    def __post_init__(self) -> None:
-        self.new_tls = [_TLS.UNKNOWN for _ in self.record_tls]
-
-
-@dataclass(slots=True)
-class _ApproachingLane:
-    id: int
-    shape: np.ndarray
-    record_vehs: list[dict[int, _VehicleState]]
-    injunction_lanes: list[_InJunctionLane] = field(default_factory=list)
-
-
-@dataclass(slots=True)
-class _LaneRecord:
-    id: int
-    polyline: np.ndarray
-    entry_lanes: list[int]
-    exit_lanes: list[int]
-    left_neighbors: list[int]
-    right_neighbors: list[int]
-    record_tls: list[_TLS]
-    diverge_lanes: set[int] = field(default_factory=set)
-    merge_lanes: set[int] = field(default_factory=set)
-
-
-class _UnionFind:
-    def __init__(self, items: Iterable[int]) -> None:
-        self.parent = {item: item for item in items}
-        self.rank = dict.fromkeys(items, 1)
-
-    def find(self, item: int) -> int:
-        root = item
-        while self.parent[root] != root:
-            root = self.parent[root]
-        while self.parent[item] != root:
-            self.parent[item], item = root, self.parent[item]
-        return root
-
-    def union(self, left: int, right: int) -> None:
-        root_left = self.find(left)
-        root_right = self.find(right)
-        if root_left == root_right:
-            return
-        if self.rank[root_left] < self.rank[root_right]:
-            root_left, root_right = root_right, root_left
-        self.parent[root_right] = root_left
-        if self.rank[root_left] == self.rank[root_right]:
-            self.rank[root_left] += 1
-
-    def groups(self) -> list[list[int]]:
-        root_to_items: dict[int, list[int]] = {}
-        for item in self.parent:
-            root_to_items.setdefault(self.find(item), []).append(item)
-        return [sorted(items) for items in root_to_items.values()]
+_GREEN, _YELLOW, _RED = (int(puffer_types.TLState[name]) for name in ("GREEN", "YELLOW", "RED"))
 
 
 def interpolate_traffic_lights(scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
-    if scenario.metadata.scenario_length <= 0:
+    length, dt = scenario.metadata.scenario_length, float(scenario.metadata.dt)
+    polys = {
+        lid: np.asarray(e.polyline, dtype=np.float64)[:, :2]
+        for lid, e in scenario.map.items()
+        if e.is_lane and e.polyline is not None and len(e.polyline) > 1 and np.ptp(e.polyline[:, :2], 0).any()
+    }
+    tracks = {int(tl.controlled_lane): tl for tl in extras.traffic_lights.values()}
+    zone_exits = {
+        exit_id
+        for zone in extras.stop_zones
+        if zone.type == puffer_types.TCType.TRAFFIC_LIGHT
+        for lid in zone.controlled_lanes
+        for exit_id in scenario.map[lid].exit_lanes
+    }
+    ids = sorted((set(tracks) | zone_exits) & set(polys))
+    if length <= 0 or not ids:
         return
 
-    interpolator = _TrafficLightInterpolator(scenario, extras)
-    interpolator.interpolate()
+    lines = [polys[lid] for lid in ids]
+    observed = np.array(
+        [[int(s) for s in tracks[lid].states[:length]] if lid in tracks else [0] * length for lid in ids]
+    )
+    obs = np.select([observed == _RED, (observed == _GREEN) | (observed == _YELLOW)], [-1, 1], 0)
+    start = np.array([line[0] for line in lines])
+    start_dir = np.array([_first_dir(line) for line in lines])
+    end_dir = np.array([-_first_dir(line[::-1]) for line in lines])
+    turn = np.arctan2(_cross(start_dir, end_dir), (start_dir * end_dir).sum(1))
+    turn_class = np.where(np.abs(turn) < np.radians(30), 0, np.sign(turn)).astype(int)
+    # free turn: right turn on red allowed, left turn in left-hand traffic
+    free = turn_class == (1 if scenario.metadata.location.startswith("sg-") else -1)
 
+    group, conflict, couple = _movement_groups(lines, start_dir, turn_class, free, obs)
+    lag = _lag_frames(obs, round(_LAG_S / dt))
+    llr = obs * np.where(lag, _LAG_LLR, _DETECTION_LLR)
+    llr += _vehicle_evidence(scenario.agents, lines, start, start_dir, free, length, dt)
+    group_llr = np.zeros((group.max() + 1, length))
+    np.add.at(group_llr, group, llr)
+    go = _group_posterior(np.clip(group_llr, -_MAX_GROUP_LLR, _MAX_GROUP_LLR), conflict, couple, dt / _SWITCH_S)
 
-class _TrafficLightInterpolator:
-    def __init__(self, scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
-        self.scenario = scenario
-        self.extras = extras
-        self.length = scenario.metadata.scenario_length
-        self.dt = max(float(scenario.metadata.dt), 1e-3)
-        self.lanes = self._build_lanes()
-
-    def interpolate(self) -> None:
-        if len(self.lanes) < 4:
-            return
-
-        self._clean_lanes()
-        signalized_intersections = self._find_signalized_intersections()
-        if not signalized_intersections:
-            log.debug("no signalized intersections found")
-            return
-
-        lane_center_matrix, row_to_lane_id = self._form_lane_center_matrix()
-        veh_assignment = _assign_vehicle_states_to_lanes(
-            self.scenario.agents,
-            lane_center_matrix,
-            row_to_lane_id,
-            self.dt,
-            self.length,
-        )
-
-        traffic_lights = dict(self.extras.traffic_lights)
-        generator = _TLSGenerator(self.length, self.dt)
-        updated_lanes = 0
-
-        for intersection_ids in signalized_intersections:
-            intersection = self._form_intersection(intersection_ids, veh_assignment)
-            if len(intersection) not in (3, 4):
-                continue
-            tls_sequence = generator.gen_period(intersection)
-            if not tls_sequence:
-                continue
-            updated_lanes += self._write_generated_states(intersection, tls_sequence, traffic_lights)
-
-        if updated_lanes == 0:
-            log.debug("traffic-light interpolation produced no updates")
-            return
-
-        self.extras.traffic_lights = traffic_lights
-        log.debug(
-            "interpolated traffic lights for %d lanes across %d intersections",
-            updated_lanes,
-            len(signalized_intersections),
-        )
-
-    def _build_lanes(self) -> dict[int, _LaneRecord]:
-        lanes: dict[int, _LaneRecord] = {}
-        for lane_id, element in self.scenario.map.items():
-            if element.type not in _LANE_TYPES:
-                continue
-            polyline = _as_xyz_array(element.polyline)
-            if len(polyline) < 2:
-                continue
-            lanes[int(lane_id)] = _LaneRecord(
-                id=int(lane_id),
-                polyline=polyline,
-                entry_lanes=[int(ref) for ref in element.entry_lanes],
-                exit_lanes=[int(ref) for ref in element.exit_lanes],
-                left_neighbors=[int(ref) for ref in element.left_neighbor],
-                right_neighbors=[int(ref) for ref in element.right_neighbor],
-                record_tls=[_TLS.ABSENT for _ in range(self.length)],
+    go = go[group]
+    inferred = np.select([go > _CONFIDENCE, go < 1 - _CONFIDENCE], [_GREEN, _RED], 0)
+    kept = (observed != 0) & ~(lag & (inferred != 0))
+    states = np.where(kept, observed, _yellow_tails(inferred, kept, round(_YELLOW_S / dt)))
+    for lid, row in zip(ids, states, strict=True):
+        if lid in tracks:
+            tracks[lid].states = [puffer_types.TLState(int(s)) for s in row]
+        elif row.any():
+            extras.traffic_lights[lid] = schema.TrafficLightTrack(
+                position=np.asarray(scenario.map[lid].polyline, dtype=np.float64)[0].copy(),
+                states=[puffer_types.TLState(int(s)) for s in row],
+                controlled_lane=lid,
             )
 
-        for traffic_light in self.extras.traffic_lights.values():
-            lane_id = int(traffic_light.controlled_lane)
-            lane = lanes.get(lane_id)
-            if lane is None:
-                continue
-            for idx, state in enumerate(traffic_light.states[: self.length]):
-                lane.record_tls[idx] = _from_puffer_tls(state)
 
-        return lanes
-
-    def _clean_lanes(self) -> None:
-        self._prune_short_dead_ends()
-        self._validate_connectivity()
-        self._classify_neighbors()
-        self._symmetrize_neighbors()
-        self._compute_diverge_merge()
-        self._symmetrize_diverge_merge()
-
-    def _prune_short_dead_ends(self) -> None:
-        to_delete = [
-            lane_id
-            for lane_id, lane in self.lanes.items()
-            if (len(lane.entry_lanes) == 0 or len(lane.exit_lanes) == 0)
-            and polyline_length(lane.polyline) < _LANE_SHORT_THRESHOLD
-        ]
-        for lane_id in to_delete:
-            del self.lanes[lane_id]
-
-    def _validate_connectivity(self) -> None:
-        for lane in self.lanes.values():
-            lane.entry_lanes = [
-                ref
-                for ref in lane.entry_lanes
-                if ref in self.lanes
-                and _distance(lane.polyline[0], self.lanes[ref].polyline[-1]) < _POINT_CLOSE_THRESHOLD
-            ]
-            lane.exit_lanes = [
-                ref
-                for ref in lane.exit_lanes
-                if ref in self.lanes
-                and _distance(lane.polyline[-1], self.lanes[ref].polyline[0]) < _POINT_CLOSE_THRESHOLD
-            ]
-
-    def _classify_neighbors(self) -> None:
-        for lane in self.lanes.values():
-            lane.left_neighbors = self._clean_neighbors(lane, lane.left_neighbors)
-            lane.right_neighbors = self._clean_neighbors(lane, lane.right_neighbors)
-
-    def _symmetrize_neighbors(self) -> None:
-        orig_left = {lid: list(lane.left_neighbors) for lid, lane in self.lanes.items()}
-        orig_right = {lid: list(lane.right_neighbors) for lid, lane in self.lanes.items()}
-        for lane in self.lanes.values():
-            lane.left_neighbors = [ref for ref in lane.left_neighbors if lane.id in orig_right.get(ref, [])]
-            lane.right_neighbors = [ref for ref in lane.right_neighbors if lane.id in orig_left.get(ref, [])]
-
-    def _compute_diverge_merge(self) -> None:
-        for lane in self.lanes.values():
-            for left in lane.entry_lanes:
-                for right in lane.entry_lanes:
-                    if left != right and left in self.lanes and right in self.lanes:
-                        self.lanes[left].merge_lanes.add(right)
-            for left in lane.exit_lanes:
-                for right in lane.exit_lanes:
-                    if left != right and left in self.lanes and right in self.lanes:
-                        self.lanes[left].diverge_lanes.add(right)
-
-    def _symmetrize_diverge_merge(self) -> None:
-        orig_div = {lid: set(lane.diverge_lanes) for lid, lane in self.lanes.items()}
-        orig_mer = {lid: set(lane.merge_lanes) for lid, lane in self.lanes.items()}
-        for lane in self.lanes.values():
-            lane.diverge_lanes = {ref for ref in lane.diverge_lanes if lane.id in orig_div.get(ref, set())}
-            lane.merge_lanes = {ref for ref in lane.merge_lanes if lane.id in orig_mer.get(ref, set())}
-
-    def _clean_neighbors(self, lane: _LaneRecord, neighbors: list[int]) -> list[int]:
-        cleaned: list[int] = []
-        for neighbor_id in neighbors:
-            neighbor = self.lanes.get(neighbor_id)
-            if neighbor is None:
-                continue
-            neighbor_type = _neighbor_type(lane.polyline, neighbor.polyline)
-            if neighbor_type in {"real", "bifurcated-parallel", "merged-parallel"}:
-                cleaned.append(neighbor_id)
-            if neighbor_type in {"bifurcated", "bifurcated-parallel"}:
-                lane.diverge_lanes.add(neighbor_id)
-            if neighbor_type in {"merged", "merged-parallel"}:
-                lane.merge_lanes.add(neighbor_id)
-        return cleaned
-
-    def _find_signalized_intersections(self) -> list[list[int]]:
-        if not self.lanes:
-            return []
-
-        def is_connection_group(group: list[int]) -> bool:
-            return len(group) > 1 and any(
-                self.lanes[lane_id].diverge_lanes or self.lanes[lane_id].merge_lanes for lane_id in group
-            )
-
-        union_find = _UnionFind(self.lanes)
-        for lane in self.lanes.values():
-            for neighbor_id in lane.left_neighbors + lane.right_neighbors:
-                if neighbor_id not in self.lanes:
-                    continue
-                if _real_neighbor_type(lane.polyline, self.lanes[neighbor_id].polyline) == "complete":
-                    union_find.union(lane.id, neighbor_id)
-            for ref in lane.diverge_lanes | lane.merge_lanes:
-                if ref in self.lanes:
-                    union_find.union(lane.id, ref)
-
-        connection_groups = [group for group in union_find.groups() if is_connection_group(group)]
-        internal_lanes = {lane_id for group in connection_groups for lane_id in group}
-
-        for lane_id, lane in self.lanes.items():
-            if lane_id in internal_lanes or not lane.entry_lanes or not lane.exit_lanes:
-                continue
-            if (
-                lane.entry_lanes[0] in self.lanes
-                and lane.exit_lanes[0] in self.lanes
-                and union_find.find(lane.entry_lanes[0]) == union_find.find(lane.exit_lanes[0])
-            ):
-                union_find.union(lane_id, lane.entry_lanes[0])
-                union_find.union(lane_id, lane.exit_lanes[0])
-
-        signalized = []
-        for group in union_find.groups():
-            if not is_connection_group(group):
-                continue
-            if len(group) < 4:
-                continue
-            if not any(any(state != _TLS.ABSENT for state in self.lanes[lane_id].record_tls) for lane_id in group):
-                continue
-            invalid_entry = any(
-                len(self.lanes[lane_id].entry_lanes) > 1
-                and not any(entry_lane in group for entry_lane in self.lanes[lane_id].entry_lanes)
-                for lane_id in group
-            )
-            if not invalid_entry:
-                signalized.append(group)
-
-        return signalized
-
-    def _form_lane_center_matrix(self) -> tuple[np.ndarray, dict[int, int]]:
-        lane_ids = list(self.lanes)
-        max_points = max(len(self.lanes[lane_id].polyline) for lane_id in lane_ids)
-        matrix = np.full((len(lane_ids), max_points, 3), np.inf, dtype=np.float64)
-        row_to_lane_id = {}
-        for row, lane_id in enumerate(lane_ids):
-            polyline = self.lanes[lane_id].polyline
-            matrix[row, : len(polyline)] = polyline
-            row_to_lane_id[row] = lane_id
-        return matrix, row_to_lane_id
-
-    def _form_intersection(
-        self,
-        intersection_ids: list[int],
-        veh_assignment: dict[int, list[dict[int, _VehicleState]]],
-    ) -> list[list[_ApproachingLane]]:
-        internal_ids = set(intersection_ids)
-        incoming_ids = sorted(
-            {
-                entry_lane
-                for lane_id in internal_ids
-                for entry_lane in self.lanes[lane_id].entry_lanes
-                if entry_lane not in internal_ids
-            }
-        )
-
-        approaching_lanes = []
-        for lane_id in incoming_ids:
-            lane = self.lanes.get(lane_id)
-            if lane is None:
-                continue
-            approaching = _ApproachingLane(
-                id=lane_id,
-                shape=lane.polyline,
-                record_vehs=veh_assignment.get(lane_id, [{} for _ in range(self.length)]),
-            )
-            for next_lane_id in lane.exit_lanes:
-                if next_lane_id not in internal_ids or next_lane_id not in self.lanes:
-                    continue
-                next_lane = self.lanes[next_lane_id]
-                direction = _classify_direction(lane.polyline, next_lane.polyline)
-                if direction is None:
-                    continue
-                approaching.injunction_lanes.append(
-                    _InJunctionLane(
-                        id=next_lane_id,
-                        shape=next_lane.polyline,
-                        record_tls=list(next_lane.record_tls),
-                        record_vehs=veh_assignment.get(next_lane_id, [{} for _ in range(self.length)]),
-                        direction=direction,
-                    )
-                )
-            if approaching.injunction_lanes:
-                approaching_lanes.append(approaching)
-
-        return _group_lanes_into_ways(approaching_lanes)
-
-    def _write_generated_states(
-        self,
-        intersection: list[list[_ApproachingLane]],
-        tls_sequence: list[list[_PhaseState]],
-        traffic_lights: dict[int, schema.TrafficLightTrack],
-    ) -> int:
-        updated_lanes: set[int] = set()
-        for timestep, tls_state in enumerate(tls_sequence):
-            for way_idx, approach in enumerate(intersection):
-                if not approach:
-                    continue
-                for lane in approach:
-                    directions = {conn.direction for conn in lane.injunction_lanes}
-                    phase = next(
-                        (candidate for candidate in tls_state[way_idx] if directions.issubset(set(candidate))),
-                        None,
-                    )
-                    if phase is None:
-                        phase = next(
-                            candidate
-                            for candidate in tls_state[way_idx]
-                            if any(direction in candidate for direction in directions)
-                        )
-                    state = tls_state[way_idx][phase]
-                    for conn in lane.injunction_lanes:
-                        conn.new_tls[timestep] = state
-                        track = traffic_lights.get(conn.id)
-                        if track is None and self._is_tail_lane(conn.id):
-                            continue
-                        if track is None or len(track.states) != self.length:
-                            track = schema.TrafficLightTrack(
-                                position=conn.shape[0].astype(np.float64, copy=True),
-                                states=[puffer_types.TLState.UNKNOWN] * self.length,
-                                controlled_lane=conn.id,
-                            )
-                            traffic_lights[conn.id] = track
-                        track.states[timestep] = _to_puffer_tls(state)
-                        updated_lanes.add(conn.id)
-        return len(updated_lanes)
-
-    def _is_tail_lane(self, lane_id: int) -> bool:
-        lane = self.lanes.get(lane_id)
-        if lane is None or polyline_length(lane.polyline) >= _TAIL_LANE_LENGTH_THRESHOLD:
-            return False
-        if len(lane.entry_lanes) != 1:
-            return False
-
-        entry_lane = self.lanes.get(lane.entry_lanes[0])
-        if entry_lane is None or len(entry_lane.exit_lanes) != 1:
-            return False
-        if polyline_length(entry_lane.polyline) <= _TAIL_ENTRY_LENGTH_THRESHOLD:
-            return False
-
-        lane_vector = lane.polyline[-1, :2] - lane.polyline[0, :2]
-        entry_vector = entry_lane.polyline[-1, :2] - entry_lane.polyline[0, :2]
-        if np.linalg.norm(lane_vector) < 1e-6 or np.linalg.norm(entry_vector) < 1e-6:
-            return False
-        return (
-            _angle_of_headings(np.arctan2(lane_vector[1], lane_vector[0]), np.arctan2(entry_vector[1], entry_vector[0]))
-            < _TAIL_ALIGNMENT_THRESHOLD
-        )
-
-
-class _TLSGenerator:
-    def __init__(
-        self,
-        horizon: int,
-        dt: float = 0.1,
-        delta_t: int | None = None,
-        smoothing_width: int | None = None,
-        yellow_duration: int | None = None,
-    ) -> None:
-        self.horizon = horizon
-        self.v_green = 3.0  # m/s — speed above which vehicle likely sees green
-        self.v_red = 1.0  # m/s — speed below which vehicle likely sees red
-        self.a_green = 0.5  # m/s² — acceleration suggesting green
-        self.a_red = -1.0  # m/s² — deceleration suggesting red
-        self.delta_t = max(1, round(1.0 / dt)) if delta_t is None else delta_t
-        self.theta = 0.8  # confidence threshold for estimated state
-        self.w_big = 100.0  # high-confidence weight (raw + estimated agree)
-        self.w_small = 0.1  # low-confidence weight (raw-only, no estimation)
-        self.smoothing_width = max(1, round(3.0 / dt)) if smoothing_width is None else smoothing_width
-        self.yellow_duration = max(1, round(2.0 / dt)) if yellow_duration is None else yellow_duration
-        self.must_green_window = max(1, round(0.2 / dt))
-        self.container_template: list[_PhaseState] = []
-
-    def gen_period(
-        self,
-        intersection: list[list[_ApproachingLane]],
-    ) -> list[list[_PhaseState]]:
-        if len(intersection) not in (2, 3, 4) or self.horizon == 0:
-            return []
-
-        generated_steps = list(range(self.delta_t, self.horizon - self.delta_t))
-        if not generated_steps:
-            state = self.gen_one_moment(intersection, 0)
-            return [_copy_state(state) for _ in range(self.horizon)]
-
-        tl_state_buff: list[list[_PhaseState] | None] = [None for _ in range(self.horizon)]
-        prev_state = None
-        for step in generated_steps:
-            current = self.gen_one_moment(intersection, step, prev_state)
-            tl_state_buff[step] = current
-            prev_state = current
-
-        first_state = cast("list[_PhaseState]", tl_state_buff[generated_steps[0]])
-        last_state = cast("list[_PhaseState]", tl_state_buff[generated_steps[-1]])
-        for step in range(generated_steps[0]):
-            tl_state_buff[step] = _copy_state(first_state)
-        for step in range(generated_steps[-1] + 1, self.horizon):
-            tl_state_buff[step] = _copy_state(last_state)
-
-        # generated_steps is contiguous and padded above, so no None remains
-        return self._add_yellow_light(self._smooth_sequence(cast("list[list[_PhaseState]]", tl_state_buff)))
-
-    def gen_one_moment(
-        self,
-        intersection: list[list[_ApproachingLane]],
-        curr_step: int,
-        prev_state: list[_PhaseState] | None = None,
-    ) -> list[_PhaseState]:
-        self.container_template = self._gen_state_container(intersection)
-        raw_state = self._derive_raw_state(intersection, curr_step)
-        estimated_state, confidence = self._derive_estimated_state(intersection, curr_step)
-        imputed_state, weight = self._derive_imputed_state(raw_state, estimated_state, confidence)
-        if len(intersection) == 2:
-            return imputed_state
-
-        feasible_states = self._get_feasible_states()
-        candidate_states = self._score_candidate_states(feasible_states, imputed_state, weight)
-        if prev_state is not None and prev_state in candidate_states:
-            return _copy_state(prev_state)
-        return self._fill_right_turn_signal(_copy_state(candidate_states[0]))
-
-    def _gen_state_container(
-        self,
-        intersection: list[list[_ApproachingLane]],
-    ) -> list[_PhaseState]:
-        state_container: list[_PhaseState] = []
-        for approach in intersection:
-            movements = {conn.direction for lane in approach for conn in lane.injunction_lanes}
-            union_find = _UnionFind(range(3))
-            for lane in approach:
-                for conn_i in lane.injunction_lanes:
-                    for conn_j in lane.injunction_lanes:
-                        union_find.union(conn_i.direction.value, conn_j.direction.value)
-            phases = [
-                tuple(_Direction(direction) for direction in group)
-                for group in union_find.groups()
-                if all(_Direction(direction) in movements for direction in group)
-            ]
-            state_container.append(dict.fromkeys(phases))
-        return state_container
-
-    def _derive_raw_state(
-        self,
-        intersection: list[list[_ApproachingLane]],
-        curr_step: int,
-    ) -> list[_PhaseState]:
-        raw_state = _copy_state(self.container_template)
-        for index, approach in enumerate(intersection):
-            for lane in approach:
-                for conn in lane.injunction_lanes:
-                    phase = next((c for c in raw_state[index] if conn.direction in c), None)
-                    if phase is None:
-                        continue
-                    for step in range(curr_step, max(0, curr_step - self.delta_t) - 1, -1):
-                        state = conn.record_tls[step]
-                        if state in {_TLS.ABSENT, _TLS.UNKNOWN} or raw_state[index][phase] is not None:
-                            continue
-                        raw_state[index][phase] = _TLS.GREEN if state == _TLS.YELLOW else _TLS(state)
-        return raw_state
-
-    def _derive_estimated_state(
-        self,
-        intersection: list[list[_ApproachingLane]],
-        curr_step: int,
-    ) -> tuple[list[_PhaseState], list[dict[tuple[_Direction, ...], float | None]]]:
-        estimated_state = _copy_state(self.container_template)
-        confidence: list[dict[tuple[_Direction, ...], float | None]] = [
-            dict.fromkeys(way) for way in self.container_template
-        ]
-
-        for index, approach in enumerate(intersection):
-            for phase in estimated_state[index]:
-                if phase == (_Direction.R,):
-                    continue
-                mean_acc, mean_spd, sum_f, sum_g, must_green = self._get_traj_metrics_at_phase(
-                    approach,
-                    phase,
-                    curr_step,
-                )
-                if must_green:
-                    estimated_state[index][phase] = _TLS.GREEN
-                    confidence[index][phase] = self.w_big
-                    continue
-                speed_state, speed_confidence = _state_from_metric(
-                    mean_spd, self.v_green, self.v_red, sum_g, self.theta
-                )
-                acceleration_state, acceleration_confidence = _state_from_metric(
-                    mean_acc, self.a_green, self.a_red, sum_f, self.theta
-                )
-                if acceleration_confidence > speed_confidence:
-                    estimated_state[index][phase] = acceleration_state
-                    confidence[index][phase] = acceleration_confidence
-                elif speed_state is not None:
-                    estimated_state[index][phase] = speed_state
-                    confidence[index][phase] = speed_confidence
-
-        return estimated_state, confidence
-
-    def _derive_imputed_state(
-        self,
-        raw_state: list[_PhaseState],
-        estimated_state: list[_PhaseState],
-        confidence: list[dict[tuple[_Direction, ...], float | None]],
-    ) -> tuple[list[_PhaseState], list[dict[tuple[_Direction, ...], float]]]:
-        imputed_state = _copy_state(self.container_template)
-        weight = [dict.fromkeys(way, 0.0) for way in self.container_template]
-        for index in range(len(raw_state)):
-            for phase in raw_state[index]:
-                raw = raw_state[index][phase]
-                estimated = estimated_state[index][phase]
-                conf = confidence[index][phase] or 0.0  # None only when estimated is None
-                if raw is None and estimated is None:
-                    weight[index][phase] = 0.0
-                elif raw is None:
-                    imputed_state[index][phase] = estimated
-                    weight[index][phase] = conf
-                elif estimated is None:
-                    imputed_state[index][phase] = raw
-                    weight[index][phase] = self.w_small
-                elif raw == estimated:
-                    imputed_state[index][phase] = estimated
-                    weight[index][phase] = self.w_big
-                elif conf >= self.theta:
-                    imputed_state[index][phase] = estimated
-                    weight[index][phase] = conf
-                else:
-                    imputed_state[index][phase] = raw
-                    weight[index][phase] = 0.0
-        return imputed_state, weight
-
-    def _get_feasible_states(self) -> list[list[_PhaseState]]:
-        n = len(self.container_template)
-        if n == 4:
-            return self._feasible_states_4way()
-        if n == 3:
-            return self._feasible_states_3way()
-        return []
-
-    def _make_candidate(self, state_fn: Callable[[int, tuple[_Direction, ...]], _TLS]) -> list[_PhaseState]:
-        """Build a candidate state by applying state_fn(way_index, phase) -> _TLS to each phase."""
-        candidate = _copy_state(self.container_template)
-        for index in range(len(candidate)):
-            for phase in candidate[index]:
-                candidate[index][phase] = state_fn(index, phase)
-        return candidate
-
-    def _can_split_left(self, way_indices: Iterable[int]) -> bool:
-        """Check if left-turn phases are separate from straight phases for the given ways."""
-        return not any(
-            any(_Direction.L in phase and _Direction.S in phase for phase in self.container_template[index])
-            for index in way_indices
-        )
-
-    def _feasible_states_4way(self) -> list[list[_PhaseState]]:
-        candidates = []
-        # Single-way green
-        for green_way in range(4):
-            candidates.append(self._make_candidate(lambda i, _p, g=green_way: _TLS.GREEN if i == g else _TLS.RED))
-
-        # Opposing-way green (0+2, 1+3) with optional left-turn split phases
-        for green_group in ([0, 2], [1, 3]):
-            gs = frozenset(green_group)
-            candidates.append(self._make_candidate(lambda i, _p, g=gs: _TLS.GREEN if i in g else _TLS.RED))
-
-            if not self._can_split_left(green_group):
-                continue
-            # Left-only green for the group
-            candidates.append(
-                self._make_candidate(
-                    lambda i, p, g=gs: _TLS.GREEN if i in g and _Direction.L in p else _TLS.RED,
-                )
-            )
-            # Straight-only green for the group (left gets red)
-            candidates.append(
-                self._make_candidate(
-                    lambda i, p, g=gs: _TLS.GREEN if i in g and _Direction.L not in p else _TLS.RED,
-                )
-            )
-
-        return candidates
-
-    def _feasible_states_3way(self) -> list[list[_PhaseState]]:
-        candidates = []
-        # Single-way green
-        for green_way in range(3):
-            candidates.append(self._make_candidate(lambda i, _p, g=green_way: _TLS.GREEN if i == g else _TLS.RED))
-
-        # Left-turn split for ways 0+1
-        if self._can_split_left((0, 1)):
-            candidates.append(
-                self._make_candidate(
-                    lambda i, p: _TLS.GREEN if i in (0, 1) and _Direction.L not in p else _TLS.RED,
-                )
-            )
-            candidates.append(
-                self._make_candidate(
-                    lambda i, p: _TLS.GREEN if i in (0, 1) and _Direction.L in p else _TLS.RED,
-                )
-            )
-
-        # Ways 0+1 both green, way 2 red
-        candidates.append(self._make_candidate(lambda i, _p: _TLS.GREEN if i != 2 else _TLS.RED))
-
-        return candidates
-
-    def _score_candidate_states(
-        self,
-        feasible_states: list[list[_PhaseState]],
-        imputed_state: list[_PhaseState],
-        weight: list[dict[tuple[_Direction, ...], float]],
-    ) -> list[list[_PhaseState]]:
-        def match_score(candidate: list[_PhaseState]) -> float:
-            return sum(
-                weight[index][phase]
-                for index in range(len(imputed_state))
-                for phase in imputed_state[index]
-                if imputed_state[index][phase] is not None and imputed_state[index][phase] == candidate[index][phase]
-            )
-
-        def conflict_score(candidate: list[_PhaseState]) -> float:
-            return sum(
-                weight[index][phase]
-                for index in range(len(imputed_state))
-                for phase in imputed_state[index]
-                if imputed_state[index][phase] is not None and imputed_state[index][phase] != candidate[index][phase]
-            )
-
-        scores = [
-            (index, match_score(candidate), conflict_score(candidate))
-            for index, candidate in enumerate(feasible_states)
-        ]
-        best_match = max(scores, key=lambda item: item[1])[1]
-        scores = [score for score in scores if score[1] == best_match]
-        lowest_conflict = min(scores, key=lambda item: item[2])[2]
-        return [feasible_states[index] for index, _, conflict in scores if conflict == lowest_conflict]
-
-    def _fill_right_turn_signal(
-        self,
-        state: list[_PhaseState],
-    ) -> list[_PhaseState]:
-        for lane_state in state:
-            if (_Direction.R,) not in lane_state:
-                continue
-            straight_phase = next((phase for phase in lane_state if _Direction.S in phase), None)
-            left_phase = next((phase for phase in lane_state if _Direction.L in phase), None)
-            if straight_phase is not None:
-                lane_state[(_Direction.R,)] = lane_state[straight_phase]
-            elif left_phase is not None:
-                lane_state[(_Direction.R,)] = lane_state[left_phase]
-        return state
-
-    def _get_traj_metrics_at_phase(
-        self,
-        approach: list[_ApproachingLane],
-        phase: tuple[_Direction, ...],
-        curr_step: int,
-    ) -> tuple[float, float, float, float, bool]:
-        selected_lanes = [lane for lane in approach if any(conn.direction in phase for conn in lane.injunction_lanes)]
-        lane_lengths = [polyline_length(lane.shape) for lane in selected_lanes]
-        trajectories: dict[int, list[tuple[float, float, float]]] = {}
-
-        def append_record(veh_id: int, distance: float, speed: float, acceleration: float) -> None:
-            trajectories.setdefault(veh_id, []).append((distance, speed, acceleration))
-
-        start = max(0, curr_step - self.delta_t)
-        end = min(self.horizon, curr_step + self.delta_t)
-        for timestep in range(start, end):
-            for lane, lane_length in zip(selected_lanes, lane_lengths, strict=True):
-                for veh_id, record in lane.record_vehs[timestep].items():
-                    append_record(
-                        veh_id,
-                        lane_length - record.station,
-                        record.speed,
-                        record.acceleration,
-                    )
-
-                has_right_turn = any(conn.direction == _Direction.R for conn in lane.injunction_lanes)
-                for conn in lane.injunction_lanes:
-                    for veh_id, record in conn.record_vehs[timestep].items():
-                        append_record(veh_id, -record.station, record.speed, record.acceleration)
-                        if (
-                            not has_right_turn
-                            and abs(timestep - curr_step) <= self.must_green_window
-                            and 0 <= record.station < 5.0
-                            and record.speed > 0
-                        ):
-                            return 0.0, 0.0, 0.0, 0.0, True
-
-        if not trajectories:
-            return 0.0, 0.0, 0.0, 0.0, False
-
-        per_vehicle = {}
-        for veh_id, records in trajectories.items():
-            distances, speeds, accelerations = zip(*records, strict=False)
-            f_values = [self._f(distance, acc) for distance, acc in zip(distances, accelerations, strict=False)]
-            g_values = [self._g(distance, speed) for distance, speed in zip(distances, speeds, strict=False)]
-            per_vehicle[veh_id] = (
-                np.average(accelerations, weights=f_values) if np.sum(f_values) else 0.0,
-                np.average(speeds, weights=g_values) if np.sum(g_values) else 0.0,
-                float(np.max(f_values)) if f_values else 0.0,
-                float(np.max(g_values)) if g_values else 0.0,
-            )
-
-        accelerations, speeds, f_values, g_values = zip(*per_vehicle.values(), strict=False)
-        filtered_f = [value for value in f_values if value]
-        filtered_acc = [accelerations[idx] for idx, value in enumerate(f_values) if value]
-        filtered_g = [value for value in g_values if value]
-        filtered_speed = [speeds[idx] for idx, value in enumerate(g_values) if value]
-
-        sum_f = np.log1p(np.sum(filtered_f))
-        mean_acc = np.average(filtered_acc, weights=filtered_f) if filtered_f else 0.0
-        sum_g = np.log1p(np.sum(filtered_g))
-        mean_spd = np.average(filtered_speed, weights=filtered_g) if filtered_g else 0.0
-        return float(mean_acc), float(mean_spd), float(sum_f), float(sum_g), False
-
-    @staticmethod
-    def _f(distance: float, acceleration: float) -> float:
-        """Acceleration relevance weight: how much a vehicle's acceleration at this
-        distance from the stop line informs TL state.
-        """
-        if distance < -8 or (acceleration < 0 and distance < 0):
-            return 0.0
-        if distance <= 15:
-            return 1.0
-        if distance >= 30:
-            return 0.0
-        return ((distance - 30) ** 2) / (15 * 15)
-
-    @staticmethod
-    def _g(distance: float, speed: float) -> float:
-        """Speed relevance weight: how much a vehicle's speed at this distance from the stop line informs TL state."""
-        if distance < -12:
-            return 0.0
-
-        distance_limit = (15 - 6) / (6 * 6) * (speed - 6) ** 2 + 6 if speed <= 12 else min(speed - 12 + 15, 30)
-
-        if distance > 2 * distance_limit:
-            return 0.0
-        if distance <= distance_limit:
-            return 1.0
-        return ((distance - 2 * distance_limit) ** 2) / (distance_limit * distance_limit)
-
-    def _smooth_sequence(
-        self,
-        tl_state_buff: list[list[_PhaseState]],
-    ) -> list[list[_PhaseState]]:
-        intervals: set[tuple[int, int]] = set()
-        for way_idx in range(len(self.container_template)):
-            for phase in self.container_template[way_idx]:
-                intervals.update(self._find_short_intervals(tl_state_buff, way_idx, phase))
-
-        for start, end in sorted(intervals):
-            for step in range(start, end + 1):
-                tl_state_buff[step] = _copy_state(tl_state_buff[start - 1])
-
-        return tl_state_buff
-
-    def _find_short_intervals(
-        self,
-        tl_state_buff: list[list[_PhaseState]],
-        way_idx: int,
-        phase: tuple[_Direction, ...],
-    ) -> list[tuple[int, int]]:
-        intervals = []
-        index = 0
-        while index < len(tl_state_buff):
-            current = tl_state_buff[index][way_idx][phase]
-            if current in {_TLS.GREEN, _TLS.RED}:
-                other = _TLS.RED if current == _TLS.GREEN else _TLS.GREEN
-                next_index = index + 1
-                while next_index < len(tl_state_buff) and tl_state_buff[next_index][way_idx][phase] == other:
-                    next_index += 1
-                span = next_index - index - 1
-                if (
-                    next_index < len(tl_state_buff)
-                    and 0 < span < self.smoothing_width
-                    and tl_state_buff[next_index][way_idx][phase] == current
-                ):
-                    intervals.append((index + 1, next_index - 1))
-                index = next_index
-            else:
-                index += 1
-        return intervals
-
-    def _add_yellow_light(
-        self,
-        tl_state_buff: list[list[_PhaseState]],
-    ) -> list[list[_PhaseState]]:
-        for way_idx in range(len(self.container_template)):
-            for phase in self.container_template[way_idx]:
-                red_indices = [
-                    step
-                    for step in range(1, len(tl_state_buff))
-                    if tl_state_buff[step][way_idx][phase] == _TLS.RED
-                    and tl_state_buff[step - 1][way_idx][phase] == _TLS.GREEN
-                ]
-                for step in red_indices:
-                    for yellow_step in range(step - self.yellow_duration, step):
-                        if 0 <= yellow_step < len(tl_state_buff):
-                            tl_state_buff[yellow_step][way_idx][phase] = _TLS.YELLOW
-        return tl_state_buff
-
-
-def _assign_vehicle_states_to_lanes(
-    tracks: dict[int, schema.Track],
-    lane_center_matrix: np.ndarray,
-    row_to_lane_id: dict[int, int],
+def _first_dir(line: np.ndarray) -> np.ndarray:
+    steps = np.diff(line, axis=0)
+    step = steps[np.linalg.norm(steps, axis=1) > 0][0]
+    return step / np.linalg.norm(step)
+
+
+def _lag_frames(obs: np.ndarray, frames: int) -> np.ndarray:
+    """The last `frames` frames of each detected RED run followed by a gap."""
+    lag = np.zeros(obs.shape, dtype=bool)
+    lag[:, :-1] = (obs[:, :-1] == -1) & (obs[:, 1:] == 0)
+    for _ in range(frames - 1):
+        lag[:, :-1] |= lag[:, 1:] & (obs[:, :-1] == obs[:, 1:])
+    return lag
+
+
+def _cross(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    return a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0]
+
+
+def _components(n: int, pairs: np.ndarray) -> np.ndarray:
+    adjacency = coo_matrix((np.ones(len(pairs[0])), (pairs[0], pairs[1])), shape=(n, n))
+    return connected_components(adjacency, directed=False)[1]
+
+
+def _movement_groups(
+    lines: list[np.ndarray], start_dir: np.ndarray, turn_class: np.ndarray, free: np.ndarray, obs: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Group label per connector, and boolean group matrices: conflicts (crossing paths from different approaches,
+    no free turn) and couples (same approach)."""
+    n = len(lines)
+    geoms = [shapely.LineString(line) for line in lines]
+    tree = shapely.STRtree(geoms)
+    intersection = _components(n, tree.query(geoms, predicate="dwithin", distance=1.0))
+    aligned = start_dir @ start_dir.T
+    approach = _components(n, np.nonzero((intersection[:, None] == intersection) & (aligned > np.cos(np.radians(30)))))
+    disagree = (np.abs(obs) @ np.abs(obs).T - obs @ obs.T) / 2 > 0.05 * np.maximum(np.abs(obs) @ np.abs(obs).T, 1)
+    same = (approach[:, None] == approach) & (turn_class[:, None] == turn_class) & ~disagree
+    group = _components(n, np.nonzero(same))
+
+    i, j = tree.query(geoms, predicate="crosses")
+    keep = ~free[i] & ~free[j] & (approach[i] != approach[j])
+    conflict = np.zeros((group.max() + 1,) * 2, dtype=bool)
+    conflict[group[i[keep]], group[j[keep]]] = True
+    couple = np.zeros_like(conflict)
+    couple[group[:, None], group] = approach[:, None] == approach
+    np.fill_diagonal(couple, False)
+    return group, conflict | conflict.T, couple
+
+
+def _vehicle_evidence(
+    agents: dict[int, schema.Track],
+    lines: list[np.ndarray],
+    start: np.ndarray,
+    start_dir: np.ndarray,
+    free: np.ndarray,
+    length: int,
     dt: float,
-    horizon: int,
-) -> dict[int, list[dict[int, _VehicleState]]]:
-    n_rows = len(row_to_lane_id)
-    assignments_by_row = [[{} for _ in range(horizon)] for _ in range(n_rows)]
-    if n_rows == 0:
-        return {row_to_lane_id[row]: assignments_by_row[row] for row in row_to_lane_id}
-
-    row_idx = np.arange(n_rows)
-    acceleration_steps = max(1, round(0.5 / dt))
-    starts = lane_center_matrix[:, :-1]
-    ends = lane_center_matrix[:, 1:]
-    finite_mask = np.all(np.isfinite(starts), axis=2) & np.all(np.isfinite(ends), axis=2)
-    starts = np.where(finite_mask[:, :, np.newaxis], starts, 0.0)
-    ends = np.where(finite_mask[:, :, np.newaxis], ends, 0.0)
-    segments = ends - starts
-    segment_lengths = np.linalg.norm(segments, axis=2)
-    segment_lengths_sq = np.maximum(segment_lengths**2, 1e-10)
-    segment_stations = np.pad(np.cumsum(segment_lengths, axis=1)[:, :-1], ((0, 0), (1, 0)))
-    lane_headings_all = np.arctan2(segments[:, :, 1], segments[:, :, 0])
-    for track_id, track in tracks.items():
+) -> np.ndarray:
+    """Per connector and frame: GO evidence where vehicles enter it, STOP evidence where they wait at its stop line."""
+    llr = np.zeros((len(lines), length))
+    entry, depart, path = round(_ENTRY_S / dt), round(_DEPART_S / dt), round(_PATH_S / dt)
+    line_lengths = np.array([np.linalg.norm(np.diff(line, axis=0), axis=1).sum() for line in lines])
+    for track in agents.values():
         if track.type != puffer_types.AgentType.VEHICLE:
             continue
-        positions = np.asarray(track.position, dtype=np.float64)
-        headings = np.asarray(track.heading, dtype=np.float64)
-        velocities = np.asarray(track.velocity, dtype=np.float64)
-        valid = np.asarray(track.valid, dtype=bool)
+        pos = np.asarray(track.position, dtype=np.float64)[:length, :2]
+        valid = np.asarray(track.valid, dtype=bool)[:length]
+        speed = np.linalg.norm(np.asarray(track.velocity, dtype=np.float64)[:length, :2], axis=1)
+        heading = np.asarray(track.heading, dtype=np.float64)[:length]
+        rel = pos[:, None] - start
+        along = (rel * start_dir).sum(-1)
+        lateral = _cross(start_dir, rel)
+        on = valid[:, None] & (np.abs(lateral) < 2.0)
+        on &= np.stack([np.cos(heading), np.sin(heading)], -1) @ start_dir.T > np.cos(np.radians(45))
+        crossing = np.zeros_like(on)
+        crossing[1:] = on[1:] & on[:-1] & (along[:-1] < 0) & (along[1:] >= 0) & (speed[1:, None] > 1.0)
+        waiting = on & (speed[:, None] < 0.5) & (along > -6.0) & (along < 0)
+        waiting[:-depart] &= waiting[depart:]
+        waiting[-depart:] = False
 
-        for timestep in range(horizon):
-            if not valid[timestep]:
-                continue
-            position = positions[timestep]
-            fractions = np.clip(
-                np.einsum("rsc,rsc->rs", position - starts, segments) / segment_lengths_sq,
-                0.0,
-                1.0,
-            )
-            projections = starts + fractions[:, :, np.newaxis] * segments
-            distances = np.linalg.norm(projections - position, axis=2)
-            distances[~finite_mask] = np.inf
-            min_columns = np.argmin(distances, axis=1)
-            min_distances = distances[row_idx, min_columns]
-
-            lane_headings = lane_headings_all[row_idx, min_columns]
-            diff = np.abs(headings[timestep] - lane_headings) % (2 * np.pi)
-            angle = np.minimum(diff, 2 * np.pi - diff)
-            match_mask = (min_distances < _DISTANCE_CRITERIA) & (angle < _ANGLE_CRITERIA)
-
-            candidate_rows = np.flatnonzero(match_mask)
-            if candidate_rows.size == 0:
-                continue
-
-            best_row = int(candidate_rows[np.argmin(min_distances[candidate_rows])])
-            segment = int(min_columns[best_row])
-            station = float(
-                segment_stations[best_row, segment] + fractions[best_row, segment] * segment_lengths[best_row, segment]
-            )
-            speed = float(np.linalg.norm(velocities[timestep, :2]))
-            acceleration = 0.0
-            prev_step = timestep - acceleration_steps
-            while prev_step >= 0:
-                if valid[prev_step]:
-                    prev_speed = float(np.linalg.norm(velocities[prev_step, :2]))
-                    acceleration = (speed - prev_speed) / ((timestep - prev_step) * dt)
-                    break
-                prev_step -= 1
-            if abs(acceleration) > _ACCELERATION_MAXLIMIT:
-                acceleration = 0.0
-            assignments_by_row[best_row][timestep][int(track_id)] = _VehicleState(station, speed, acceleration)
-
-    return {row_to_lane_id[row]: assignments_by_row[row] for row in row_to_lane_id}
+        frames, crossed = np.nonzero(crossing)
+        if not len(crossed) and not waiting.any():
+            continue
+        fit = np.array(
+            [
+                _path_fit(pos[t : t + path][valid[t : t + path]], lines[c], line_lengths[c])
+                for t, c in zip(frames, crossed, strict=True)
+            ]
+        )
+        best = np.array([fit[np.abs(frames - t) <= entry].min() for t in frames])
+        taken = (fit < 1.5) & (fit <= best + 0.5)
+        for t, c in zip(frames[taken], crossed[taken], strict=True):
+            llr[c, max(0, t - entry) : t + 1] += _FREE_ENTRY_LLR if free[c] else _ENTRY_LLR
+        targets = np.zeros(len(lines), dtype=bool)
+        targets[crossed[taken]] = True
+        targets = targets if waiting[:, targets].any() else ~free
+        llr += _WAIT_LLR * (waiting & targets & ~free).T
+    return llr
 
 
-def _group_lanes_into_ways(approaching_lanes: list[_ApproachingLane]) -> list[list[_ApproachingLane]]:
-    if not approaching_lanes:
-        return []
-
-    def lane_vector(lane: _ApproachingLane) -> np.ndarray:
-        start = lane.shape[-min(50, len(lane.shape))]
-        end = lane.shape[-1]
-        return end[:2] - start[:2]
-
-    vectors = [lane_vector(lane) for lane in approaching_lanes]
-    groups = _group_vectors_by_angles(vectors)
-    ways = [[approaching_lanes[index] for index in group] for group in groups]
-
-    if len(ways) == 3:
-        angle01 = _angle_of_two_vectors(lane_vector(ways[1][0]), lane_vector(ways[0][0]))
-        angle02 = _angle_of_two_vectors(lane_vector(ways[2][0]), lane_vector(ways[0][0]))
-        angle12 = _angle_of_two_vectors(lane_vector(ways[2][0]), lane_vector(ways[1][0]))
-        if angle02 > angle01 and angle02 > angle12:
-            ways = [ways[0], ways[2], ways[1]]
-        elif angle12 > angle01 and angle12 > angle02:
-            ways = [ways[1], ways[2], ways[0]]
-    elif len(ways) == 4:
-        ways.sort(key=lambda way: _vector_heading(lane_vector(way[0])))
-
-    return ways
+def _path_fit(path: np.ndarray, line: np.ndarray, line_length: float) -> float:
+    """Mean distance from the vehicle path (cut to the connector length) to the connector."""
+    traveled = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(path, axis=0), axis=1))]
+    points = path[traveled <= max(line_length, 3.0)]
+    seg_start, seg = line[:-1], np.diff(line, axis=0)
+    t = np.clip(((points[:, None] - seg_start) * seg).sum(-1) / np.maximum((seg**2).sum(-1), 1e-9), 0.0, 1.0)
+    return float(np.linalg.norm(points[:, None] - (seg_start + t[..., None] * seg), axis=-1).min(1).mean())
 
 
-def _group_vectors_by_angles(vectors: list[np.ndarray], angle_threshold: float = np.pi / 6) -> list[list[int]]:
-    union_find = _UnionFind(range(len(vectors)))
-    for left in range(len(vectors)):
-        for right in range(len(vectors)):
-            if _angle_of_two_vectors(vectors[left], vectors[right]) < angle_threshold:
-                union_find.union(left, right)
-    return union_find.groups()
+def _group_posterior(llr: np.ndarray, conflict: np.ndarray, couple: np.ndarray, switch: float) -> np.ndarray:
+    """GO posterior per group and frame. Groups linked by conflicts or couples are decoded jointly; components with
+    too many joint states fall back to conflict links only, then to single groups."""
+    posterior = np.full_like(llr, np.nan)
+    for links in (conflict | couple, conflict, np.zeros_like(conflict)):
+        component = _components(len(llr), np.nonzero(links))
+        for label in np.unique(component[np.isnan(posterior[:, 0])]):
+            members = np.flatnonzero(component == label)
+            states = _feasible(conflict[np.ix_(members, members)]) if len(members) <= _MAX_JOINT_GROUPS else None
+            if states is not None and len(states) <= _MAX_JOINT_STATES:
+                posterior[members] = _forward_backward(llr[members], states, couple[np.ix_(members, members)], switch)
+    return posterior
 
 
-def _classify_direction(incoming: np.ndarray, connector: np.ndarray) -> _Direction | None:
-    incoming_vectors = np.diff(incoming[:, :2], axis=0)
-    connector_vectors = np.diff(connector[:, :2], axis=0)
-    incoming_valid = np.flatnonzero(np.linalg.norm(incoming_vectors, axis=1) > 1e-6)
-    connector_valid = np.flatnonzero(np.linalg.norm(connector_vectors, axis=1) > 1e-6)
-    if len(incoming_valid) == 0 or len(connector_valid) == 0:
-        return None
-    source = incoming_vectors[incoming_valid[-1]]
-    target = connector_vectors[connector_valid[-1]]
-    turn_angle = float(np.arctan2(source[0] * target[1] - source[1] * target[0], np.dot(source, target)))
-    if abs(turn_angle) < np.pi / 6:
-        return _Direction.S
-    return _Direction.L if turn_angle > 0 else _Direction.R
+def _feasible(conflict: np.ndarray) -> np.ndarray:
+    states = (np.arange(2 ** len(conflict))[:, None] >> np.arange(len(conflict))) & 1
+    return states[np.einsum("sg,gh,sh->s", states, conflict.astype(int), states) == 0]
 
 
-def _neighbor_type(polyline1: np.ndarray, polyline2: np.ndarray) -> str:
-    line1 = np.array([polyline1[0, :2], polyline1[-1, :2]], dtype=np.float64)
-    line2 = np.array([polyline2[0, :2], polyline2[-1, :2]], dtype=np.float64)
-    parallel = _two_lines_parallel(line1, line2)
-    start_distance = _distance(polyline1[0], polyline2[0])
-    end_distance = _distance(polyline1[-1], polyline2[-1])
-
-    def distance_level(value: float) -> str:
-        if value < 1:
-            return "low"
-        if value < 5:
-            return "mid"
-        return "high"
-
-    levels = [distance_level(start_distance), distance_level(end_distance)]
-    if parallel:
-        if "low" in levels:
-            return "bifurcated-parallel" if levels[0] == "low" else "merged-parallel"
-        return "real"
-    if levels[0] in {"low", "mid"}:
-        return "bifurcated"
-    if levels[1] in {"low", "mid"}:
-        return "merged"
-    return "other"
+def _forward_backward(llr: np.ndarray, states: np.ndarray, couple: np.ndarray, switch: float) -> np.ndarray:
+    flips = (states[:, None] != states[None]).sum(-1)
+    trans = switch**flips * (1 - switch) ** (states.shape[1] - flips)
+    trans /= trans.sum(1, keepdims=True)
+    agree = ((states[:, :, None] == states[:, None]) & couple).sum((1, 2)) / 2
+    log_emit = states @ llr + _COUPLING * agree[:, None]
+    emit = np.exp(log_emit - log_emit.max(0))
+    alpha, beta = np.empty_like(emit), np.ones_like(emit)
+    alpha[:, 0] = emit[:, 0] / emit[:, 0].sum()
+    for t in range(1, emit.shape[1]):
+        a = (alpha[:, t - 1] @ trans) * emit[:, t]
+        alpha[:, t] = a / a.sum()
+    for t in range(emit.shape[1] - 2, -1, -1):
+        b = trans @ (emit[:, t + 1] * beta[:, t + 1])
+        beta[:, t] = b / b.sum()
+    joint = alpha * beta
+    return states.T @ (joint / joint.sum(0))
 
 
-def _real_neighbor_type(
-    polyline1: np.ndarray,
-    polyline2: np.ndarray,
-    point_close_threshold: float = _POINT_CLOSE_THRESHOLD,
-    length_difference_threshold: float = 3.0,
-) -> str:
-    start_close = _distance(polyline1[0], polyline2[0]) < point_close_threshold
-    end_close = _distance(polyline1[-1], polyline2[-1]) < point_close_threshold
-    length1 = polyline_length(polyline1)
-    length2 = polyline_length(polyline2)
-    polyline1_longer = length2 + length_difference_threshold < length1
-    if start_close and end_close:
-        return "complete"
-    if start_close and not end_close and polyline1_longer:
-        return "side-start"
-    if not start_close and end_close and polyline1_longer:
-        return "side-end"
-    return "other"
-
-
-def _distance(point1: np.ndarray, point2: np.ndarray) -> float:
-    return float(np.linalg.norm(np.asarray(point1, dtype=np.float64) - np.asarray(point2, dtype=np.float64)))
-
-
-def _two_lines_parallel(line1: np.ndarray, line2: np.ndarray) -> bool:
-    vec1 = line1[1] - line1[0]
-    vec2 = line2[1] - line2[0]
-    norm1 = np.linalg.norm(vec1)
-    norm2 = np.linalg.norm(vec2)
-    if norm1 == 0 or norm2 == 0:
-        return False
-    cosine = float(np.clip(np.dot(vec1, vec2) / (norm1 * norm2), -1.0, 1.0))
-    angle = float(np.degrees(np.arccos(cosine)))
-    return angle < _LINE_PARALLEL_THRESHOLD
-
-
-def _angle_of_two_vectors(left: np.ndarray, right: np.ndarray) -> float:
-    norm_left = np.linalg.norm(left)
-    norm_right = np.linalg.norm(right)
-    if norm_left == 0 or norm_right == 0:
-        return np.pi
-    cosine = float(np.clip(np.dot(left, right) / (norm_left * norm_right), -1.0, 1.0))
-    return float(np.arccos(cosine))
-
-
-def _vector_heading(vector: np.ndarray) -> float:
-    return float(np.arctan2(vector[1], vector[0]))
-
-
-def _angle_of_headings(left: float, right: float) -> float:
-    diff = abs(left - right) % (2 * np.pi)
-    return float(min(diff, 2 * np.pi - diff))
-
-
-def _as_xyz_array(points: ArrayLike | None) -> np.ndarray:
-    array = np.asarray(points, dtype=np.float64)
-    if array.ndim != 2 or len(array) == 0:
-        return np.zeros((0, 3), dtype=np.float64)
-    if array.shape[1] == 2:
-        return np.column_stack([array, np.zeros(len(array), dtype=np.float64)])
-    return array[:, :3]
-
-
-def _from_puffer_tls(state: int) -> _TLS:
-    value = int(state)
-    if value == int(puffer_types.TLState.GREEN):
-        return _TLS.GREEN
-    if value == int(puffer_types.TLState.YELLOW):
-        return _TLS.YELLOW
-    if value == int(puffer_types.TLState.RED):
-        return _TLS.RED
-    return _TLS.UNKNOWN
-
-
-def _to_puffer_tls(state: _TLS | None) -> puffer_types.TLState:
-    if state == _TLS.GREEN:
-        return puffer_types.TLState.GREEN
-    if state == _TLS.YELLOW:
-        return puffer_types.TLState.YELLOW
-    if state == _TLS.RED:
-        return puffer_types.TLState.RED
-    return puffer_types.TLState.UNKNOWN
+def _yellow_tails(states: np.ndarray, observed: np.ndarray, frames: int) -> np.ndarray:
+    """Turn the last `frames` inferred GREEN frames before each GREEN->RED switch into YELLOW."""
+    states = states.copy()
+    for row, t in zip(*np.nonzero((states[:, :-1] == _GREEN) & (states[:, 1:] == _RED)), strict=True):
+        tail = np.arange(max(0, t + 1 - frames), t + 1)
+        green_run = tail[np.cumprod(((states[row, tail] == _GREEN) & ~observed[row, tail])[::-1])[::-1].astype(bool)]
+        states[row, green_run] = _YELLOW
+    return states

@@ -23,6 +23,9 @@ MIN_LINE_LENGTH = 0.1  # m; shorter road lines are dropped
 LINE_DUPLICATE_DISTANCE = 0.05  # m; a road line this close (Hausdorff) to another of its type is a duplicate
 HOOK_MAX_LENGTH = 0.5  # m; an end segment shorter than this that turns sharply is a hook, not lane geometry
 HOOK_MIN_TURN = np.radians(30.0)
+NEIGHBOR_MIN_OVERLAP = 10.0  # m a neighbour must run alongside a lane (capped at half the shorter lane)
+NEIGHBOR_GAP = (1.5, 6.0)  # m lateral distance range of a neighbour's centerline
+NEIGHBOR_MAX_ANGLE = np.radians(25.0)
 
 
 def extract_scenario(
@@ -274,6 +277,7 @@ def _extract_map(
 
     lane_ids = set(result.keys())
     _fix_lane_topology(result, undefined_lane, lane_ids)
+    _drop_partial_neighbors(result)
     if cropped and any(lane.speed_limit_mps <= 0 for lane in result.values()):
         # Fill over the whole map: the crop often cuts a lane off every lane that has a limit (Boston: 6% vs 99%)
         map_limits = _map_speed_limits(map_api)
@@ -500,6 +504,44 @@ def _fix_lane_topology(
         element.exit_lanes = [lid for lid in element.exit_lanes if lid in valid_lane_ids]
         element.left_neighbor = [lid for lid in element.left_neighbor if lid in valid_lane_ids]
         element.right_neighbor = [lid for lid in element.right_neighbor if lid in valid_lane_ids]
+
+
+def _drop_partial_neighbors(lanes: dict[int, schema.MapElement]) -> None:
+    """Keep a left/right neighbour only if it runs alongside the lane, on that side, over a lane change's length."""
+    # PY123D-REPORT[wod-motion]: WOMD neighbours carry the index range where two lanes are adjacent; py123d keeps one
+    # neighbour per side and drops the range, so lanes side by side for a few metres (often branches of a split)
+    # come out as whole-lane neighbours (about half the WOD pairs).
+    for lane in lanes.values():
+        lane.left_neighbor = [ref for ref in lane.left_neighbor if _alongside(lane.polyline, lanes[ref].polyline, 1.0)]
+        lane.right_neighbor = [
+            ref for ref in lane.right_neighbor if _alongside(lane.polyline, lanes[ref].polyline, -1.0)
+        ]
+
+
+def _alongside(line: np.ndarray, other: np.ndarray, side: float) -> bool:
+    """Whether ``other`` runs parallel to ``line`` on ``side`` (+1 left, -1 right) long enough, sampled per metre."""
+    line, other = line[:, :2], other[:, :2]
+    steps = np.diff(line, axis=0)
+    cum = np.r_[0.0, np.cumsum(np.linalg.norm(steps, axis=1))]
+    other_steps = np.diff(other, axis=0)
+    other_length = float(np.linalg.norm(other_steps, axis=1).sum())
+    if cum[-1] <= 0 or other_length <= 0:
+        return False
+    samples = np.arange(0.0, cum[-1], 1.0)
+    points = np.column_stack([np.interp(samples, cum, line[:, 0]), np.interp(samples, cum, line[:, 1])])
+    direction = steps[np.clip(np.searchsorted(cum, samples, side="right") - 1, 0, len(steps) - 1)]
+    direction /= np.maximum(np.linalg.norm(direction, axis=1, keepdims=True), 1e-9)
+
+    sq = np.maximum((other_steps**2).sum(1), 1e-9)
+    t = np.clip(((points[:, None] - other[:-1]) * other_steps).sum(-1) / sq, 0.0, 1.0)
+    proj = other[:-1] + t[..., None] * other_steps
+    nearest = np.linalg.norm(proj - points[:, None], axis=-1).argmin(1)
+    rel = proj[np.arange(len(points)), nearest] - points
+    lateral = side * (direction[:, 0] * rel[:, 1] - direction[:, 1] * rel[:, 0])
+    other_dir = other_steps[nearest] / np.sqrt(sq[nearest])[:, None]
+    parallel = (direction * other_dir).sum(1) > np.cos(NEIGHBOR_MAX_ANGLE)
+    adjacent = (lateral > NEIGHBOR_GAP[0]) & (lateral < NEIGHBOR_GAP[1]) & parallel
+    return adjacent.sum() >= min(NEIGHBOR_MIN_OVERLAP, 0.5 * min(cum[-1], other_length))
 
 
 def _fill_missing_speed_limits(lanes: dict[int, schema.MapElement]) -> None:

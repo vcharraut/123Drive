@@ -31,8 +31,11 @@ Ego is always considered when it has a trajectory and the map has lanes. A non-e
 * be on-road at the check frame.
 
 Pedestrians, cyclists,
-objects, and other non-vehicle agents do not receive routes. Conversion fails when ego exists but
-no ego route can be computed.
+objects, and other non-vehicle agents do not receive routes.
+
+Conversion fails when the ego cannot be controlled from the check frame: no ego route can be
+computed, the ego starts off-road, it overlaps another agent there, or less than 15 metres of route
+lie ahead of it (the simulator retires an agent that spawns at its route end).
 
 Off-road and parked classification
 ----------------------------------
@@ -89,9 +92,9 @@ Control state follows the result:
 
    * - Condition
      - State
-   * - Vehicle has a route
+   * - Vehicle has a route with at least 15 metres ahead of it at the check frame
      - ``CONTROLLABLE``
-   * - Vehicle is moving without a route
+   * - Vehicle is moving without a route, or with a shorter route ahead (route kept)
      - ``NON_CONTROLLABLE_MOVING``
    * - Vehicle is parked
      - ``NON_CONTROLLABLE_STATIC``

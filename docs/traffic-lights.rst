@@ -14,40 +14,48 @@ during the pipeline.
 Optional interpolation
 ----------------------
 
-``--interpolate_tl`` enables the trajectory-based algorithm implemented from *Improving Traffic
-Signal Data Quality for the Waymo Open Motion Dataset* (Yan et al., 2025). The preset enables it
-for ``nuplan-mini`` and ``wod-motion``.
+``--interpolate_tl`` fills missing light states from detections, intersection geometry and vehicle
+motion. The preset enables it for ``nuplan-mini`` and ``wod-motion``.
 
-The algorithm:
+#. Signalized connectors are the lanes carrying a light track plus the successors of lanes in
+   traffic-light stop zones.
+#. Connectors whose polylines touch form an intersection. Inside it, connectors with the same
+   approach heading and turn (left, straight, right) form a movement group sharing one light,
+   unless their detections disagree.
+#. Two groups conflict when their connectors cross, they come from different approaches and
+   neither is a free turn (right turn, or left turn in left-hand traffic such as Singapore).
+#. Each connected set of conflicting or same-approach groups runs a hidden Markov model over joint
+   states (every group GO or STOP) where no two conflicting groups are GO together. Sets with more
+   than 1024 joint states fall back to conflict links only, then to single groups.
+#. Forward-backward gives a GO probability per group and frame. Frames above 0.9 become green,
+   below 0.1 red, the rest stay ``UNKNOWN``. Inferred green that switches to red gets a 3 s yellow
+   tail.
+#. Detected frames are copied to the output, except the last 2 s of a red run followed by a gap:
+   detectors switch late to green, so there the detection counts only ±1 and the inferred state
+   wins when confident.
+#. Connectors without a track get one only when at least one frame is known.
 
-#. builds a freeway and surface-street lane graph;
-#. removes malformed short dead ends and invalid connectivity;
-#. reconciles lane neighbors, diverges, and merges;
-#. groups connected lanes into signalized intersections;
-#. assigns vehicle position, speed, and acceleration to lanes at each frame;
-#. combines raw light detections with motion-derived red/green evidence;
-#. chooses the closest physically feasible intersection phase;
-#. smooths short phase flips and inserts yellow transitions;
-#. writes the generated states back to extraction extras.
+Evidence
+--------
 
-Only intersections with source signal evidence and enough connected lanes are considered.
-Generated results currently support three-way and four-way intersection representations.
-When inference cannot form a valid intersection or phase sequence, the source detections remain
-unchanged.
+Per group and frame, as a log-likelihood ratio of GO over STOP:
 
-Kinematic evidence
-------------------
+* each detection frame: ±4 (green/yellow vs red);
+* a vehicle crossing the stop line onto the connector (faster than 1 m/s): +12 over the preceding
+  0.5 s, +1 on free turns;
+* a vehicle stopped (< 0.5 m/s) within 6 m before the stop line: -0.2 per frame, ignoring the last
+  2 s before it starts moving.
 
-The phase generator uses vehicle motion around the stop line:
+The group sum is clipped to ±16. Groups switch on average every 30 s. Each pair of groups from the
+same approach gets +0.05 per frame where they show the same state (left and straight of one
+approach agree about 80% of the time in nuPlan and WOD). All windows scale with the scenario ``dt``.
 
-* speed above 3 m/s supports green;
-* speed below 1 m/s supports red;
-* acceleration above 0.5 m/s² supports green;
-* deceleration below -1 m/s² supports red.
+Scoring
+-------
 
-Raw and estimated evidence are confidence-weighted. Agreement receives high weight; disagreement
-receives low weight and is resolved against feasible phase patterns. Internal timing windows scale
-from the scenario ``dt``.
+``scripts/tl_score.py`` scores implementations side by side: coverage, fidelity to detections,
+lane and time-gap hold-out accuracy, red-light entries, green stalls, short phases and conflicting
+greens.
 
 Final traffic controls
 ----------------------
