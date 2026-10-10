@@ -160,9 +160,7 @@ def _validate_traffic_lights(
             errors.append(f"TL {eid} controlled_lane {tl.controlled_lane} not in map")
 
 
-def _validate_traffic_controls(
-    traffic_controls: list[schema.TrafficControl], length: int, errors: list[str]
-) -> None:
+def _validate_traffic_controls(traffic_controls: list[schema.TrafficControl], length: int, errors: list[str]) -> None:
     for index, control in enumerate(traffic_controls):
         if control.type not in puffer_types.TC_TYPE_NAMES:
             errors.append(f"TrafficControl {index} type is invalid")

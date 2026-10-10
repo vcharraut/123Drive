@@ -74,7 +74,8 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
             buf.extend(struct.pack("<fff", 0.0, 0.0, 0.0))
         buf.extend(struct.pack("<i", int(track.control_state)))
 
-    # Road map: id, type, geometry, heading; lanes get topology (entry/exit/left/right), speed limit, lengths and curvature
+    # Road map: id, type, geometry, heading; lanes get topology (entry/exit/left/right),
+    # speed limit, lengths and curvature
     for eid, elem in road_map.items():
         road_type = elem.type
         xyz = elem.geometry

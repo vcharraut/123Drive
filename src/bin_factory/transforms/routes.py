@@ -39,8 +39,7 @@ HOP_COST = 1.0
 LANE_CHANGE_COST = 6.0
 
 _RouteCache = dict[str, Any]
-# (point_idx, lane_id, distance, s)
-_Candidate = tuple[int, int, float, float]
+_Candidate = tuple[int, int, float, float]  # (point_idx, lane_id, distance, s)
 
 
 def process_agent_routes(scenario: schema.PufferScenario, route_check_timestep: int = 0) -> None:
@@ -318,7 +317,12 @@ def _build_point_observations(
         if ranked:
             observations.append(
                 [
-                    (point_idx, int(lane_ids[idx]), float(distances[point_idx, idx]), float(projected_s[point_idx, idx]))
+                    (
+                        point_idx,
+                        int(lane_ids[idx]),
+                        float(distances[point_idx, idx]),
+                        float(projected_s[point_idx, idx]),
+                    )
                     for idx in ranked
                 ],
             )
@@ -370,8 +374,9 @@ def _select_candidate_path(
 
     obs_idx, cand_idx = min(
         ((obs_idx, cand_idx) for obs_idx, candidates in enumerate(observations) for cand_idx in range(len(candidates))),
-        key=lambda state: costs[state[0]][state[1]]
-        + (total_points - observations[state[0]][0][0] - 1) * SKIPPED_POINT_COST,
+        key=lambda state: (
+            costs[state[0]][state[1]] + (total_points - observations[state[0]][0][0] - 1) * SKIPPED_POINT_COST
+        ),
     )
     path = [observations[obs_idx][cand_idx]]
     while (backref := backrefs[obs_idx][cand_idx]) is not None:
@@ -591,5 +596,3 @@ def _points_to_polylines_distance(
     lane_axis = np.arange(n_lanes)[np.newaxis, :]
     closest_t = t[np.arange(n_points)[:, np.newaxis], lane_axis, closest_indices]
     return min_distances, closest_indices, closest_t
-
-

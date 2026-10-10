@@ -188,9 +188,7 @@ def _validate(
     for error in errors:
         log.error(f"{scenario.metadata.id}: {error}")
     if errors:
-        raise loader.ValidationError(
-            f"{failure} for scenario {scenario.metadata.id} with {len(errors)} errors"
-        )
+        raise loader.ValidationError(f"{failure} for scenario {scenario.metadata.id} with {len(errors)} errors")
 
 
 def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Namespace) -> None:
