@@ -32,6 +32,7 @@ scenario_id_field = "scene_uuid"
 datasets = ["opendrive"]
 reverse_road_edges = true
 non_drivable_shoulders = true
+ramp_shoulder_widening_m = 1.0  # Town04 cloverleaf loops: posts stand >= 1.7 m outside the lane line
 scenario_id_field = "location"
 
 [nurec]

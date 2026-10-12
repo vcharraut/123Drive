@@ -2,7 +2,9 @@
 map (py123d keeps the layer) but PufferDrive treats it as off-road. Band samples whose probe lies inside an
 intersection polygon or a junction shoulder are ignored, so shoulders inside a junction stay drivable and no edge
 crosses a junction; samples whose probe lies inside another lane are blocked, so no edge crosses a lane that overlaps
-a shoulder (ramp connectors); a transverse cap closes a band wherever it goes on without a following edge."""
+a shoulder (ramp connectors); a transverse cap closes a band wherever it goes on without a following edge, also
+where it goes on into a junction surface. On ramps (one-way single-lane carriageways with shoulders on both sides)
+the edges can sit outside the lane boundary, so that long and wide vehicles fit through tight ramp curves."""
 
 import dataclasses
 
@@ -26,7 +28,31 @@ BISECTION_STEPS = 4  # run ends inside a lane are refined to 2 m / 2^4
 Z_TOL_M = 3.0  # surfaces on another level (bridges, underpasses) are ignored
 BLOCKED_WIDTH_M = -1.0  # band width where another lane covers the probe: never bridged, never snapped onto
 STUB_LANE_LENGTH_M = 0.5  # seam connectors shorter than this carry no run; caps look through them
+MIN_POINT_SPACING_M = 0.05  # run points closer than this are one point
 MAX_STUB_HOPS = 4
+RAMP_BAND_CLEARANCE_M = 1.5  # a widened edge stays this far inside the band's far side, where posts and rails stand
+RAMP_MIN_BAND_COVERAGE = 0.5  # a ramp has shoulder runs along at least this fraction of both boundaries
+WIDENING_TAPER_SLOPE = 0.125  # metres of widening change per metre along the boundary
+
+
+@dataclasses.dataclass(frozen=True)
+class _Side:
+    lane_on_right: bool
+    samples: np.ndarray
+    tangents: np.ndarray
+    normals: np.ndarray
+    widths: np.ndarray
+    runs: list
+
+    @property
+    def coverage(self) -> float:
+        return sum(end - start for start, end in self.runs) / len(self.samples)
+
+
+@dataclasses.dataclass(frozen=True)
+class _RunEnd:
+    cap_width_m: float | None  # band width a cap closes at this end; None when no cap is needed
+    hold: bool  # a widened edge keeps its offset up to this end (the band goes on into a junction or a widened lane)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -37,49 +63,119 @@ class _Surroundings:
 
 
 def add_shoulder_edges(
-    scenario: schema.PufferScenario, shoulder_outlines: list[np.ndarray], junction_outlines: list[np.ndarray]
+    scenario: schema.PufferScenario,
+    shoulder_outlines: list[np.ndarray],
+    junction_outlines: list[np.ndarray],
+    ramp_widening_m: float = 0.0,
 ) -> int:
     """Append one ROAD_EDGE_BOUNDARY per stretch of a lane boundary that runs along a shoulder band outside the
     junction surfaces, plus a cap across the band at every run end where the band goes on without a following run.
+    On ramps the edges sit up to ramp_widening_m outside the boundary (see _widening_targets).
     Edges keep the drivable side on their right (py123d convention)."""
     shoulders = _Surfaces(shoulder_outlines)
     if not shoulders:
         return 0
     lanes = {i: e for i, e in scenario.map.items() if e.is_lane and e.polyline is not None}
     surroundings = _Surroundings(shoulders, _Surfaces(junction_outlines), _lane_surfaces(lanes))
+    continuing = _Surfaces(shoulder_outlines + junction_outlines)  # a band goes on through junction surfaces too
+    sides = {lane_id: _lane_sides(lane_id, element, surroundings, continuing) for lane_id, element in lanes.items()}
+    ramps = {lane_id for lane_id, element in lanes.items() if _is_ramp(element, sides[lane_id])}
     next_id = max(scenario.map.keys(), default=-1) + 1
     added = 0
+    caps: set = set()  # two lanes ending on one band close it with the same cap
     for lane_id, element in lanes.items():
-        for boundary, lane_on_right in ((element.left_boundary, True), (element.right_boundary, False)):
-            if boundary is None or len(boundary) < 2:
-                continue
-            samples, tangents, normals, widths = _boundary_bands(boundary, lane_id, element, surroundings)
-            in_band = _band_mask(widths)
-            beyond = [_band_ahead(shoulders, samples, tangents, normals, 0, -1.0),
-                      _band_ahead(shoulders, samples, tangents, normals, len(samples) - 1, 1.0)]
-            in_band = _snap_to_lane_ends(in_band, widths, beyond)
-            min_samples = 2 if in_band.all() else MIN_RUN_SAMPLES  # a short lane fully along a band still gets its edge
-            for start, end in _runs(in_band, min_samples):
-                polyline = _run_polyline(surroundings, lane_id, samples, normals, start, end)
-                scenario.map[next_id] = _edge(polyline if lane_on_right else polyline[::-1])
+        widening_m = ramp_widening_m if lane_id in ramps else 0.0
+        for side in sides[lane_id]:
+            samples, tangents, normals = side.samples, side.tangents, side.normals
+            for start, end in side.runs:
+                run_ends = [
+                    _run_end(lanes, ramps, surroundings, side, idx, sign, next_lanes)
+                    for idx, sign, next_lanes in (
+                        (start, -1.0, element.entry_lanes),
+                        (end - 1, 1.0, element.exit_lanes),
+                    )
+                ]
+                points, point_normals, point_widths = _run_points(surroundings, lane_id, side, start, end)
+                offsets = _widening_targets(point_widths, widening_m, run_ends[0].hold, run_ends[1].hold)
+                offsets = _tapered(points, _clear_of_other_lanes(surroundings, lane_id, points, point_normals, offsets))
+                polyline = _distinct_points(_offset_points(points, point_normals, offsets))
+                if len(polyline) < 2:
+                    continue  # the run collapsed onto one point at the band limits
+                scenario.map[next_id] = _edge(polyline if side.lane_on_right else polyline[::-1])
                 next_id += 1
                 added += 1
-                for idx, sign, next_lanes in ((end - 1, 1.0, element.exit_lanes), (start, -1.0, element.entry_lanes)):
-                    tangent = sign * tangents[idx]
-                    band_ahead = _band_ahead(shoulders, samples, tangents, normals, idx, sign)
-                    if band_ahead < KEEP_BAND_WIDTH_M:
-                        continue  # the band ends or thins out: the kerb edge closes it
-                    at_lane_end = idx == (len(samples) - 1 if sign > 0 else 0)
-                    if not at_lane_end:
-                        continue  # a run broken inside the lane continues after a gap in the same lane
-                    next_ids = _through_stubs(lanes, next_lanes, sign > 0)
-                    if any(_lane_has_run(i, lanes.get(i), surroundings) for i in next_ids):
-                        continue  # the next lane carries the band on with its own run
-                    width = widths[idx] if widths[idx] >= KEEP_BAND_WIDTH_M else band_ahead  # end sample on a corner sliver
-                    scenario.map[next_id] = _edge(_cap(samples[idx], normals[idx], width, tangent))
+                run_end_sides = ((end - 1, 1.0, run_ends[1], offsets[-1]), (start, -1.0, run_ends[0], offsets[0]))
+                for idx, sign, run_end, offset_m in run_end_sides:
+                    if run_end.cap_width_m is None or run_end.cap_width_m - offset_m < MIN_POINT_SPACING_M:
+                        continue
+                    cap = _cap(samples[idx], normals[idx], offset_m, run_end.cap_width_m, sign * tangents[idx])
+                    cap_key = frozenset(tuple(np.round(point[:2] / MIN_POINT_SPACING_M)) for point in cap)
+                    if cap_key in caps:
+                        continue
+                    caps.add(cap_key)
+                    scenario.map[next_id] = _edge(cap)
                     next_id += 1
                     added += 1
     return added
+
+
+def _lane_sides(
+    lane_id: int, lane: schema.MapElement, surroundings: _Surroundings, continuing: "_Surfaces"
+) -> list[_Side]:
+    """Band samples and shoulder runs along the boundaries of a lane."""
+    sides = []
+    for boundary, lane_on_right in ((lane.left_boundary, True), (lane.right_boundary, False)):
+        if boundary is None or len(boundary) < 2:
+            continue
+        samples, tangents, normals, widths = _boundary_bands(boundary, lane_id, lane, surroundings)
+        in_band = _band_mask(widths)
+        beyond = [_band_ahead(continuing, samples, tangents, normals, 0, -1.0),
+                  _band_ahead(continuing, samples, tangents, normals, len(samples) - 1, 1.0)]
+        in_band = _snap_to_lane_ends(in_band, widths, beyond)
+        min_samples = 2 if in_band.all() else MIN_RUN_SAMPLES  # a short lane fully along a band still gets its edge
+        sides.append(_Side(lane_on_right, samples, tangents, normals, widths, _runs(in_band, min_samples)))
+    return sides
+
+
+def _is_ramp(lane: schema.MapElement, sides: list[_Side]) -> bool:
+    """A one-way single-lane carriageway outside junctions: no lateral neighbours, shoulders along both boundaries
+    (a two-way street with one lane per direction has the oncoming lane on one side instead)."""
+    if lane.in_junction or lane.left_neighbor or lane.right_neighbor or len(sides) != 2:
+        return False
+    return all(side.coverage >= RAMP_MIN_BAND_COVERAGE for side in sides)
+
+
+def _run_end(
+    lanes: dict, ramps: set, surroundings: _Surroundings, side: _Side, idx: int, sign: float, next_lanes: list
+) -> _RunEnd:
+    """What happens to the band beyond the run end at sample `idx` (sign +1: run end, -1: run start)."""
+    samples, tangents, normals, widths = side.samples, side.tangents, side.normals, side.widths
+    band_ahead = _band_ahead(surroundings.shoulders, samples, tangents, normals, idx, sign)
+    if band_ahead < KEEP_BAND_WIDTH_M:
+        band_ahead = _band_ahead(surroundings.junctions, samples, tangents, normals, idx, sign)
+    if band_ahead < KEEP_BAND_WIDTH_M:
+        return _RunEnd(None, False)  # the band ends or thins out: the kerb edge closes it
+    at_lane_end = idx == (len(samples) - 1 if sign > 0 else 0)
+    if not at_lane_end:  # a run broken inside the lane continues after a gap in the same lane
+        outside = idx + int(sign)
+        probe = samples[outside].copy()
+        probe[:2] += PROBE_OFFSET_M * normals[outside]
+        return _RunEnd(None, surroundings.junctions.containing(probe))
+    next_ids = _through_stubs(lanes, next_lanes, sign > 0)
+    carrying = [i for i in next_ids if _lane_has_run(i, lanes.get(i), surroundings)]
+    if carrying:  # the next lane carries the band on with its own run
+        return _RunEnd(None, all(i in ramps for i in carrying))
+    width = widths[idx] if widths[idx] >= KEEP_BAND_WIDTH_M else _run_end_width(widths, idx, sign)
+    return _RunEnd(float(width), True)
+
+
+def _run_end_width(widths: np.ndarray, idx: int, sign: float) -> float:
+    """Band width of the last run sample before `idx` that measured a band (the end sample sits on a corner sliver)."""
+    step = -1 if sign > 0 else 1
+    for i in range(idx + step, -1 if step < 0 else len(widths), step):
+        if widths[i] >= KEEP_BAND_WIDTH_M:
+            return float(widths[i])
+    return KEEP_BAND_WIDTH_M
 
 
 def _through_stubs(lanes: dict, ids: list, forward: bool) -> list:
@@ -152,14 +248,88 @@ def _lane_has_run(lane_id, lane, surroundings) -> bool:
     return False
 
 
-def _run_polyline(surroundings, lane_id, samples, normals, start: int, end: int) -> np.ndarray:
-    """Samples of a run, extended to where the band actually begins and ends when the run stops inside the lane."""
+def _run_points(
+    surroundings: _Surroundings, lane_id: int, side: _Side, start: int, end: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(points, outward normals, band widths) of a run: its samples, extended to where the band actually begins and
+    ends when the run stops inside the lane; band-limit points get a NaN width."""
+    samples, normals, widths = side.samples, side.normals, side.widths
     points = [samples[i] for i in range(start, end)]
+    point_normals = [normals[i] for i in range(start, end)]
+    point_widths = [float(widths[i]) for i in range(start, end)]
     if start > 0:
         points.insert(0, _band_limit(surroundings, lane_id, samples, normals, start - 1, start))
+        point_normals.insert(0, normals[start])
+        point_widths.insert(0, np.nan)
     if end < len(samples):
         points.append(_band_limit(surroundings, lane_id, samples, normals, end, end - 1))
-    return np.array(points)
+        point_normals.append(normals[end - 1])
+        point_widths.append(np.nan)
+    return np.array(points), np.array(point_normals), np.array(point_widths)
+
+
+def _widening_targets(point_widths: np.ndarray, widening_m: float, hold_start: bool, hold_end: bool) -> np.ndarray:
+    """Outward offset of every run point: up to widening_m but RAMP_BAND_CLEARANCE_M short of the band's far
+    side, 0 where another lane blocks the band and at run ends where the band closes. Points that measured no band
+    (corner slivers, junction probes, band limits) take the nearest measured value."""
+    offsets = np.zeros(len(point_widths))
+    if widening_m <= 0.0:
+        return offsets
+    measured = point_widths >= KEEP_BAND_WIDTH_M
+    if not measured.any():
+        return offsets
+    offsets = np.full(len(point_widths), np.nan)
+    offsets[measured] = np.clip(point_widths[measured] - RAMP_BAND_CLEARANCE_M, 0.0, widening_m)
+    offsets[point_widths < 0.0] = 0.0
+    known = np.flatnonzero(~np.isnan(offsets))
+    nearest = known[np.abs(np.arange(len(offsets))[:, None] - known[None, :]).argmin(axis=1)]
+    offsets = offsets[nearest]
+    if not hold_start:
+        offsets[0] = 0.0
+    if not hold_end:
+        offsets[-1] = 0.0
+    return offsets
+
+
+def _clear_of_other_lanes(
+    surroundings: _Surroundings, lane_id: int, points: np.ndarray, point_normals: np.ndarray, offsets: np.ndarray
+) -> np.ndarray:
+    """Offsets dropped to 0 where the widened point would lie inside another lane of the same level."""
+    cleared = offsets.copy()
+    for i in np.flatnonzero(offsets > 0.0):
+        target = points[i].copy()
+        target[:2] += offsets[i] * point_normals[i]
+        if surroundings.lanes.containing(target, exclude=lane_id):
+            cleared[i] = 0.0
+    return cleared
+
+
+def _tapered(points: np.ndarray, offsets: np.ndarray) -> np.ndarray:
+    """Offsets limited to change by WIDENING_TAPER_SLOPE per metre along the run, lowering the larger side."""
+    if not (offsets > 0.0).any():
+        return offsets
+    steps = WIDENING_TAPER_SLOPE * np.linalg.norm(np.diff(points[:, :2], axis=0), axis=1)
+    tapered = offsets.copy()
+    for i in range(1, len(tapered)):
+        tapered[i] = min(tapered[i], tapered[i - 1] + steps[i - 1])
+    for i in range(len(tapered) - 2, -1, -1):
+        tapered[i] = min(tapered[i], tapered[i + 1] + steps[i])
+    return tapered
+
+
+def _offset_points(points: np.ndarray, point_normals: np.ndarray, offsets: np.ndarray) -> np.ndarray:
+    shifted = points.copy()
+    shifted[:, :2] += offsets[:, None] * point_normals
+    return shifted
+
+
+def _distinct_points(polyline: np.ndarray) -> np.ndarray:
+    """Polyline without consecutive points closer than MIN_POINT_SPACING_M."""
+    kept = [polyline[0]]
+    for point in polyline[1:]:
+        if np.linalg.norm(point[:2] - kept[-1][:2]) >= MIN_POINT_SPACING_M:
+            kept.append(point)
+    return np.array(kept)
 
 
 def _band_limit(surroundings, lane_id, samples, normals, outside: int, inside: int) -> np.ndarray:
@@ -228,6 +398,8 @@ class _Surfaces:
 def _band(shoulders, point_xyz: np.ndarray, normal: np.ndarray):
     """(band width along the outward normal from the lane boundary point, far-side point); (0, None) when no band
     of the same level starts there."""
+    if not shoulders:
+        return 0.0, None
     point_xy = point_xyz[:2]
     start_xy = point_xy + 0.05 * normal
     ray = shapely.LineString([start_xy, point_xy + MAX_BAND_WIDTH_M * normal])
@@ -247,11 +419,13 @@ def _band(shoulders, point_xyz: np.ndarray, normal: np.ndarray):
     return first.length + 0.05, far
 
 
-def _cap(sample: np.ndarray, normal: np.ndarray, width: float, tangent_out: np.ndarray) -> np.ndarray:
-    """Transverse edge across the band at a run end, with the continuing side (tangent_out) on its right."""
+def _cap(sample: np.ndarray, normal: np.ndarray, inner_m: float, outer_m: float, tangent_out: np.ndarray) -> np.ndarray:
+    """Transverse edge across the band at a run end, from inner_m to outer_m out of the boundary, with the continuing
+    side (tangent_out) on its right."""
     inner = sample.copy()
     outer = sample.copy()
-    outer[:2] = sample[:2] + width * normal
+    inner[:2] = sample[:2] + inner_m * normal
+    outer[:2] = sample[:2] + outer_m * normal
     right_of_normal = np.array([normal[1], -normal[0]])
     return np.array([inner, outer]) if np.dot(right_of_normal, tangent_out) > 0.0 else np.array([outer, inner])
 

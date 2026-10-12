@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 
 SCENE_MAP_MARGIN = 250.0  # Lateral buffer (m) around the ego path for non-map-only scenarios
+JUNCTION_SHOULDER_MIN_OVERLAP = 0.5  # Area fraction inside intersections that makes a shoulder a junction shoulder
 
 
 def extract_scenario(
@@ -366,29 +367,42 @@ def _extract_shoulder_context(
     map_api: py123d_api.MapAPI, centroid: np.ndarray
 ) -> tuple[list[np.ndarray], list[np.ndarray]]:
     """Centred outlines of (shoulders outside intersections, intersections + shoulders inside them), read by the
-    non-drivable-shoulder transform."""
-    shoulder_layer = getattr(map_objects.MapLayer, "SHOULDER", None)  # py123d releases without the layer
-    layers = map_api.available_map_layers
-    if shoulder_layer is None or shoulder_layer not in layers:
+    non-drivable-shoulder transform. A shoulder counts as inside when at least JUNCTION_SHOULDER_MIN_OVERLAP of its
+    area lies in intersection polygons."""
+    shoulders = _shoulder_surfaces(map_api)
+    if not shoulders:
         return [], []
     intersections: list[Any] = []
-    if map_objects.MapLayer.INTERSECTION in layers:
+    if map_objects.MapLayer.INTERSECTION in map_api.available_map_layers:
         intersections = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.INTERSECTION))
-    intersection_polygons = [shapely.Polygon(obj.outline_2d.array[:, :2]) for obj in intersections]
+    intersection_polygons = [shapely.Polygon(obj.outline_2d.array[:, :2]).buffer(0) for obj in intersections]
     intersection_tree = shapely.STRtree(intersection_polygons) if intersection_polygons else None
     non_junction: list[np.ndarray] = []
     junction: list[np.ndarray] = [_centered_array(obj.outline_3d.array, centroid) for obj in intersections]
-    for shoulder in map_api.get_all_map_objects_in_layer(shoulder_layer):
-        polygon = shapely.Polygon(shoulder.outline_2d.array[:, :2])
+    for shoulder in shoulders:
+        polygon = shapely.Polygon(shoulder.outline_2d.array[:, :2]).buffer(0)
         if polygon.is_empty:
             continue
         outline = _centered_array(shoulder.outline_3d.array, centroid)
-        centre = polygon.representative_point()
-        in_junction = intersection_tree is not None and any(
-            intersection_polygons[i].contains(centre) for i in intersection_tree.query(centre)
-        )
+        overlap = 0.0
+        if intersection_tree is not None:
+            overlap = sum(polygon.intersection(intersection_polygons[i]).area for i in intersection_tree.query(polygon))
+        in_junction = overlap >= JUNCTION_SHOULDER_MIN_OVERLAP * polygon.area
         (junction if in_junction else non_junction).append(outline)
     return non_junction, junction
+
+
+def _shoulder_surfaces(map_api: py123d_api.MapAPI) -> list[Any]:
+    """Shoulder map objects: the SHOULDER layer, or lanes typed SHOULDER where py123d models shoulders as lanes."""
+    layers = map_api.available_map_layers
+    shoulder_layer = getattr(map_objects.MapLayer, "SHOULDER", None)
+    if shoulder_layer is not None and shoulder_layer in layers:
+        return list(map_api.get_all_map_objects_in_layer(shoulder_layer))
+    shoulder_type = getattr(map_objects.LaneType, "SHOULDER", None)
+    if shoulder_type is None or map_objects.MapLayer.LANE not in layers:
+        return []
+    lanes = map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE)
+    return [lane for lane in lanes if lane.lane_type == shoulder_type]
 
 
 def _speed_limit(speed_limit_mps: float | None) -> float:

@@ -53,7 +53,9 @@ def _interpolate_traffic_lights(
 def _add_shoulder_edges(
     scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
 ) -> None:
-    added = add_shoulder_edges(scenario, extras.non_junction_shoulders, extras.junction_drivables)
+    added = add_shoulder_edges(
+        scenario, extras.non_junction_shoulders, extras.junction_drivables, config.ramp_shoulder_widening_m
+    )
     logger.info("non-drivable shoulders: %d road edges added along lane boundaries", added)
 
 

@@ -8,6 +8,7 @@ def _config(**overrides):
         "interpolate_tl": False,
         "reverse_road_edges": False,
         "non_drivable_shoulders": False,
+        "ramp_shoulder_widening_m": 0.0,
         "invalid_agent_overlap": False,
         "no_reindex": False,
         "max_segment_length": 10.0,
