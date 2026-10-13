@@ -76,9 +76,6 @@ Repeat the following block ``n_agents`` times:
    * - ``int32``
      - ``route_gt_len``
      - Ground-truth-supported route prefix length
-   * - ``float32[3]``
-     - ``goal_x``, ``goal_y``, ``goal_z``
-     - Position at the last valid frame; zero if none
    * - ``int32``
      - ``control_state``
      - ``ControlState``
@@ -195,7 +192,7 @@ Objects
 -------
 
 Repeat the same dynamic-state prefix used by agents ``n_objects`` times: ``id``, ``type``, ``T``,
-position, heading, velocity, dimensions, and valid channels. Objects do not append route, goal, or
+position, heading, velocity, dimensions, and valid channels. Objects do not append route or
 control-state fields.
 
 Lane graph

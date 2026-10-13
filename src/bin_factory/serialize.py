@@ -21,8 +21,8 @@ def _write_int_list(buf: bytearray, values: list[int]) -> None:
         buf.extend(struct.pack(f"<{len(values)}i", *map(int, values)))
 
 
-def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
-    """Write a per-track trajectory block (T + xyz + heading + velocity + bbox + valid). Returns xyz."""
+def _write_dynamic_states(buf: bytearray, track: schema.Track) -> None:
+    """Write a per-track trajectory block (T + xyz + heading + velocity + bbox + valid)."""
     xyz = np.asarray(track.position, dtype="<f4")
     buf.extend(struct.pack("<i", len(xyz)))
     for col in [
@@ -38,7 +38,6 @@ def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
     ]:
         buf.extend(np.asarray(col, dtype="<f4").tobytes())
     buf.extend(np.asarray(track.valid, dtype="<i4").tobytes())
-    return xyz
 
 
 def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
@@ -56,22 +55,14 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
 
     buf.extend(struct.pack("<iiii", len(agents), len(road_map), len(tcs), len(objects)))
 
-    # Agents: id, type, trajectory, route, route_gt_len, goal, control_state
+    # Agents: id, type, trajectory, route, route_gt_len, control_state
     for eid, track in agents.items():
         buf.extend(struct.pack("<ii", int(eid), int(track.type)))
-        xyz = _write_dynamic_states(buf, track)
+        _write_dynamic_states(buf, track)
 
         # Route
         _write_int_list(buf, track.route)
         buf.extend(struct.pack("<i", int(track.route_gt_len)))
-
-        # Goal position from last valid frame
-        valid_idx = np.where(np.asarray(track.valid) > 0)[0]
-        if len(valid_idx) > 0:
-            i = valid_idx[-1]
-            buf.extend(struct.pack("<fff", float(xyz[i, 0]), float(xyz[i, 1]), float(xyz[i, 2])))
-        else:
-            buf.extend(struct.pack("<fff", 0.0, 0.0, 0.0))
         buf.extend(struct.pack("<i", int(track.control_state)))
 
     # Road map: id, type, geometry, heading; lanes get topology (entry/exit/left/right),
@@ -121,7 +112,7 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         for int_list in [tc.states, tc.controlled_lanes]:
             _write_int_list(buf, int_list)
 
-    # Objects: id, type, trajectory (same layout as agents but no route/goal)
+    # Objects: id, type, trajectory (same layout as agents but no route)
     for eid, track in objects.items():
         buf.extend(struct.pack("<ii", int(eid), int(track.type)))
         _write_dynamic_states(buf, track)

@@ -121,9 +121,8 @@ def _parse(data):
         (n_route,) = r.ints(1)
         route = r.ints(n_route)
         (route_gt_len,) = r.ints(1)
-        goal = r.floats(3)
         (control_state,) = r.ints(1)
-        agents.append({"id": eid, "route": route, "route_gt_len": route_gt_len, "goal": goal, "cs": control_state})
+        agents.append({"id": eid, "route": route, "route_gt_len": route_gt_len, "cs": control_state})
 
     lanes = []
     for _ in range(n_road):
@@ -187,7 +186,6 @@ def test_round_trip_high_level_fields():
     assert ego["route"] == [10, 11]
     assert ego["route_gt_len"] == 1
     assert ego["cs"] == int(puffer_types.ControlState.CONTROLLABLE)
-    assert ego["goal"] == [6.0, 7.0, 8.0]  # last valid frame position
 
     lane10 = next(ln for ln in parsed["lanes"] if ln["id"] == 10)
     assert lane10["exit"] == [11]

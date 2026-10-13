@@ -103,7 +103,6 @@ def _parse(data):
         n_points = r.skip_dynamic()
         route = r.ints(r.ints(1)[0])
         (route_gt_len,) = r.ints(1)
-        r.floats(3)  # goal
         (control_state,) = r.ints(1)
         agents.append(
             {

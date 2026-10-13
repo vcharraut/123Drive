@@ -6,8 +6,7 @@
  *              x[T](f32), y[T](f32), z[T](f32),
  *              heading[T](f32), vx[T](f32), vy[T](f32),
  *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32),
- *              n_route(i32), route[n_route](i32), route_gt_len(i32),
- *              goal_x(f32), goal_y(f32), goal_z(f32), control_state(i32)
+ *              n_route(i32), route[n_route](i32), route_gt_len(i32), control_state(i32)
  *   Roads[]:   id(i32), type(i32), S(i32),
  *              x[S](f32), y[S](f32), z[S](f32), heading[S](f32),
  *              [if lane (type 0-9): n_entry(i32), entry[](i32), n_exit(i32), exit[](i32), n_left(i32), left[](i32), n_right(i32), right[](i32), speed_limit(f32), length(f32), cum_length[S](f32), curvature[S](f32)]
@@ -98,9 +97,6 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       if (!hasRoute) return {id, type, ...states};
       const route = intList();
       const route_gt_len = i32();
-      f32();
-      f32();
-      f32();
       const control_state = i32();
       return {id, type, ...states, route, route_gt_len, control_state};
     };
