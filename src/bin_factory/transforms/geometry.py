@@ -151,10 +151,50 @@ def _distance_based_interpolate(polyline: np.ndarray, max_segment_length: float)
 
 def _simplify_polyline(polyline: np.ndarray, tolerance: float) -> np.ndarray:
     simplified_2d = np.array(shapely_geom.LineString(polyline[:, :2]).simplify(tolerance).coords)
+    keep = _matched_vertex_indices(polyline[:, :2], simplified_2d)
+    keep = _add_height_breakpoints(polyline, keep, tolerance)
+    return polyline[keep]
 
-    # Re-interpolate z from original polyline at simplified 2D positions
-    cum_orig = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1))])
-    cum_simp = np.concatenate([[0], np.cumsum(np.linalg.norm(np.diff(simplified_2d, axis=0), axis=1))])
-    z_interp = np.interp(cum_simp, cum_orig, polyline[:, 2])
 
-    return np.column_stack([simplified_2d, z_interp])
+VERTEX_MATCH_TOLERANCE_M = (
+    1e-9  # the simplifier returns the kept vertices unchanged; near-duplicates sit a few mm apart
+)
+
+
+def _matched_vertex_indices(points_2d: np.ndarray, simplified_2d: np.ndarray) -> np.ndarray:
+    """Indices of the original vertices kept by the 2D simplification, which never moves a vertex."""
+    keep = []
+    cursor = 0
+    for point in simplified_2d:
+        candidates = np.nonzero(np.all(np.abs(points_2d[cursor:] - point) <= VERTEX_MATCH_TOLERANCE_M, axis=1))[0]
+        cursor = cursor + int(candidates[0]) if len(candidates) else cursor
+        keep.append(cursor)
+    keep[-1] = len(points_2d) - 1
+    return np.unique(keep)
+
+
+def _add_height_breakpoints(polyline: np.ndarray, keep: np.ndarray, tolerance: float) -> np.ndarray:
+    """A 2D simplification drops the vertices of a straight ramp or kerb, so its height profile would be
+    interpolated linearly between the two ends; split each kept segment where the true height departs from
+    that line by more than the tolerance (Douglas-Peucker on the height along the arc length)."""
+    arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1))])
+    z = polyline[:, 2]
+    result = set(int(i) for i in keep)
+    pending = [(int(a), int(b)) for a, b in zip(keep[:-1], keep[1:])]
+    guard = 0
+    while pending and guard < len(polyline):
+        guard += 1
+        a, b = pending.pop()
+        if b - a < 2:
+            continue
+        span = arc[b] - arc[a]
+        fraction = (arc[a + 1 : b] - arc[a]) / span if span > 0 else np.zeros(b - a - 1)
+        deviation = np.abs(z[a + 1 : b] - (z[a] + fraction * (z[b] - z[a])))
+        worst = int(np.argmax(deviation))
+        if deviation[worst] <= tolerance:
+            continue
+        split = a + 1 + worst
+        result.add(split)
+        pending.append((a, split))
+        pending.append((split, b))
+    return np.array(sorted(result))

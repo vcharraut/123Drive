@@ -65,20 +65,40 @@ def test_compute_lane_widths_skips_non_lanes():
 
 
 def test_simplification_recovers_z_from_original_station():
-    line = np.array(
-        [[0.0, 0.0, 0.0], [1.0, 1.0, 10.0], [2.0, 0.0, 20.0], [3.0, 0.0, 30.0], [3.0, 1.0, 40.0]]
-    )
+    line = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 10.0], [2.0, 0.0, 20.0], [3.0, 0.0, 30.0], [3.0, 1.0, 40.0]])
 
     simplified = _simplify_polyline(line, 0.5)
 
-    np.testing.assert_allclose(simplified[:, 2], [0.0, 10.0, 30.0, 40.0])
+    # the vertex at (2, 0) is flat in the plane but 1.7 m off the height line, so it survives
+    np.testing.assert_allclose(simplified[:, 2], [0.0, 10.0, 20.0, 30.0, 40.0])
 
 
 def test_simplification_preserves_z_when_xy_revisits():
-    line = np.array(
-        [[0.0, 0.0, 0.0], [1.0, 1.0, 10.0], [2.0, 0.0, 20.0], [1.0, 1.0, 30.0], [0.0, 2.0, 40.0]]
-    )
+    line = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 10.0], [2.0, 0.0, 20.0], [1.0, 1.0, 30.0], [0.0, 2.0, 40.0]])
 
     simplified = _simplify_polyline(line, 0.1)
 
     np.testing.assert_array_equal(simplified, line)
+
+
+def test_simplify_keeps_the_height_profile_of_a_straight_kerb():
+    # Straight in the plane: flat at 7.2 m for 60 m, then a ramp down to 0 m over 40 m.
+    y = np.linspace(0.0, 100.0, 101)
+    z = np.where(y <= 60.0, 7.2, 7.2 - (y - 60.0) * 7.2 / 40.0)
+    line = np.column_stack([np.full_like(y, 116.0), y, z])
+    simplified = _simplify_polyline(line, 0.1)
+    assert len(simplified) == 3
+    assert np.allclose(simplified[1], [116.0, 60.0, 7.2])
+    resampled_z = np.interp(y, simplified[:, 1], simplified[:, 2])
+    assert np.max(np.abs(resampled_z - z)) <= 0.1
+
+
+def test_simplify_of_a_flat_polyline_matches_the_plane_simplification():
+    rng = np.random.default_rng(0)
+    xy = np.cumsum(rng.normal(size=(40, 2)), axis=0)
+    line = np.column_stack([xy, np.full(40, 3.0)])
+    simplified = _simplify_polyline(line, 0.5)
+    from shapely.geometry import LineString
+
+    assert np.allclose(simplified[:, :2], np.array(LineString(xy).simplify(0.5).coords))
+    assert np.all(simplified[:, 2] == 3.0)

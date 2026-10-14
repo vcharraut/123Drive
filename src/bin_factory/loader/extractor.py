@@ -270,8 +270,11 @@ def _extract_map(
         map_objs = cast("list[Any]", [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])])
 
     # Lanes first — other elements reference lane IDs
+    has_lane_groups = map_objects.MapLayer.LANE_GROUP in map_api.available_map_layers
     for obj in map_objs:
         if obj.layer == map_objects.MapLayer.LANE:
+            if not _is_routable_lane(obj, has_lane_groups):
+                continue
             element = _write_map_object(obj, centroid)
             if not isinstance(element, schema.MapElement):
                 continue
@@ -392,6 +395,16 @@ def _extract_shoulder_context(
     return non_junction, junction
 
 
+def _is_routable_lane(lane: Any, has_lane_groups: bool) -> bool:
+    """Driving lanes only. py123d models shoulders as SHOULDER lanes and OpenDRIVE none/restricted lanes as
+    UNDEFINED lanes outside every lane group; neither is a lane an agent may drive or route on."""
+    if lane.lane_type == getattr(map_objects.LaneType, "SHOULDER", None):
+        return False
+    if lane.lane_type != map_objects.LaneType.UNDEFINED or not has_lane_groups:
+        return True
+    return getattr(lane, "lane_group_id", None) is not None
+
+
 def _shoulder_surfaces(map_api: py123d_api.MapAPI) -> list[Any]:
     """Shoulder map objects: the SHOULDER layer, or lanes typed SHOULDER where py123d models shoulders as lanes."""
     layers = map_api.available_map_layers
@@ -498,10 +511,13 @@ def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) 
             return positions.mean(axis=0)
 
     # Fallback: road geometry centroid
+    has_lane_groups = map_objects.MapLayer.LANE_GROUP in map_api.available_map_layers
     points = [
         coords
         for obj in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE)
-        if (coords := obj.centerline_3d.array) is not None and len(coords) > 0  # ty: ignore[unresolved-attribute]
+        if _is_routable_lane(obj, has_lane_groups)
+        and (coords := obj.centerline_3d.array) is not None  # ty: ignore[unresolved-attribute]
+        and len(coords) > 0
     ]
     if points:
         return np.vstack(points).mean(axis=0)
