@@ -26,6 +26,7 @@ HOOK_MIN_TURN = np.radians(30.0)
 NEIGHBOR_MIN_OVERLAP = 10.0  # m a neighbour must run alongside a lane (capped at half the shorter lane)
 NEIGHBOR_GAP = (1.5, 6.0)  # m lateral distance range of a neighbour's centerline
 NEIGHBOR_MAX_ANGLE = np.radians(25.0)
+JUNCTION_SHOULDER_MIN_OVERLAP = 0.5  # Area fraction inside intersections that makes a shoulder a junction shoulder
 
 
 def extract_scenario(
@@ -107,8 +108,57 @@ def extract_scenario(
         objects=objects,
         metadata=metadata,
     )
-    extras = schema.ExtractionExtras(traffic_lights=traffic_lights, stop_zones=stop_zones)
+    non_junction_shoulders, junction_drivables = _extract_shoulder_context(map_api, centroid)
+    extras = schema.ExtractionExtras(
+        traffic_lights=traffic_lights,
+        stop_zones=stop_zones,
+        non_junction_shoulders=non_junction_shoulders,
+        junction_drivables=junction_drivables,
+    )
     return scenario, extras
+
+
+def _mark_junction_lanes(map_api: py123d_api.MapAPI, lanes: dict[int, schema.MapElement]) -> None:
+    """Flag lanes whose lane group belongs to an intersection (junction connectors)."""
+    if map_objects.MapLayer.LANE_GROUP not in map_api.available_map_layers:
+        return
+    for group in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE_GROUP):
+        if getattr(group, "intersection_id", None) is None:
+            continue
+        for lane_id in group.lane_ids:
+            lane = lanes.get(int(lane_id))
+            if lane is not None:
+                lane.in_junction = True
+
+
+def _extract_shoulder_context(
+    map_api: py123d_api.MapAPI, centroid: np.ndarray
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Centred outlines of (shoulders outside intersections, intersections + shoulders inside them), read by the
+    non-drivable-shoulder transform. A shoulder counts as inside when at least JUNCTION_SHOULDER_MIN_OVERLAP of its
+    area lies in intersection polygons."""
+    layers = map_api.available_map_layers
+    if map_objects.MapLayer.SHOULDER not in layers:
+        return [], []
+    shoulders = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.SHOULDER))
+    intersections: list[Any] = []
+    if map_objects.MapLayer.INTERSECTION in layers:
+        intersections = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.INTERSECTION))
+    intersection_polygons = [shapely.Polygon(obj.outline_2d.array[:, :2]).buffer(0) for obj in intersections]
+    intersection_tree = shapely.STRtree(intersection_polygons) if intersection_polygons else None
+    non_junction: list[np.ndarray] = []
+    junction: list[np.ndarray] = [_centered_array(obj.outline_3d.array, centroid) for obj in intersections]
+    for shoulder in shoulders:
+        polygon = shapely.Polygon(shoulder.outline_2d.array[:, :2]).buffer(0)
+        if polygon.is_empty:
+            continue
+        outline = _centered_array(shoulder.outline_3d.array, centroid)
+        overlap = 0.0
+        if intersection_tree is not None:
+            overlap = sum(polygon.intersection(intersection_polygons[i]).area for i in intersection_tree.query(polygon))
+        in_junction = overlap >= JUNCTION_SHOULDER_MIN_OVERLAP * polygon.area
+        (junction if in_junction else non_junction).append(outline)
+    return non_junction, junction
 
 
 # ── Main Extraction Functions ───────────────────────
@@ -311,6 +361,7 @@ def _extract_map(
             next_id += 1
     _drop_duplicate_lines(result)
 
+    _mark_junction_lanes(map_api, result)
     # Stop zones reference intersections by their 123D id, map elements use sequential ids
     stop_zones = [
         dataclasses.replace(stop_zone, intersection_id=intersection_element_ids.get(stop_zone.intersection_id, -1))

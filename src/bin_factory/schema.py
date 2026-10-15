@@ -63,6 +63,7 @@ class MapElement:
     right_neighbor: list = dataclasses.field(default_factory=list)
     length: float = 0.0
     cum_length: np.ndarray | None = None
+    in_junction: bool = False
 
     @property
     def is_lane(self) -> bool:
@@ -120,6 +121,8 @@ class TrafficControl:
 class ExtractionExtras:
     traffic_lights: dict = dataclasses.field(default_factory=dict)
     stop_zones: list = dataclasses.field(default_factory=list)
+    non_junction_shoulders: list = dataclasses.field(default_factory=list)  # centred (N, 3) shoulder outlines
+    junction_drivables: list = dataclasses.field(default_factory=list)  # centred (N, 3) intersection + junction-shoulder outlines
 
 
 @dataclasses.dataclass

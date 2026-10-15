@@ -85,6 +85,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Interpolate/correct traffic light states from vehicle trajectories (Yan et al. 2025)",
     )
     parser.add_argument(
+        "--shoulders",
+        choices=["drivable", "offroad"],
+        default="drivable",
+        help="Shoulders outside junctions: drivable, or offroad (road edges along the lane boundaries next to them)",
+    )
+    parser.add_argument(
+        "--ramp_shoulder_widening_m",
+        type=float,
+        default=0.0,
+        help="With --shoulders offroad: on ramps (one-way single-lane roads with shoulders on both sides) the "
+        "shoulder edges sit up to this far outside the lane boundary, keeping 1.5 m to the shoulder's far side, "
+        "so long vehicles fit through tight ramp curves",
+    )
+    parser.add_argument(
         "--reverse_road_edges",
         action="store_true",
         help="Reverse road-edge polyline order (Waymo convention) for nuplan/carla/opendrive",
@@ -231,6 +245,8 @@ def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         parser.error("--route_check_timestep must be >= 0")
     if args.workers < -1:
         parser.error("--workers must be -1, 0, or a positive integer")
+    if not 0.0 <= args.ramp_shoulder_widening_m <= 5.0:
+        parser.error("--ramp_shoulder_widening_m must be between 0 and 5")
 
     cpu_count = os.cpu_count() or 1
     if args.workers == -1:
