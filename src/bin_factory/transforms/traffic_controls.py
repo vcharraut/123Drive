@@ -81,7 +81,9 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
             )
             continue
         try:
-            heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
+            # The zone may lie on the controlled lanes or just before them, on the lanes entering them
+            near_lanes = controlled_lanes + [e for lid in controlled_lanes for e in lanes_by_id[lid].entry_lanes]
+            heading = _heading_near(np.asarray(element_data.polygon)[:, :2].mean(axis=0), near_lanes, lanes_by_id)
             stop_line = _stop_line_from_polygon(element_data.polygon, heading)
         except ValueError as exc:
             log.warning("lane=%s: malformed stop zone, skipping: %s", controlled_lane_id, exc)
@@ -130,6 +132,24 @@ def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int
         ],
         dtype=np.float64,
     )
+
+
+def _heading_near(point: np.ndarray, lane_ids: list[int], lanes_by_id: dict[int, schema.MapElement]) -> float:
+    """Travel direction of the lane passing closest to ``point``, at that point.
+
+    A stop zone may sit anywhere along its lanes (nuPlan: at the end of the approach lane, CARLA: inside the junction),
+    so the direction at the zone, not at the lane start, is the heading of its stop line.
+    """
+    candidates = []
+    for lane_id in lane_ids:
+        polyline = np.asarray(lanes_by_id[lane_id].polyline, dtype=np.float64)[:, :2]
+        a, ab = polyline[:-1], np.diff(polyline, axis=0)
+        t = np.clip(((point - a) * ab).sum(axis=1) / np.maximum((ab**2).sum(axis=1), 1e-9), 0.0, 1.0)
+        degenerate = np.where((ab**2).sum(axis=1) > 0, 0.0, np.inf)
+        distance = np.linalg.norm(point - (a + t[:, None] * ab), axis=1) + degenerate
+        k = int(np.argmin(distance))
+        candidates.append((float(distance[k]), float(np.arctan2(ab[k, 1], ab[k, 0]))))
+    return min(candidates)[1]
 
 
 def _compute_heading_from_incoming_lanes(lane: schema.MapElement, lanes_by_id: dict[int, schema.MapElement]) -> float:
