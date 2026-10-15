@@ -114,6 +114,9 @@ Transforms
    * - ``--reverse_road_edges``
      - off
      - Reverse road-edge point order for opposite source conventions
+   * - ``--speed_limit_source {road,signs}``
+     - ``road``
+     - Lane speed limit: the road's own, or the last speed sign's as CARLA applies it (30 km/h before any sign)
 
 mapforge
 --------

@@ -32,10 +32,12 @@ JUNCTION_SHOULDER_MIN_OVERLAP = 0.5  # Area fraction inside intersections that m
 def extract_scenario(
     py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI,
     scenario_id_field: str = "scene_uuid",
+    speed_limit_source: str = "road",
 ) -> tuple[schema.PufferScenario, schema.ExtractionExtras]:
     """Convert 123D SceneAPI or MapAPI to (PufferScenario, extras).
 
     scenario_id_field picks the py123d attribute used as metadata.id (scene_uuid|log_name|location).
+    speed_limit_source picks the lane speed limit: the road's own (road) or the last speed sign's (signs).
     extras is an ExtractionExtras (traffic_lights, stop_zones) — consumed by the traffic_controls processor.
     """
     if isinstance(py123_arrow, py123d_api.MapAPI):
@@ -74,7 +76,7 @@ def extract_scenario(
         raise ValueError("Ego states are required at every frame to convert scenario with SceneAPI")
 
     centroid = _compute_centroid(ego_states, map_api)
-    map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, ego_states, map_only)
+    map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, ego_states, map_only, speed_limit_source)
 
     if scene_api is not None and ego_states is not None:
         dt = float(scene_api.scene_metadata.iteration_duration_s)
@@ -292,6 +294,7 @@ def _extract_map(
     centroid: np.ndarray,
     ego_states: list[Any] | None = None,
     map_only: bool = False,
+    speed_limit_source: str = "road",
 ) -> tuple[dict[int, schema.MapElement], list[schema.StopZone], set[int]]:
     """Extract static map elements from a 123D MapAPI. Returns (elements, stop_zones, lane_ids)."""
     result: dict[int, schema.MapElement] = {}
@@ -316,7 +319,7 @@ def _extract_map(
     # Lanes first — other elements reference lane IDs
     for obj in map_objs:
         if obj.layer == map_objects.MapLayer.LANE:
-            element = _write_map_object(obj, centroid)
+            element = _write_map_object(obj, centroid, speed_limit_source)
             if not isinstance(element, schema.MapElement):
                 continue
             result[obj.object_id] = element
@@ -330,7 +333,7 @@ def _extract_map(
     _drop_partial_neighbors(result)
     if cropped and any(lane.speed_limit_mps <= 0 for lane in result.values()):
         # Fill over the whole map: the crop often cuts a lane off every lane that has a limit (Boston: 6% vs 99%)
-        map_limits = _map_speed_limits(map_api)
+        map_limits = _map_speed_limits(map_api, speed_limit_source)
         for lane_id, lane in result.items():
             if lane.speed_limit_mps <= 0:
                 lane.speed_limit_mps = map_limits.get(lane_id, -1.0)
@@ -373,7 +376,9 @@ def _extract_map(
 # ── Writer functions ───────────────────────
 
 
-def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElement | schema.StopZone | None:
+def _write_map_object(
+    map_object: Any, centroid: np.ndarray, speed_limit_source: str = "road"
+) -> schema.MapElement | schema.StopZone | None:
     """Convert 123D map object to a MapElement (or StopZone) with puffer types."""
     layer = map_object.layer
     if layer not in mapping.SUPPORTED_MAP_LAYERS:
@@ -386,7 +391,7 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
         return schema.MapElement(
             type=puffer_type,
             polyline=_trim_end_hooks(_centered_array(map_object.centerline_3d.array, centroid)),
-            speed_limit_mps=float(speed) if (speed := map_object.speed_limit_mps) and not np.isnan(speed) else -1.0,
+            speed_limit_mps=_lane_speed_limit(map_object, speed_limit_source),
             entry_lanes=map_object.predecessor_ids,
             exit_lanes=map_object.successor_ids,
             left_boundary=_centered_array(map_object.left_boundary_3d.array, centroid),
@@ -644,14 +649,22 @@ def _drop_duplicate_lines(elements: dict[int, schema.MapElement]) -> None:
         del elements[ids[k]]
 
 
-def _map_speed_limits(map_api: py123d_api.MapAPI) -> dict[int, float]:
+def _lane_speed_limit(lane: Any, source: str) -> float:
+    """Speed limit of a 123D lane in m/s (-1 if unknown): with ``signs`` the limit of the last speed sign passed, as
+    CARLA applies it; lanes without sign data keep the road's limit."""
+    speed = getattr(lane, "sign_speed_limit_mps", None) if source == "signs" else None
+    speed = lane.speed_limit_mps if speed is None else speed
+    return float(speed) if speed and not np.isnan(speed) else -1.0
+
+
+def _map_speed_limits(map_api: py123d_api.MapAPI, speed_limit_source: str = "road") -> dict[int, float]:
     """Speed limit of every lane in the whole map, unknown ones filled by ``_fill_missing_speed_limits``."""
     objs = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE))
     ids = {obj.object_id for obj in objs}
     lanes = {
         obj.object_id: schema.MapElement(
             type=-1,
-            speed_limit_mps=float(speed) if (speed := obj.speed_limit_mps) and not np.isnan(speed) else -1.0,
+            speed_limit_mps=_lane_speed_limit(obj, speed_limit_source),
             entry_lanes=[ref for ref in obj.predecessor_ids if ref in ids],
             exit_lanes=[ref for ref in obj.successor_ids if ref in ids],
         )

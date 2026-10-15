@@ -30,7 +30,7 @@ cannot currently be disabled from the same command line.
    * - ``carla``
      - ``carla``
      - ``log_name``
-     - Reverse road edges
+     - Reverse road edges; speed limits from the signs
    * - ``nuplan``
      - ``nuplan``
      - ``scene_uuid``
@@ -46,7 +46,7 @@ cannot currently be disabled from the same command line.
    * - ``opendrive``
      - ``opendrive``
      - ``location``
-     - Reverse edges; explicit selection forces map-only conversion
+     - Reverse edges; road speed limits; explicit selection forces map-only conversion
    * - ``wod-motion``
      - ``wod-motion``
      - ``log_name``
