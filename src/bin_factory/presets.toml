@@ -37,7 +37,7 @@ scenario_id_field = "scene_uuid"
 datasets = ["opendrive"]
 reverse_road_edges = true
 shoulders = "offroad"
-ramp_shoulder_widening_m = 1.0  # Town04 cloverleaf loops: posts stand >= 1.7 m outside the lane line
+ramp_widening_m = 1.0  # Town04 cloverleaf loops: posts stand >= 1.7 m outside the lane line
 speed_limit_source = "road"
 scenario_id_field = "location"
 

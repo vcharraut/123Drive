@@ -34,7 +34,7 @@ def run(scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config
         interpolate_traffic_lights(scenario, extras)
     if config.shoulders == "offroad":
         added = add_shoulder_edges(
-            scenario, extras.non_junction_shoulders, extras.junction_drivables, config.ramp_shoulder_widening_m
+            scenario, extras.non_junction_shoulders, extras.junction_drivables, config.ramp_widening_m
         )
         log.info("offroad shoulders: %d road edges added along lane boundaries", added)
     if config.reverse_road_edges:
