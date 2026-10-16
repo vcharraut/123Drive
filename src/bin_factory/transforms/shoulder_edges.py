@@ -5,8 +5,9 @@ off-road. Skip probes inside intersections or junction shoulders to keep junctio
 Block probes inside other lanes so edges do not cross overlapping ramp connectors.
 
 Close a shoulder band with a transverse cap when the band continues without a following edge,
-including into a junction. On one-way, single-lane ramps with shoulders on both sides, edges
-may sit outside the lane boundary so long and wide vehicles fit through tight curves.
+including into a junction, or ends at a lane end on road surface no kerb closes (filled corner
+pockets). On one-way, single-lane ramps with shoulders on both sides, edges may sit outside the
+lane boundary so long and wide vehicles fit through tight curves.
 """
 
 import dataclasses
@@ -63,6 +64,7 @@ class _Surroundings:
     shoulders: "_Surfaces"
     junctions: "_Surfaces"
     lanes: "_Surfaces"  # keyed by lane id, so a boundary is never tested against its own lane
+    kerbs: STRtree  # the map's road edges
 
 
 def add_shoulder_edges(
@@ -81,7 +83,8 @@ def add_shoulder_edges(
     if not shoulders:
         return 0
     lanes = {i: e for i, e in scenario.map.items() if e.is_lane and e.polyline is not None}
-    surroundings = _Surroundings(shoulders, _Surfaces(junction_outlines), _lane_surfaces(lanes))
+    kerbs = STRtree([shapely.LineString(e.polyline[:, :2]) for e in scenario.map.values() if e.is_edge])
+    surroundings = _Surroundings(shoulders, _Surfaces(junction_outlines), _lane_surfaces(lanes), kerbs)
     continuing = _Surfaces(shoulder_outlines + junction_outlines)  # a band goes on through junction surfaces too
     sides = {lane_id: _lane_sides(lane_id, element, surroundings, continuing) for lane_id, element in lanes.items()}
     ramps = {lane_id for lane_id, element in lanes.items() if _is_ramp(element, sides[lane_id])}
@@ -158,9 +161,12 @@ def _run_end(
     band_ahead = _band_ahead(surroundings.shoulders, samples, tangents, normals, idx, sign)
     if band_ahead < KEEP_BAND_WIDTH_M:
         band_ahead = _band_ahead(surroundings.junctions, samples, tangents, normals, idx, sign)
-    if band_ahead < KEEP_BAND_WIDTH_M:
-        return _RunEnd(None, False)  # the band ends or thins out: the kerb edge closes it
     at_lane_end = idx == (len(samples) - 1 if sign > 0 else 0)
+    width = widths[idx] if widths[idx] >= KEEP_BAND_WIDTH_M else _run_end_width(widths, idx, sign)
+    if band_ahead < KEEP_BAND_WIDTH_M:
+        if at_lane_end and not _kerb_ahead(surroundings, side, idx, sign, width):
+            return _RunEnd(float(width), False)  # the band ends on other road surface (filled corner pocket)
+        return _RunEnd(None, False)  # the band ends or thins out: the kerb edge closes it
     if not at_lane_end:  # a run broken inside the lane continues after a gap in the same lane
         outside = idx + int(sign)
         probe = samples[outside].copy()
@@ -170,8 +176,15 @@ def _run_end(
     carrying = [i for i in next_ids if _lane_has_run(i, lanes.get(i), surroundings)]
     if carrying:  # the next lane carries the band on with its own run
         return _RunEnd(None, all(i in ramps for i in carrying))
-    width = widths[idx] if widths[idx] >= KEEP_BAND_WIDTH_M else _run_end_width(widths, idx, sign)
     return _RunEnd(float(width), True)
+
+
+def _kerb_ahead(surroundings: _Surroundings, side: _Side, idx: int, sign: float, width: float) -> bool:
+    """Whether a road edge crosses the middle of the band from END_INSET_M before to LOOKAHEAD_M beyond sample `idx`."""
+    tangent = sign * side.tangents[idx]
+    middle = side.samples[idx, :2] + 0.5 * width * side.normals[idx]
+    probe = shapely.LineString([middle - END_INSET_M * tangent, middle + LOOKAHEAD_M[-1] * tangent])
+    return len(surroundings.kerbs.query(probe, predicate="intersects")) > 0
 
 
 def _run_end_width(widths: np.ndarray, idx: int, sign: float) -> float:
