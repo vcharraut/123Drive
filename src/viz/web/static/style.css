@@ -29,7 +29,7 @@
   --tl-ring:      0 0 4px currentColor, 0 0 0 1px rgba(255,255,255,.08);
 }
 
-/* ── Light theme ─────────────────────────────────────────────────────────── */
+/* Light theme */
 
 [data-theme="light"] {
   --bg:           #FFFFFF;
@@ -76,14 +76,14 @@ body {
   color-scheme: dark;
 }
 
-/* ── Scrollbars (global) ────────────────────────────────────────────────── */
+/* Global scrollbars */
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 
-/* ── Header ──────────────────────────────────────────────────────────────── */
+/* Header */
 
 #header {
   display: flex;
@@ -183,7 +183,7 @@ body {
   text-align: right;
 }
 
-/* ── Main layout ─────────────────────────────────────────────────────────── */
+/* Main layout */
 
 #main {
   display: flex;
@@ -191,7 +191,7 @@ body {
   overflow: hidden;
 }
 
-/* ── Left sidebar ────────────────────────────────────────────────────────── */
+/* Left sidebar */
 
 #left-sidebar {
   width: 248px;
@@ -255,7 +255,7 @@ body {
   border-left-color: var(--accent);
 }
 
-/* ── Layer toggles ───────────────────────────────────────────────────────── */
+/* Layer toggles */
 
 #layer-toggles {
   border-top: 1px solid var(--border);
@@ -296,7 +296,7 @@ body {
   flex: 1;
 }
 
-/* ── Canvas ──────────────────────────────────────────────────────────────── */
+/* Canvas */
 
 #canvas-container {
   flex: 1;
@@ -324,7 +324,7 @@ body {
   cursor: crosshair;
 }
 
-/* ── Right sidebar ───────────────────────────────────────────────────────── */
+/* Right sidebar */
 
 #right-sidebar {
   width: 272px;
@@ -351,7 +351,7 @@ body {
   margin-bottom: 10px;
 }
 
-/* ── Info rows ───────────────────────────────────────────────────────────── */
+/* Info rows */
 
 .info-row {
   display: flex;
@@ -376,7 +376,7 @@ body {
   word-break: break-all;
 }
 
-/* ── Search panel ────────────────────────────────────────────────────────── */
+/* Search panel */
 
 #search-panel input,
 #search-panel select {
@@ -411,7 +411,7 @@ body {
 }
 .sbtn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 
-/* ── Element info ────────────────────────────────────────────────────────── */
+/* Element info */
 
 #element-info {
   flex: 1;
@@ -435,7 +435,7 @@ body {
   padding: 4px 0;
 }
 
-/* ── Badges ──────────────────────────────────────────────────────────────── */
+/* Badges */
 
 .badges { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
 
@@ -459,7 +459,7 @@ body {
 .badge-unset      { background: var(--bg); color: var(--text-2); }
 .badge-other      { background: var(--bg); color: var(--text-2); }
 
-/* Light theme badge overrides — stronger bg, darker text for contrast */
+/* Light theme badges use brighter backgrounds and darker text for contrast. */
 [data-theme="light"] .badge-vehicle    { background: rgba(30,100,200,.1);   color: #1A65C0; }
 [data-theme="light"] .badge-pedestrian { background: rgba(26,127,55,.1);    color: #1A7F37; }
 [data-theme="light"] .badge-cyclist    { background: rgba(154,103,0,.1);    color: #7A5200; }
@@ -467,7 +467,7 @@ body {
 [data-theme="light"] .badge-ttp        { background: rgba(130,80,220,.1);   color: #6E40C9; }
 [data-theme="light"] .badge-ooi        { background: rgba(200,110,20,.1);   color: #B35A00; }
 
-/* ── Trajectory table ────────────────────────────────────────────────────── */
+/* Trajectory table */
 
 details {
   margin-top: 10px;
@@ -513,7 +513,7 @@ details summary:hover { color: var(--accent); }
   font-weight: 500;
 }
 
-/* ── Playback bar ────────────────────────────────────────────────────────── */
+/* Playback bar */
 
 #playback-bar {
   display: flex;
@@ -626,7 +626,7 @@ details summary:hover { color: var(--accent); }
   cursor: pointer;
 }
 
-/* ── Traffic light dot ───────────────────────────────────────────────────── */
+/* Traffic light dot */
 
 .tl-dot {
   display: inline-block;
@@ -638,7 +638,7 @@ details summary:hover { color: var(--accent); }
   box-shadow: var(--tl-ring);
 }
 
-/* ── Theme toggle button ─────────────────────────────────────────────────── */
+/* Theme toggle button */
 
 #btn-theme {
   font-size: 16px;

@@ -1,4 +1,4 @@
-/* 123Drive Viz — selection/info panel renderer */
+/* Selection panel renderer. */
 'use strict';
 
 (function initVizInfoPanel(globalScope) {
@@ -51,7 +51,7 @@
       isAgent && getObjectsOfInterest(scenario.metadata).includes(data.id)
         ? '<span class="badge badge-ooi">OOI</span>' : '',
     ].join('');
-    const routeLanes = data.route && data.route.length ? safeIdList(data.route) : '—';
+    const routeLanes = safeIdList(data.route);
     const routeRow = isAgent
       ? `      <div class="info-row"><span class="info-label">Route lanes</span><span class="info-val" style="font-size:9px">${routeLanes}</span></div>\n`
       : '';
@@ -97,8 +97,8 @@ ${routeRow}      <details><summary>Trajectory</summary>
       <div class="info-row"><span class="info-label">Points</span><span class="info-val">${escapeHtml(npts)}</span></div>`;
 
     if (isLane) {
-      const entry = data.entry_lanes.length ? safeIdList(data.entry_lanes) : '—';
-      const exit = data.exit_lanes.length ? safeIdList(data.exit_lanes) : '—';
+      const entry = safeIdList(data.entry_lanes);
+      const exit = safeIdList(data.exit_lanes);
       const sl = data.speed_limit ? data.speed_limit.toFixed(1) + ' m/s' : '—';
       const len = (typeof data.length === 'number') ? data.length.toFixed(2) + ' m' : '—';
       html += `
@@ -121,7 +121,7 @@ ${routeRow}      <details><summary>Trajectory</summary>
     const {t, TC_TYPE_NAMES, TL_STATE_NAMES, TL_STATE_COLORS, escapeHtml, safeIdList} = context;
     const tcType = data.type || 1;
     const typeName = TC_TYPE_NAMES[tcType] || `type_${tcType}`;
-    const controlled = data.controlled_lanes.length ? safeIdList(data.controlled_lanes) : '—';
+    const controlled = safeIdList(data.controlled_lanes);
 
     let html = `
       <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>

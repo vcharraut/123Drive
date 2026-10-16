@@ -32,8 +32,8 @@ The viewer provides:
 The browser fetches enum names and colors from the Python source, so displayed types remain aligned
 with the serializer.
 
-HTTP surface
-------------
+HTTP endpoints
+--------------
 
 .. list-table::
    :header-rows: 1

@@ -30,8 +30,7 @@ Ego is always considered when it has a trajectory and the map has lanes. A non-e
 * be valid at ``--route_check_timestep``;
 * be on-road at the check frame.
 
-Pedestrians, cyclists,
-objects, and other non-vehicle agents do not receive routes.
+Pedestrians, cyclists, objects, and other non-vehicle agents do not receive routes.
 
 Conversion fails when the ego cannot be controlled from the check frame: no ego route can be
 computed, the ego starts off-road, it overlaps another agent there, or less than 15 metres of route
@@ -46,8 +45,9 @@ footprint intersects a road edge within 2 metres of its elevation.
 
 Static agents are frozen during self-play. A track shorter than 1.5 seconds is static when its
 median speed is at most 1 m/s. Otherwise, static classification median-smooths the XY trajectory.
-An extent at or below 1.5 metres is parked. Larger accumulated jitter is still considered parked when peak motion over 1.5 seconds
-stays below 1.5 metres and net displacement is less than 80% of the smoothed path length.
+An extent at or below 1.5 metres is parked. Larger accumulated jitter also counts as parked when
+peak motion over 1.5 seconds stays below 1.5 metres and net displacement is less than 80% of the
+smoothed path length.
 
 Ground-truth lane candidates
 ----------------------------
@@ -103,8 +103,8 @@ The state is a flag read at simulator initialisation: controllable vehicles may 
 policy or IDM, moving ones are replayed from the log, static ones are frozen in self-play. No
 transform removes or invalidates log data.
 
-A final pass hands a non-ego ``CONTROLLABLE`` vehicle to ``NON_CONTROLLABLE_MOVING`` when its
+A final pass sets a non-ego ``CONTROLLABLE`` vehicle to ``NON_CONTROLLABLE_MOVING`` when its
 logged box overlaps another agent at ``--route_check_timestep``, or overlaps a moving or static
 agent at any later frame (duplicate tracks, perception noise). Controlling it would start the
-policy in, or drive it into, a collision the log already contains. A vehicle handed over counts as
-log-driven, so controllable vehicles it overlaps later are handed over too. The route is kept.
+policy in, or drive it into, a collision the log already contains. The vehicle then counts as
+log-driven, so controllable vehicles it overlaps later also switch to replay. Each keeps its route.

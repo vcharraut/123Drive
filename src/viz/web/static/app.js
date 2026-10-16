@@ -1,9 +1,9 @@
-/* 123Drive Viz — deck.gl client-side renderer */
+/* deck.gl viewer renderer. */
 'use strict';
 
 const {DeckGL, OrthographicView, OrbitView, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer, PathStyleExtension, LinearInterpolator, COORDINATE_SYSTEM} = window.deck;
 
-// ── Constants ────────────────────────────────────────────────────────────────
+// Constants
 const SCROLL_ZOOM_SPEED = 0.012;
 const WHEEL_ZOOM_SPEED = 0.002;
 const MAX_PITCH_ANGLE = 80;
@@ -14,7 +14,7 @@ const CHASE_CAM_PITCH = 20;
 const CHASE_CAM_ZOOM = 4.2;
 const CHASE_CAM_OFFSET = 8;
 
-// ── Theme ───────────────────────────────────────────────────────────────────
+// Theme
 const CLEAR_COLORS = {
   dark:  [0.031, 0.047, 0.071, 1],   // #080C12
   light: [0.941, 0.949, 0.961, 1],   // #F0F2F5
@@ -56,13 +56,13 @@ const {
 } = window.VizHelpers;
 const {renderElementInfoHtml} = window.VizInfoPanel;
 
-// ── Constants ──────────────────────────────────────────────────────────────
+// Colors and types
 
 const AGENT_COLORS = {
-  0: [107, 114, 128],   // other   – gray-500
-  1: [37,  99, 235],    // vehicle – blue-600
-  2: [5,  150, 105],    // pedestrian – emerald-600
-  3: [217, 119,  6],    // cyclist – amber-600
+  0: [107, 114, 128],   // other, gray-500
+  1: [37,  99, 235],    // vehicle, blue-600
+  2: [5,  150, 105],    // pedestrian, emerald-600
+  3: [217, 119,  6],    // cyclist, amber-600
 };
 const OBJECT_COLORS = {
   1: [220, 38, 38],
@@ -77,7 +77,7 @@ const ROUTE_COLOR = [116, 136, 160, 88];
 const BROWN = [139, 90, 43];
 const EGO_ROUTE_COLOR = [220, 38, 38, 96];
 
-// Type constants — loaded from /api/types, fallbacks until fetched
+// Use these types until /api/types responds.
 window.TYPES = {
   AGENT_TYPE_NAMES: {0:'other', 1:'vehicle', 2:'pedestrian', 3:'cyclist'},
   ROAD_TYPE_NAMES: {},
@@ -113,7 +113,7 @@ const RECORDING_MIME_TYPES = [
 
 const EMPTY_DETAIL_HTML = '<span class="empty-state">Click an element to inspect.</span>';
 
-// ── State ──────────────────────────────────────────────────────────────────
+// State
 
 const state = {
   scenario: null,
@@ -163,7 +163,7 @@ const dragState = {
 
 const DRAG_THRESHOLD_PX = 4;
 
-// ── Recording helpers ──────────────────────────────────────────────────────
+// Recording
 
 function getDeckCanvas() {
   return deckContainer.querySelector('canvas');
@@ -440,7 +440,7 @@ async function toggleRecording() {
   }
 }
 
-// ── Geometry helpers ───────────────────────────────────────────────────────
+// Geometry
 
 function hasFiniteZ(point) {
   return point != null && point.length > 2 && Number.isFinite(point[2]);
@@ -639,7 +639,7 @@ function getAgentRouteSegments(agent, roadMap) {
   };
 }
 
-// ── deck.gl setup ──────────────────────────────────────────────────────────
+// deck.gl setup
 
 const canvasContainer = document.getElementById('canvas-container');
 const deckContainer = document.getElementById('deckgl-canvas');
@@ -932,7 +932,7 @@ deckContainer.addEventListener('pointercancel', end3DDrag);
 deckContainer.addEventListener('wheel', handle3DWheel, {passive: false});
 syncCanvasCursor();
 
-// ── Layer builders ─────────────────────────────────────────────────────────
+// Layer builders
 
 function getStaticLayers(scenario, layerFlags) {
   const cacheKey = scenario.metadata.id + JSON.stringify(layerFlags);
@@ -945,7 +945,7 @@ function getStaticLayers(scenario, layerFlags) {
     onClick: (info, event) => info.object ? handleSelectableClick(event, () => cb(info.object), info.coordinate) : false,
   });
 
-  // Helper: pixel-unit path layer
+  // Path widths use pixels.
   const pxPath = (id, data, color, width, dashed = false) => new PathLayer({
     id, data,
     getPath: toXY,
@@ -960,7 +960,7 @@ function getStaticLayers(scenario, layerFlags) {
     ...onClick(obj => selectElement('road', obj)),
   });
 
-  // Helper: scatter points — one dot per polyline vertex + heading arrows
+  // Draw one dot per polyline vertex, plus heading arrows.
   const scatterRoads = (id, data, color, radius = 2) => {
     const pts = data.flatMap(road => road.xyz.map((p, i) => ({pos: p, heading: road.heading[i], road})));
 
@@ -997,7 +997,7 @@ function getStaticLayers(scenario, layerFlags) {
       ? scatterRoads(`sc-${id}`, data, color, Math.max(2, width))
       : pxPath(id, data, color, width, dashed);
 
-  // Lanes (types 0–9)
+  // Lanes, types 0 to 9
   if (layerFlags.lanes) {
     const knownLanes = roads.filter(r => r.type >= 1 && r.type <= 9);
     const unknownLanes = roads.filter(r => r.type === 0);
@@ -1005,7 +1005,7 @@ function getStaticLayers(scenario, layerFlags) {
     if (layerFlags.unknowns && unknownLanes.length) layers.push(roadLayer('lanes-unknown', unknownLanes, [124, 58, 237], 1, true));
   }
 
-  // Road lines (types 10–19)
+  // Road lines, types 10 to 19
   if (layerFlags.road_lines) {
     const lines = roads.filter(r => r.type >= 10 && r.type <= 19);
     const whiteSolid  = lines.filter(r => [12,13].includes(r.type));
@@ -1023,7 +1023,7 @@ function getStaticLayers(scenario, layerFlags) {
     if (rest.length)        layers.push(roadLayer('rl-rest',         rest,        [160,165,170], 1));
   }
 
-  // Road edges (types 20–29)
+  // Road edges, types 20 to 29
   if (layerFlags.road_edges) {
     const knownEdges   = roads.filter(r => r.type >= 21 && r.type <= 29);
     const unknownEdges = roads.filter(r => r.type === 20);
@@ -1031,7 +1031,7 @@ function getStaticLayers(scenario, layerFlags) {
     if (layerFlags.unknowns && unknownEdges.length) layers.push(roadLayer('edges-unknown', unknownEdges, [124, 58, 237], 1.5));
   }
 
-  // Surface layers (types 31–37)
+  // Surface layers, types 31 to 37
   for (const [flag, type, id, color] of [
     ['crosswalks',       31, 'crosswalks',       [217,119,6]],
     ['speed_bumps',      32, 'speed-bumps',      [219,39,119]],
@@ -1152,7 +1152,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
   }
 
   if (layerFlags.agents) {
-    // Trajectory history + future — split at validity gaps to avoid teleportation lines
+    // Split trajectory history and future at validity gaps to avoid drawing across missing frames.
     if (layerFlags.trajectories) {
       const HIST_WINDOW = 20;
       const FUT_WINDOW  = 30;
@@ -1272,12 +1272,12 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     }));
   }
 
-  // Traffic controls — rendered as stop lines
+  // Draw traffic controls as stop lines.
   if (layerFlags.traffic_controls && scenario.traffic_control_elements.length) {
     const tlElems = scenario.traffic_control_elements.filter(tc => (tc.type || 1) === 1);
     const signElems = scenario.traffic_control_elements.filter(tc => (tc.type || 1) !== 1);
 
-    // Traffic lights — stop line with dynamic state color
+    // Traffic-light stop lines change color with their state.
     if (tlElems.length) {
       const tlData = tlElems.map(tl => {
         const s = tl.states.length && t < tl.states.length ? tl.states[t] : 4;
@@ -1303,7 +1303,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       }));
     }
 
-    // Stop/yield signs — striped stop line
+    // Stop and yield signs use striped stop lines.
     if (signElems.length) {
       const SIGN_COLORS = {2: [[220,38,38], [30,30,30]], 3: [[234,160,8], [30,30,30]]};
       const NUM_STRIPES = 8;
@@ -1338,7 +1338,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     }
   }
 
-  // ── Selection highlights ──────────────────────────────────────────────────
+  // Selection highlights
   if (selected) {
     const BLUE  = [26, 115, 232];
     const GREEN = [16, 185, 129];
@@ -1357,14 +1357,14 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       const entryElems = (elem.entry_lanes || []).map(id => roadMap.get(id)).filter(Boolean);
       const exitElems  = (elem.exit_lanes  || []).map(id => roadMap.get(id)).filter(Boolean);
 
-      // Main segment — bright blue
+      // Main segment, bright blue
       layers.push(selPathLayer('sel-main', [elem], [...BLUE, 255], 3));
 
-      // Entry lanes — green
+      // Entry lanes, green
       if (entryElems.length)
         layers.push(selPathLayer('sel-entry', entryElems, [...GREEN, 200], 2));
 
-      // Exit lanes — amber
+      // Exit lanes, amber
       if (exitElems.length)
         layers.push(selPathLayer('sel-exit', exitElems, [...AMBER, 200], 2));
 
@@ -1473,7 +1473,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     }
   }
 
-  // ── Path finder highlights ───────────────────────────────────────────────
+  // Path finder highlights
   const pf = state.pathFinder;
   if (pf.active || pf.path) {
     const pfRoadMap = buildRoadMap(scenario.road_map_elements);
@@ -1535,7 +1535,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     }
   }
 
-  // ── Ruler highlights ──────────────────────────────────────────────────────
+  // Ruler highlights
   const rl = state.ruler;
   if (rl.active || rl.p1) {
     const P1_COLOR = [16, 185, 129];   // green
@@ -1582,7 +1582,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
   return layers;
 }
 
-// ── Render loop ────────────────────────────────────────────────────────────
+// Render loop
 
 function render() {
   if (!state.scenario) return;
@@ -1640,7 +1640,7 @@ function render() {
   }
 }
 
-// ── Selection & info panel ─────────────────────────────────────────────────
+// Selection and info panel
 
 function isLaneType(roadType) {
   return roadType >= TYPES.LANE_RANGE[0] && roadType <= TYPES.LANE_RANGE[1];
@@ -1678,7 +1678,7 @@ function handlePathFinderClick(laneId) {
       setAppStatus('Path Finder: no path between these lanes', 'error');
     }
   } else {
-    // Reset — new source
+    // Reset for the new source.
     pf.source = laneId;
     pf.dest = null;
     pf.path = null;
@@ -1765,7 +1765,7 @@ function renderElementInfo(type, data) {
   el.innerHTML = html;
 }
 
-// ── Scenario loading ───────────────────────────────────────────────────────
+// Scenario loading
 
 async function loadScenario(filename) {
   document.getElementById('scenario-title').textContent = `Loading ${filename}…`;
@@ -1879,7 +1879,7 @@ function fitView() {
   });
 }
 
-// ── Scenario list ──────────────────────────────────────────────────────────
+// Scenario list
 
 let allScenarios = [];
 let activeScenario = null;
@@ -1932,7 +1932,7 @@ function renderScenarioList(items) {
   });
 }
 
-// ── Playback controls ──────────────────────────────────────────────────────
+// Playback controls
 
 function setTimestep(t) {
   if (!state.scenario) return;
@@ -1975,7 +1975,7 @@ function togglePlay() {
   state.playing ? stopPlay() : startPlay();
 }
 
-// ── Event wiring ───────────────────────────────────────────────────────────
+// Event handlers
 
 document.getElementById('btn-fit').addEventListener('click', fitView);
 
@@ -2163,7 +2163,7 @@ document.getElementById('btn-search-clear').addEventListener('click', () => {
   render();
 });
 
-// ── Keyboard navigation ────────────────────────────────────────────────────
+// Keyboard navigation
 
 document.addEventListener('keydown', e => {
   // Skip if typing in an input/select
@@ -2196,7 +2196,7 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ── Theme toggle ────────────────────────────────────────────────────────────
+// Theme toggle
 
 document.getElementById('btn-theme').addEventListener('click', () => {
   setTheme(getTheme() === 'dark' ? 'light' : 'dark');
@@ -2211,6 +2211,6 @@ window.addEventListener('beforeunload', event => {
   event.returnValue = '';
 });
 
-// ── Init ───────────────────────────────────────────────────────────────────
+// Initialization
 
 loadScenarioList();

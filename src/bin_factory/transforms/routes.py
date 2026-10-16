@@ -1,11 +1,7 @@
 """Compute per-agent lane routes from observed trajectories.
 
-The route pipeline is graph-constrained:
-1. Build a per-scenario lane cache once.
-2. Gate non-ego agents on validity and on-road status at the check timestep.
-3. Build per-point lane candidates from GT geometry.
-4. Solve a best lane sequence with dynamic programming.
-5. Extend beyond GT to the map dead-end.
+Cache lane geometry and connectivity once per scenario. Match valid, on-road vehicles to
+lanes with dynamic programming, then extend their routes beyond the observed trajectory.
 """
 
 import itertools
@@ -21,16 +17,16 @@ from bin_factory.log_context import log
 from bin_factory.transforms.geometry import arc_length, polyline_length
 
 
-LANE_WIDTH_THRESHOLD = 7.0  # meters — reject point-to-lane matches farther than this
-ALIGNMENT_THRESHOLD = 0.3  # cos(heading) — minimum dot product for "same direction"
-ROUTE_CANDIDATE_BBOX_MARGIN = 12.0  # meters — bbox expansion when filtering nearby lanes
+LANE_WIDTH_THRESHOLD = 7.0  # meters, maximum point-to-lane distance
+ALIGNMENT_THRESHOLD = 0.3  # minimum dot product of agent and lane heading vectors
+ROUTE_CANDIDATE_BBOX_MARGIN = 12.0  # meters, bounding-box expansion for nearby lanes
 MAX_CANDIDATES_PER_POINT = 7
 MAX_TRANSITION_HOPS = 3
-BACKWARD_PROGRESS_TOLERANCE = 2.0  # meters — allow small projection noise on same lane
-OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters — max lane distance at the check timestep
+BACKWARD_PROGRESS_TOLERANCE = 2.0  # meters, allowed backward projection on one lane
+OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters, maximum lane distance at the check timestep
 MIN_ROUTE_REMAINING = 15.0  # meters of route ahead at the check timestep; above the simulator's largest goal radius
-ELEVATION_THRESHOLD = 2.0  # meters — reject matches to vertically separated roads
-SMOOTH_WINDOW = 7  # frames — odd median-filter window; kills per-frame perception spikes
+ELEVATION_THRESHOLD = 2.0  # meters, maximum elevation difference for lane matches
+SMOOTH_WINDOW = 7  # frames, odd median-filter window for perception spikes
 PARKED_MOTION_THRESHOLD = 1.5
 PARKED_MOTION_WINDOW_SECONDS = 1.5
 PARKED_DIRECTIONAL_CONSISTENCY = 0.8
@@ -43,18 +39,12 @@ _Candidate = tuple[int, int, float, float]  # (point_idx, lane_id, distance, s)
 
 
 def process_agent_routes(scenario: schema.PufferScenario, route_check_timestep: int = 0) -> None:
-    """Compute a lane route per agent and assign it back onto ``scenario``.
+    """Set each agent's ``route``, ``route_gt_len``, and ``control_state``.
 
-    Routes are graph-constrained lane sequences. For each vehicle agent, the ground-truth
-    trajectory is projected onto lane centerlines and a best-matching lane sequence is
-    solved via DP, then extended past the last GT lane toward a dead-end.
-
-    Arguments:
-        scenario: PufferScenario whose ``agents`` and ``map`` are read; routes are written
-            back onto each Track (``route``, ``route_gt_len``, ``control_state``).
-        route_check_timestep: Timestep at which the agent must be valid (and on-road) for
-            non-ego routes. Ego (vehicle id 0) bypasses this gate and the parked filter;
-            failure on ego raises.
+    Project vehicle trajectories onto lane centerlines, choose a connected sequence with
+    dynamic programming, then extend it to a dead end. Non-ego vehicles must be valid and
+    on-road at ``route_check_timestep``. Ego bypasses this gate and the parked filter,
+    but conversion fails if its route or starting position prevents control.
     """
     scenario_length = scenario.metadata.scenario_length
     if scenario_length > 0 and route_check_timestep >= scenario_length:
@@ -113,12 +103,11 @@ def process_agent_routes(scenario: schema.PufferScenario, route_check_timestep: 
 
 
 def _replay_log_conflicts(agents: dict[int, schema.Track], start: int) -> None:
-    """Hand to log replay (NON_CONTROLLABLE_MOVING) the controllable vehicles whose logged box overlaps another agent
-    at the start frame, or a log-driven (replayed or frozen) agent at any later frame.
+    """Switch controllable non-ego vehicles to replay when their logged boxes overlap
+    another agent at the start frame or a replayed or frozen agent later.
 
-    Controlling them would start the policy in, or drive it along its route into, a collision the log already holds
-    (duplicate tracks, perception noise). Ego stays controllable. Only the control state changes: trajectories,
-    validity and routes are kept, so log replay and WOSAC still see the whole scene.
+    This avoids collisions already present in the log. Keep trajectories, validity, and
+    routes for log replay and WOSAC. An ego overlap at the start frame raises an error.
     """
     tracks = list(agents.values())
     corners = _box_corners(tracks) if tracks else np.zeros((0, 0, 4, 2))

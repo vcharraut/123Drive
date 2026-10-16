@@ -13,17 +13,11 @@ LANE_CHANGE_COST = 25.0  # metres, about the distance a lane change takes; keeps
 def build_lane_distance_matrix(map_elements: dict[int, schema.MapElement]) -> dict | None:
     """Build the all-pairs shortest-path distance matrix over drivable lanes.
 
-    Only SURFACE_STREET and FREEWAY lanes participate. Directed edges follow each lane's
-    ``exit_lanes`` and are weighted by the source lane's polyline length, so distances
-    measure travel along the lane network (row = source, col = destination). Lane changes
-    to a left/right neighbour (both directions) cost ``LANE_CHANGE_COST``.
+    Only SURFACE_STREET and FREEWAY lanes participate. Exit edges cost the source lane's
+    length. Lane changes to either neighbour cost ``LANE_CHANGE_COST`` in both directions.
 
-    Arguments:
-        map_elements: Scenario map dict ``{id: element}`` as on ``PufferScenario.map``.
-
-    Returns:
-        ``None`` if the map has no drivable lanes, else ``{"lane_ids": [int, ...],
-        "distances": float64 NxN array}``. Unreachable pairs are ``+inf``.
+    Return ``{"lane_ids": [...], "distances": float64 NxN array}``, or ``None`` without
+    drivable lanes. Rows are sources, columns are destinations, and unreachable pairs are ``+inf``.
     """
     lanes = [(eid, e) for eid, e in map_elements.items() if e.type in GRAPH_LANE_TYPES]
     if not lanes:
@@ -53,9 +47,9 @@ def build_lane_distance_matrix(map_elements: dict[int, schema.MapElement]) -> di
 
 
 def compute_lane_lengths(scenario: schema.PufferScenario) -> None:
-    """Annotate each lane element with `length` (scalar) and `cum_length` (per-point arc-length).
+    """Set each lane's total length and cumulative arc length per point.
 
-    Must run AFTER geometry.process_polylines so values match the serialized polyline.
+    Run after ``geometry.process_polylines`` so lengths match the serialized geometry.
     """
     for elem in scenario.map.values():
         if not elem.is_lane or elem.polyline is None:

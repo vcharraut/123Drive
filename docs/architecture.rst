@@ -1,8 +1,7 @@
 Architecture
 ============
 
-123Drive is a pipeline rather than a general-purpose framework. Four small packages own distinct
-parts of the workflow:
+123Drive splits conversion and tools across these modules:
 
 .. list-table::
    :header-rows: 1
@@ -51,13 +50,12 @@ Why two extraction outputs?
 
 ``PufferScenario`` contains data that survives into the binary. ``ExtractionExtras`` contains
 source-level traffic-light tracks and stop zones needed while transforming the scenario.
-Traffic-control processing consumes those extras and creates the final serialized control
-records. This prevents temporary source representations from leaking into the output schema.
+Traffic-control processing converts those extras into the serialized control records.
 
 Mutation and ordering
 ---------------------
 
-Transforms mutate one scenario in place. Their order is load-bearing:
+Transforms mutate one scenario in place. Their order matters because:
 
 * traffic-light interpolation needs original lane topology and source detections;
 * lane lengths must describe the processed, serialized geometry;

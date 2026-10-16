@@ -9,10 +9,7 @@ raw dataset -> 123D Arrow -> 123Drive -> PufferDrive binary
 
 ## Documentation
 
-Full documentation: **https://vcharraut.github.io/123Drive/**
-
-It covers installation, datasets, conversion, presets, the processing pipeline, validation,
-route and traffic-light algorithms, the binary format, Mapforge, the viewer, and Docker.
+[Installation, conversion, algorithms, and binary format](https://vcharraut.github.io/123Drive/).
 
 ## Quick start
 
@@ -37,4 +34,4 @@ uv sync --extra viz
 uv run web --dir ./output
 ```
 
-Python 3.11–3.13. MIT licensed.
+Python 3.11 to 3.13. MIT licensed.

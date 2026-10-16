@@ -1,4 +1,4 @@
-/* 123Drive Viz — shared pure helpers */
+/* Shared viewer helpers. */
 'use strict';
 
 (function initVizHelpers(globalScope) {
@@ -12,7 +12,7 @@
   }
 
   function safeIdList(ids) {
-    return (ids || []).map(v => escapeHtml(v)).join(', ') || '—';
+    return (ids || []).map(escapeHtml).join(', ') || '—';
   }
 
   function getObjectsOfInterest(metadata) {

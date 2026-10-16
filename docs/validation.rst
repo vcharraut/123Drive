@@ -58,5 +58,5 @@ data. Repairs that are part of the conversion contract happen in extraction or e
 transform stages.
 
 Use level 1 for normal bulk conversion. Use level 2 when introducing a dataset, changing
-extraction, or investigating malformed output. Level 0 removes the safety boundary and can allow
-serialization failures or invalid references into the binary.
+extraction, or investigating malformed output. Level 0 skips validation, so serialization may fail
+or write invalid references.

@@ -105,8 +105,9 @@ Lane distances
 
 Only freeway and surface-street lanes participate in the serialized lane graph. A directed edge
 follows each source lane's ``exit_lanes`` and is weighted by that source lane's final arc length.
-Lane changes to a left or right neighbour are edges in both directions costing 25 metres, about the
-distance a lane change takes, so the lane that leads to the goal reads closer than its neighbours. SciPy Dijkstra produces the all-pairs matrix; unreachable destinations remain infinity.
+Lane changes to a left or right neighbour add edges in both directions, each costing 25 metres.
+This approximates lane-change distance and makes the lane leading to the goal closer than its
+neighbours. SciPy Dijkstra produces the all-pairs matrix. Unreachable destinations remain infinity.
 
 Reindexing
 ----------

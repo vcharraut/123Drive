@@ -134,28 +134,23 @@ def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int
     left_boundary = np.asarray(lane.left_boundary if lane.left_boundary is not None else [], dtype=np.float64)
     right_boundary = np.asarray(lane.right_boundary if lane.right_boundary is not None else [], dtype=np.float64)
     width = _lane_width_from_boundaries(left_boundary, right_boundary)
-    lane_vector = np.array([np.cos(heading), np.sin(heading), 0.0])
-    return np.array(
-        [
-            center - (width / 2) * np.array([-lane_vector[1], lane_vector[0], 0.0]),
-            center + (width / 2) * np.array([-lane_vector[1], lane_vector[0], 0.0]),
-        ],
-        dtype=np.float64,
-    )
+    half_width = (width / 2) * np.array([-np.sin(heading), np.cos(heading), 0.0])
+    return np.array([center - half_width, center + half_width], dtype=np.float64)
 
 
 def _heading_near(point: np.ndarray, lane_ids: list[int], lanes_by_id: dict[int, schema.MapElement]) -> float:
-    """Travel direction of the lane passing closest to ``point``, at that point.
+    """Return the direction of the nearest lane segment at ``point``.
 
-    A stop zone may sit anywhere along its lanes (nuPlan: at the end of the approach lane, CARLA: inside the junction),
-    so the direction at the zone, not at the lane start, is the heading of its stop line.
+    Stop zones may sit at an approach lane's end in nuPlan or inside a CARLA junction.
+    Use the direction at the zone to orient its stop line.
     """
     candidates = []
     for lane_id in lane_ids:
         polyline = np.asarray(lanes_by_id[lane_id].polyline, dtype=np.float64)[:, :2]
         a, ab = polyline[:-1], np.diff(polyline, axis=0)
-        t = np.clip(((point - a) * ab).sum(axis=1) / np.maximum((ab**2).sum(axis=1), 1e-9), 0.0, 1.0)
-        degenerate = np.where((ab**2).sum(axis=1) > 0, 0.0, np.inf)
+        length_sq = (ab**2).sum(axis=1)
+        t = np.clip(((point - a) * ab).sum(axis=1) / np.maximum(length_sq, 1e-9), 0.0, 1.0)
+        degenerate = np.where(length_sq > 0, 0.0, np.inf)
         distance = np.linalg.norm(point - (a + t[:, None] * ab), axis=1) + degenerate
         k = int(np.argmin(distance))
         candidates.append((float(distance[k]), float(np.arctan2(ab[k, 1], ab[k, 0]))))

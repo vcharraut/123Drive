@@ -4,9 +4,6 @@ from shapely import geometry as shapely_geom
 from bin_factory import schema
 
 
-# ── Polyline length primitives ──────────────────────────────────────────────────────────
-
-
 def arc_length(polyline: np.ndarray) -> np.ndarray:
     """Cumulative arc-length per point. cum[0]=0, cum[-1]=total length. Norms over all columns."""
     polyline = np.asarray(polyline)
@@ -20,9 +17,6 @@ def polyline_length(polyline: np.ndarray) -> float:
     """Total arc-length of a polyline (sum of segment norms over all columns)."""
     cum = arc_length(polyline)
     return float(cum[-1]) if len(cum) else 0.0
-
-
-# ── Interpolate polygons to ensure they are all the same spacing ───────────────────────
 
 
 def interpolate_all_polygons(scenario: schema.PufferScenario, spacing: float = 5.0) -> None:
@@ -43,9 +37,6 @@ def _interpolate_polygon(xyz: np.ndarray | None, spacing: float) -> np.ndarray:
     return np.asarray(densified.coords, dtype=np.float64)
 
 
-# ── Reverse road-edge heading  ─────────────────────────────────────────────────────────
-
-
 def reverse_road_edges(scenario: schema.PufferScenario) -> None:
     # PY123D-REPORT[nuplan,carla,opendrive,nuscenes]: py123d road edges run opposite to the WOMD orientation;
     # enabled per dataset via the `reverse_road_edges` preset key.
@@ -54,20 +45,13 @@ def reverse_road_edges(scenario: schema.PufferScenario) -> None:
             element.polyline = element.polyline[::-1]
 
 
-# ── Downsample and simplify polylines ──────────────────────────────────────────────────
-
-
 def process_polylines(
     scenario: schema.PufferScenario,
     max_segment_length: float = 2.0,
     area_threshold: float = 0.1,
     edge_max_segment_length: float = 10.0,
 ) -> None:
-    map_elements = scenario.map
-    if not map_elements:
-        return
-
-    for element in map_elements.values():
+    for element in scenario.map.values():
         if element.polyline is None:
             continue
 
@@ -108,10 +92,10 @@ def _distance_based_interpolate(polyline: np.ndarray, max_segment_length: float)
     result = np.empty((total_points, polyline.shape[1]), dtype=polyline.dtype)
 
     idx = 0
-    for i in range(len(diffs)):
+    for i, diff in enumerate(diffs):
         n = subdivisions[i]
         t = np.arange(n).reshape(-1, 1) / n
-        result[idx : idx + n] = polyline[i] + t * diffs[i]
+        result[idx : idx + n] = polyline[i] + t * diff
         idx += n
     result[idx] = polyline[-1]
 

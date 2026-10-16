@@ -84,9 +84,10 @@ A scene conversion requires:
 
 All py123d map layers are supported: lanes, lane groups, intersections, crosswalks, walkways,
 carparks, generic-drivable areas, stop zones, road edges, road lines, and speed bumps. Road lines
-shorter than 10 cm and repeated road lines (same type and points, in either direction) are
-dropped. Lane centerlines lose a hook at either end: inner points making an end segment shorter
-than 0.5 metres that turns more than 30 degrees. Unrecognized object labels are ignored. Waymo Motion auxiliary metadata is used, when present, to preserve
+shorter than 10 cm and repeated road lines of the same type and points, in either direction, are
+dropped. The loader removes inner points within 0.5 metres of a lane-centerline endpoint when
+an end segment turns more than 30 degrees. The endpoints stay fixed. It ignores unrecognized
+object labels. When Waymo Motion auxiliary metadata exists, the loader preserves
 ``objects_of_interest`` and ``tracks_to_predict``.
 
 Coordinate system

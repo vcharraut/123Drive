@@ -34,9 +34,8 @@ Useful commands:
    $ uv run ty check src/
    $ uv run ruff check .
 
-Keep conversion changes in the stage that owns them. The transform order is part of behavior, not
-presentation. When changing a stage, verify its required predecessors and all references consumed
-by later validation and serialization.
+Keep conversion changes in the stage that owns them. Reordering transforms can change output.
+When changing a stage, check which earlier stages it needs and which references later stages read.
 
 Build the documentation
 -----------------------
@@ -64,9 +63,9 @@ deployment > Source**. The resulting site is:
 Documentation policy
 --------------------
 
-Keep the root ``README.md`` as a short project entry point. All guides, architecture notes, CLI
-details, algorithms, and format contracts belong in these reStructuredText pages. ``CHANGELOG.md``
-remains Markdown because it is consumed directly from the repository and release tooling.
+Keep the root ``README.md`` short. Put guides, architecture notes, CLI details, algorithms, and
+format specifications in these reStructuredText pages. Keep ``CHANGELOG.md`` in Markdown for
+repository readers and release tools.
 
 When behavior changes:
 

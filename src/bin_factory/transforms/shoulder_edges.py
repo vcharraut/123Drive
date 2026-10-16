@@ -1,10 +1,13 @@
-"""Road edges along lane boundaries that border shoulder surfaces outside junctions: the shoulder stays in the
-map (py123d keeps the layer) but PufferDrive treats it as off-road. Band samples whose probe lies inside an
-intersection polygon or a junction shoulder are ignored, so shoulders inside a junction stay drivable and no edge
-crosses a junction; samples whose probe lies inside another lane are blocked, so no edge crosses a lane that overlaps
-a shoulder (ramp connectors); a transverse cap closes a band wherever it goes on without a following edge, also
-where it goes on into a junction surface. On ramps (one-way single-lane carriageways with shoulders on both sides)
-the edges can sit outside the lane boundary, so that long and wide vehicles fit through tight ramp curves."""
+"""Add road edges between lanes and shoulders outside junctions.
+
+Keep shoulder geometry in the map. The added edges make PufferDrive treat those shoulders as
+off-road. Skip probes inside intersections or junction shoulders to keep junctions drivable.
+Block probes inside other lanes so edges do not cross overlapping ramp connectors.
+
+Close a shoulder band with a transverse cap when the band continues without a following edge,
+including into a junction. On one-way, single-lane ramps with shoulders on both sides, edges
+may sit outside the lane boundary so long and wide vehicles fit through tight curves.
+"""
 
 import dataclasses
 
@@ -68,10 +71,12 @@ def add_shoulder_edges(
     junction_outlines: list[np.ndarray],
     ramp_widening_m: float = 0.0,
 ) -> int:
-    """Append one ROAD_EDGE_BOUNDARY per stretch of a lane boundary that runs along a shoulder band outside the
-    junction surfaces, plus a cap across the band at every run end where the band goes on without a following run.
-    On ramps the edges sit up to ramp_widening_m outside the boundary (see _widening_targets).
-    Edges keep the drivable side on their right (py123d convention)."""
+    """Append ROAD_EDGE_BOUNDARY elements along shoulder bands outside junctions.
+
+    Cap run ends where the band continues without another run. Ramp edges may sit up to
+    ``ramp_widening_m`` outside the lane boundary. Keep the drivable side on the right,
+    following the py123d convention.
+    """
     shoulders = _Surfaces(shoulder_outlines)
     if not shoulders:
         return 0

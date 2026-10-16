@@ -1,9 +1,7 @@
 """The scenario processing pipeline.
 
-Ordering is load-bearing:
-- ``compute_lane_lengths`` must run after ``process_polylines`` (lengths match serialized geometry),
-- ``build_lane_distance_matrix`` needs those lengths,
-- ``reindex_scenario`` must run last.
+Compute lane lengths after processing polylines so they match the serialized geometry.
+The lane-distance matrix needs those lengths. Reindex IDs last.
 """
 
 from __future__ import annotations

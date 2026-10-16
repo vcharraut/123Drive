@@ -1,9 +1,9 @@
 Scenario data model
 ===================
 
-The loader normalizes 123D objects into dataclasses from ``bin_factory.schema``. These are an
-internal contract between extraction, transforms, validation, serialization, Mapforge, and the
-viewer binary parser.
+The loader converts 123D objects into dataclasses from ``bin_factory.schema``. Extraction,
+transforms, validation, serialization, and Mapforge use these dataclasses. The viewer parses
+their serialized fields.
 
 Scenario
 --------
@@ -91,4 +91,4 @@ Integer values are defined in ``src/bin_factory/puffer_types.py``:
 * traffic control: traffic light, stop sign, yield sign;
 * objects: traffic sign, traffic cone, traffic light, barrier, generic object.
 
-Treat that module, not this prose, as the source of truth for numeric values.
+Read that module for numeric values.

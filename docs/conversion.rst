@@ -61,9 +61,9 @@ Parallel execution
    * - ``N``
      - Exactly ``N`` workers
 
-The converter reduces the worker count when ``--num_scenes`` is smaller. Scenes are dispatched
-in chunks of ``--chunk_target_scenes`` (default 10,000) to avoid constructing one unbounded
-Joblib task graph. Results are consumed out of order and update a shared progress bar.
+The converter reduces the worker count when ``--num_scenes`` is smaller. It submits scenes to
+Joblib in chunks of ``--chunk_target_scenes`` (default 10,000) to limit pending tasks.
+Results update a shared progress bar as they arrive.
 
 Output identity
 ---------------
@@ -82,12 +82,11 @@ Names include the dataset so outputs from several sources can share one director
    * - Map-only
      - ``<dataset>__<location>.bin``
 
-Unsafe filename characters become underscores. Before conversion starts, every destination is
-computed and duplicate destinations abort the run.
+Unsafe filename characters become underscores. The converter computes every destination before
+starting and aborts if any paths are duplicated.
 
-Each completed payload is written to a process-specific temporary file beside its destination,
-then atomically replaces the final path. Existing final files are replaced; unrelated files are
-untouched.
+Each worker writes its payload to a process-specific temporary file beside the destination,
+then atomically replaces the final file. Other files stay unchanged.
 
 Failures and exit status
 ------------------------
