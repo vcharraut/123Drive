@@ -87,9 +87,9 @@ class _Reader:
         return chunk
 
     def skip_dynamic(self, channels=9):
-        (t,) = self.ints(1)
-        self.floats(channels * t)  # xyz, heading, vx, vy, length, width, height
-        self.ints(t)  # valid
+        t, _first, n = self.ints(3)  # only frames [first, first + n) are stored
+        self.floats(channels * n)  # xyz, heading, vx, vy, length, width, height
+        self.ints(n)  # valid
         return t
 
 
@@ -160,6 +160,8 @@ def _parse(data):
     (dt,) = r.floats(1)
     ooi = r.ints(r.ints(1)[0])
     ttp = r.ints(r.ints(1)[0])
+    assert r.raw(len(serialize.TRAFFIC_PHASE_SECTION_TAG)) == serialize.TRAFFIC_PHASE_SECTION_TAG
+    r.ints(2 * n_tc)  # junction id, phase per traffic control
 
     return {
         "counts": (n_agents, n_road, n_tc, n_objects),

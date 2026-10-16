@@ -104,10 +104,10 @@ class _Reader:
         return chunk
 
     def skip_dynamic(self, channels=9):
-        (t,) = self.ints(1)
-        self.floats(channels * t)  # xyz, heading, vx, vy, length, width, height
-        self.ints(t)  # valid
-        return t
+        t, first, n = self.ints(3)  # only frames [first, first + n) are stored
+        self.floats(channels * n)  # xyz, heading, vx, vy, length, width, height
+        self.ints(n)  # valid
+        return t, first, n
 
 
 def _parse(data):
@@ -117,12 +117,12 @@ def _parse(data):
     agents = []
     for _ in range(n_agents):
         eid, _type = r.ints(2)
-        r.skip_dynamic()
+        span = r.skip_dynamic()
         (n_route,) = r.ints(1)
         route = r.ints(n_route)
         (route_gt_len,) = r.ints(1)
         (control_state,) = r.ints(1)
-        agents.append({"id": eid, "route": route, "route_gt_len": route_gt_len, "cs": control_state})
+        agents.append({"id": eid, "span": span, "route": route, "route_gt_len": route_gt_len, "cs": control_state})
 
     lanes = []
     for _ in range(n_road):
@@ -145,9 +145,10 @@ def _parse(data):
         r.ints(r.ints(1)[0])  # states
         r.ints(r.ints(1)[0])  # controlled lanes
 
+    object_spans = []
     for _ in range(n_objects):
         r.ints(2)
-        r.skip_dynamic()
+        object_spans.append(r.skip_dynamic())
 
     (lg_n,) = r.ints(1)
     if lg_n:
@@ -161,10 +162,13 @@ def _parse(data):
     (dt,) = r.floats(1)
     ooi = r.ints(r.ints(1)[0])
     ttp = r.ints(r.ints(1)[0])
+    assert r.raw(len(serialize.TRAFFIC_PHASE_SECTION_TAG)) == serialize.TRAFFIC_PHASE_SECTION_TAG
+    r.ints(2 * n_tc)  # junction id, phase per traffic control
 
     return {
         "counts": (n_agents, n_road, n_tc, n_objects),
         "agents": agents,
+        "object_spans": object_spans,
         "lanes": lanes,
         "id": meta_id,
         "dataset": meta_dataset,
@@ -202,6 +206,15 @@ def test_round_trip_high_level_fields():
 
     # The parser walks every field; ending exactly at the buffer end proves layout consistency.
     assert parsed["consumed"] == len(data)
+
+
+def test_trajectory_stores_only_valid_span():
+    scenario = _build_scenario()
+    scenario.objects[0].valid[:] = 0
+    parsed = _parse(serialize.scenario_to_binary(scenario))
+    # (T, first, n): frames from the first to the last valid one; none for an all-invalid track.
+    assert [a["span"] for a in parsed["agents"]] == [(3, 0, 3), (3, 1, 1)]
+    assert parsed["object_spans"] == [(3, 0, 0)]
 
 
 def test_serialization_is_deterministic():
