@@ -11,7 +11,7 @@ import pathlib
 import numpy as np
 import pytest
 
-from bin_factory import loader, main, serialize, transforms
+from bin_factory import loader, main, puffer_types, schema, serialize, transforms
 from mapforge import affine, static_binary
 from mapforge.static_binary import StaticBinaryError
 
@@ -52,6 +52,29 @@ def _centroid(scenario):
     return _all_xy(scenario).mean(axis=0)
 
 
+def _with_object(scenario, x=10.0, y=20.0, heading=0.3, length=4.0, width=1.0):
+    """Adds one static object (single valid frame), like a converted CARLA static obstacle."""
+    scenario.objects = {
+        7: schema.Track(
+            type=int(puffer_types.ObjectType.BARRIER),
+            position=np.array([[x, y, 1.5]]),
+            heading=np.array([heading]),
+            velocity=np.zeros((1, 2)),
+            valid=np.array([1], dtype=np.int32),
+            length=np.array([length]),
+            width=np.array([width]),
+            height=np.array([2.0]),
+        )
+    }
+    return scenario
+
+
+def _box_corners(x, y, heading, length, width):
+    d = np.array([np.cos(heading), np.sin(heading)])
+    n = np.array([-np.sin(heading), np.cos(heading)])
+    return np.array([[x, y] + sl * length / 2 * d + sw * width / 2 * n for sl in (-1, 1) for sw in (-1, 1)])
+
+
 # ── static_binary: read ───────────────────────
 
 
@@ -87,6 +110,17 @@ def test_read_rejects_binary_with_agents():
     data = np.array([1, 0, 0, 0], dtype="<i4").tobytes()
     with pytest.raises(StaticBinaryError, match="not static"):
         static_binary.static_binary_to_scenario(data)
+
+
+def test_read_keeps_objects(opendrive_bins):
+    data = serialize.scenario_to_binary(_with_object(static_binary.static_binary_to_scenario(opendrive_bins["Town02"])))
+    track = static_binary.static_binary_to_scenario(data).objects[7]
+    assert track.type == int(puffer_types.ObjectType.BARRIER)
+    assert np.allclose(track.position, [[10.0, 20.0, 1.5]])
+    assert np.allclose([track.heading[0], track.length[0], track.width[0], track.height[0]], [0.3, 4.0, 1.0, 2.0])
+    assert track.valid.tolist() == [1]
+    # The reader returns what the writer stored: a second cycle is byte-exact.
+    assert serialize.scenario_to_binary(static_binary.static_binary_to_scenario(data)) == data
 
 
 def test_read_rejects_trailing_bytes(opendrive_bins):
@@ -204,6 +238,35 @@ def test_traffic_control_heading_rotates_under_flip(opendrive_bins):
         h = float(ref.heading)
         rotated = matrix @ np.array([np.cos(h), np.sin(h)])
         assert tc.heading == pytest.approx(float(np.arctan2(rotated[1], rotated[0])))
+
+
+def test_flip_mirrors_objects(opendrive_bins):
+    scenario = _with_object(static_binary.static_binary_to_scenario(opendrive_bins["Town02"]))
+    centroid = _centroid(scenario)
+    affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["flip"]["FlipX"], centroid)
+    track = scenario.objects[7]
+    assert np.allclose(track.position, [[2 * centroid[0] - 10.0, 20.0, 1.5]])
+    assert np.isclose(np.cos(track.heading[0]), np.cos(np.pi - 0.3))
+    assert np.isclose(np.sin(track.heading[0]), np.sin(np.pi - 0.3))
+    assert np.allclose([track.length[0], track.width[0]], [4.0, 1.0])
+
+
+@pytest.mark.parametrize("name", ["ShXP", "Sc10", "ScY10"])
+def test_affine_object_box_encloses_mapped_footprint(opendrive_bins, name):
+    group = next(g for g in affine.TRANSFORM_GROUPS.values() if name in g)
+    matrix = np.asarray(group[name], dtype=np.float64)
+    scenario = _with_object(static_binary.static_binary_to_scenario(opendrive_bins["Town02"]))
+    centroid = _centroid(scenario)
+    mapped = (_box_corners(10.0, 20.0, 0.3, 4.0, 1.0) - centroid) @ matrix.T + centroid
+    affine.apply_affine_transform(scenario, matrix, centroid)
+    track = scenario.objects[7]
+    # Mapped corners lie inside the new box (in its frame), and the box is no larger than their extent along it.
+    d = np.array([np.cos(track.heading[0]), np.sin(track.heading[0])])
+    n = np.array([-d[1], d[0]])
+    local = mapped - track.position[0, :2]
+    assert np.isclose(np.ptp(local @ d), track.length[0])
+    assert np.isclose(np.ptp(local @ n), track.width[0])
+    assert np.allclose((local @ d).mean(), 0.0, atol=1e-9) and np.allclose((local @ n).mean(), 0.0, atol=1e-9)
 
 
 def test_apply_affine_rebuilds_lane_graph(opendrive_bins):

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-from bin_factory.schema import MapElement, PufferScenario, ScenarioMetadata, TrafficControl
+from bin_factory.schema import MapElement, PufferScenario, ScenarioMetadata, Track, TrafficControl
 from bin_factory.serialize import (
     METADATA_DATASET_BYTES,
     METADATA_ID_BYTES,
@@ -65,11 +65,12 @@ def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> PufferSce
         n_traffic = reader.i32()
         n_objects = reader.i32()
 
-        if n_agents or n_objects:
-            raise StaticBinaryError(f"{source} is not static: found {n_agents} agents and {n_objects} objects")
+        if n_agents:
+            raise StaticBinaryError(f"{source} is not static: found {n_agents} agents")
 
         road_map = _read_roads(reader, n_roads)
         traffic_controls = _read_traffic_controls(reader, n_traffic)
+        objects = _read_objects(reader, n_objects)
         lane_graph = _read_lane_graph(reader)
         metadata = _read_metadata(reader)
         if reader.data[reader.offset : reader.offset + len(TRAFFIC_PHASE_SECTION_TAG)] == TRAFFIC_PHASE_SECTION_TAG:
@@ -85,7 +86,7 @@ def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> PufferSce
 
     return PufferScenario(
         agents={},
-        objects={},
+        objects=objects,
         map=road_map,
         traffic_controls=traffic_controls,
         lane_graph=lane_graph,
@@ -94,7 +95,7 @@ def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> PufferSce
 
 
 def write_static_scenario(scenario: PufferScenario, path: str | Path, overwrite: bool = False) -> None:
-    if scenario.agents or scenario.objects:
+    if scenario.agents:
         raise StaticBinaryError("write_static_scenario only supports static scenarios")
 
     path = Path(path)
@@ -159,6 +160,32 @@ def _read_traffic_controls(reader: _Reader, n_traffic: int) -> list[TrafficContr
             )
         )
     return traffic_controls
+
+
+def _read_objects(reader: _Reader, n_objects: int) -> dict[int, Track]:
+    objects = {}
+    for _ in range(n_objects):
+        object_id = reader.i32()
+        object_type = reader.i32()
+        n_frames = reader.i32()
+        first = reader.i32()
+        n_stored = reader.i32()
+        channels = np.zeros((9, n_frames), dtype=np.float64)
+        for channel in channels:
+            channel[first : first + n_stored] = reader.f32_array(n_stored)
+        valid = np.zeros(n_frames, dtype=np.int32)
+        valid[first : first + n_stored] = reader.i32_array(n_stored)
+        objects[object_id] = Track(
+            type=object_type,
+            position=channels[0:3].T.copy(),
+            heading=channels[3],
+            velocity=channels[4:6].T.copy(),
+            valid=valid,
+            length=channels[6],
+            width=channels[7],
+            height=channels[8],
+        )
+    return objects
 
 
 def _read_traffic_phases(reader: _Reader, traffic_controls: list[TrafficControl]) -> None:

@@ -144,6 +144,19 @@ def apply_affine_transform(scenario: PufferScenario, matrix: np.ndarray, centroi
         rotated = matrix @ np.array([np.cos(heading), np.sin(heading)], dtype=np.float64)
         traffic_control.heading = float(np.arctan2(rotated[1], rotated[0]))
 
+    for track in scenario.objects.values():
+        # The mapped box is a parallelogram: keep the rectangle along the mapped heading that encloses it
+        heading = np.asarray(track.heading, dtype=np.float64)
+        along = np.stack([np.cos(heading), np.sin(heading)], axis=1) @ matrix.T
+        across = np.stack([-np.sin(heading), np.cos(heading)], axis=1) @ matrix.T
+        along_norm = np.linalg.norm(along, axis=1)
+        overhang = np.abs(np.sum(across * along, axis=1)) / along_norm
+        track.position = _transform_xyz(np.asarray(track.position, dtype=np.float64), matrix, centroid)
+        track.velocity = np.asarray(track.velocity, dtype=np.float64) @ matrix.T
+        track.heading = np.arctan2(along[:, 1], along[:, 0])
+        track.length = along_norm * track.length + overhang * track.width
+        track.width = abs(np.linalg.det(matrix)) / along_norm * track.width
+
     compute_lane_lengths(scenario)
     scenario.lane_graph = build_lane_distance_matrix(scenario.map)
 
