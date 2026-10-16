@@ -24,9 +24,15 @@ def _write_int_list(buf: bytearray, values: list[int]) -> None:
 
 
 def _write_dynamic_states(buf: bytearray, track: schema.Track) -> None:
-    """Write a per-track trajectory block (T + xyz + heading + velocity + bbox + valid)."""
+    """Write a per-track trajectory block (T, first, n + xyz + heading + velocity + bbox + valid).
+
+    Only frames [first, first + n), from the first to the last valid frame, are stored; readers fill the others with
+    zeros (invalid).
+    """
     xyz = np.asarray(track.position, dtype="<f4")
-    buf.extend(struct.pack("<i", len(xyz)))
+    valid = np.flatnonzero(np.asarray(track.valid))
+    first, n = (int(valid[0]), int(valid[-1] - valid[0] + 1)) if len(valid) else (0, 0)
+    buf.extend(struct.pack("<iii", len(xyz), first, n))
     for col in [
         xyz[:, 0],
         xyz[:, 1],
@@ -38,8 +44,8 @@ def _write_dynamic_states(buf: bytearray, track: schema.Track) -> None:
         track.width,
         track.height,
     ]:
-        buf.extend(np.asarray(col, dtype="<f4").tobytes())
-    buf.extend(np.asarray(track.valid, dtype="<i4").tobytes())
+        buf.extend(np.asarray(col, dtype="<f4")[first : first + n].tobytes())
+    buf.extend(np.asarray(track.valid, dtype="<i4")[first : first + n].tobytes())
 
 
 def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:

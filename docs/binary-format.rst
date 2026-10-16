@@ -52,19 +52,26 @@ Repeat the following block ``n_agents`` times:
    * - ``int32``
      - ``T``
      - Trajectory frame count
-   * - ``float32[T]``
+   * - ``int32``
+     - ``first``
+     - First stored frame: the first valid frame, 0 when none
+   * - ``int32``
+     - ``n``
+     - Stored frame count: first to last valid frame, 0 when none. Frames outside
+       ``[first, first + n)`` are not stored; readers fill them with zeros (invalid)
+   * - ``float32[n]``
      - ``x``, then ``y``, then ``z``
      - Channel-major positions
-   * - ``float32[T]``
+   * - ``float32[n]``
      - ``heading``
      - Radians
-   * - ``float32[T]``
+   * - ``float32[n]``
      - ``vx``, then ``vy``
      - Velocity channels
-   * - ``float32[T]``
+   * - ``float32[n]``
      - ``length``, then ``width``, then ``height``
      - Bounding-box channels
-   * - ``int32[T]``
+   * - ``int32[n]``
      - ``valid``
      - 1 where the source observation exists
    * - ``int32``
@@ -192,7 +199,7 @@ Objects
 -------
 
 Repeat the same dynamic-state prefix used by agents ``n_objects`` times: ``id``, ``type``, ``T``,
-position, heading, velocity, dimensions, and valid channels. Objects do not append route or
+``first``, ``n``, position, heading, velocity, dimensions, and valid channels. Objects do not append route or
 control-state fields.
 
 Lane graph

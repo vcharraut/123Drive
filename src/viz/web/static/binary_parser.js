@@ -2,20 +2,21 @@
  *
  * Binary layout (all little-endian):
  *   Header: num_agents(i32), num_roads(i32), num_traffic(i32), num_objects(i32)
- *   Agents[]:  id(i32), type(i32), T(i32),
- *              x[T](f32), y[T](f32), z[T](f32),
- *              heading[T](f32), vx[T](f32), vy[T](f32),
- *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32),
+ *   Agents[]:  id(i32), type(i32), T(i32), first(i32), n(i32),
+ *              x[n](f32), y[n](f32), z[n](f32),
+ *              heading[n](f32), vx[n](f32), vy[n](f32),
+ *              length[n](f32), width[n](f32), height[n](f32), valid[n](i32),
  *              n_route(i32), route[n_route](i32), route_gt_len(i32), control_state(i32)
+ *              (frames [first, first + n) of T; the others are zero / invalid)
  *   Roads[]:   id(i32), type(i32), S(i32),
  *              x[S](f32), y[S](f32), z[S](f32), heading[S](f32),
  *              [if lane (type 0-9): n_entry(i32), entry[](i32), n_exit(i32), exit[](i32), n_left(i32), left[](i32), n_right(i32), right[](i32), speed_limit(f32), length(f32), cum_length[S](f32), curvature[S](f32)]
  *   Traffic[]: id(i32), type(i32), stop_line(6xf32), heading(f32),
  *              n_states(i32), states[](i32), n_ctrl(i32), ctrl[](i32)
- *   Objects[]: id(i32), type(i32), T(i32),
- *              x[T](f32), y[T](f32), z[T](f32),
- *              heading[T](f32), vx[T](f32), vy[T](f32),
- *              length[T](f32), width[T](f32), height[T](f32), valid[T](i32)
+ *   Objects[]: id(i32), type(i32), T(i32), first(i32), n(i32),
+ *              x[n](f32), y[n](f32), z[n](f32),
+ *              heading[n](f32), vx[n](f32), vy[n](f32),
+ *              length[n](f32), width[n](f32), height[n](f32), valid[n](i32)
  *   LaneGraph: n_lanes_graph(i32),
  *              [if n>0: lane_ids[n](i32), distances[n*n](f32)]
  *   Metadata:  id(char[128]), dataset(char[32]),
@@ -68,17 +69,22 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       return rows;
     };
 
-    const readDynamicStateArrays = (T) => {
-      const xArr = f32arr(T);
-      const yArr = f32arr(T);
-      const zArr = f32arr(T);
-      const heading = f32arr(T);
-      const vxArr = f32arr(T);
-      const vyArr = f32arr(T);
-      const length = f32arr(T);
-      const width = f32arr(T);
-      const height = f32arr(T);
-      const valid = i32arr(T);
+    // Stored frames [first, first + n) of T, zero-filled outside
+    const readDynamicStateArrays = () => {
+      const T = i32();
+      const first = i32();
+      const n = i32();
+      const pad = (stored, Arr) => { const a = new Arr(T); a.set(stored, first); return a; };
+      const xArr = pad(f32arr(n), Float32Array);
+      const yArr = pad(f32arr(n), Float32Array);
+      const zArr = pad(f32arr(n), Float32Array);
+      const heading = pad(f32arr(n), Float32Array);
+      const vxArr = pad(f32arr(n), Float32Array);
+      const vyArr = pad(f32arr(n), Float32Array);
+      const length = pad(f32arr(n), Float32Array);
+      const width = pad(f32arr(n), Float32Array);
+      const height = pad(f32arr(n), Float32Array);
+      const valid = pad(i32arr(n), Int32Array);
       return {
         xyz: colsToRows([xArr, yArr, zArr]),
         heading: Array.from(heading),
@@ -93,7 +99,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     const readDynamicEntity = (hasRoute) => {
       const id = i32();
       const type = i32();
-      const states = readDynamicStateArrays(i32());
+      const states = readDynamicStateArrays();
       if (!hasRoute) return {id, type, ...states};
       const route = intList();
       const route_gt_len = i32();
