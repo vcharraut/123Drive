@@ -27,17 +27,20 @@ NEIGHBOR_MIN_OVERLAP = 10.0  # m a neighbour must run alongside a lane (capped a
 NEIGHBOR_GAP = (1.5, 6.0)  # m lateral distance range of a neighbour's centerline
 NEIGHBOR_MAX_ANGLE = np.radians(25.0)
 JUNCTION_SHOULDER_MIN_OVERLAP = 0.5  # Area fraction inside intersections that makes a shoulder a junction shoulder
+STATIC_OBJECT_LEVEL_TOL = 2.0  # m; an object on the road surface stands at most this far above or below it
 
 
 def extract_scenario(
     py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI,
     scenario_id_field: str = "scene_uuid",
     speed_limit_source: str = "road",
+    static_objects: str = "all",
 ) -> tuple[schema.PufferScenario, schema.ExtractionExtras]:
     """Convert a 123D scene or map into a scenario and extraction extras.
 
     ``scenario_id_field`` selects scene_uuid, log_name, or location for metadata.id.
     ``speed_limit_source`` selects the road limit or the last speed sign's limit.
+    ``static_objects`` keeps all static map objects or only those on the road surface (onroad).
     Transforms use the extras for traffic controls and shoulder edges.
     """
     if isinstance(py123_arrow, py123d_api.MapAPI):
@@ -102,7 +105,11 @@ def extract_scenario(
         metadata.dt = dt
 
     first_id = max([*agents, *objects], default=-1) + 1
-    objects.update(_extract_static_objects(map_api, centroid, ego_states, map_only, metadata.scenario_length, first_id))
+    objects.update(
+        _extract_static_objects(
+            map_api, centroid, ego_states, map_only, metadata.scenario_length, first_id, static_objects == "onroad"
+        )
+    )
 
     if not map_api.map_has_z:
         _zero_all_z(agents, objects, traffic_lights, map_elements, stop_zones)
@@ -441,8 +448,10 @@ def _extract_static_objects(
     map_only: bool,
     episode_length: int,
     first_id: int,
+    onroad_only: bool = False,
 ) -> dict[int, schema.Track]:
-    """Static map objects (barriers, poles, parked cars, ...) as objects that stand still over the whole episode."""
+    """Static map objects (barriers, poles, parked cars, ...) as objects that stand still over the whole episode.
+    With ``onroad_only`` only the objects touching the road surface (generic drivables) on their own level."""
     if map_objects.MapLayer.STATIC_OBJECT not in map_api.available_map_layers:
         return {}
     if map_only or map_api.map_is_per_log or ego_states is None:
@@ -452,6 +461,20 @@ def _extract_static_objects(
         path = shapely.Point(ego_xy[0]) if len(ego_xy) == 1 else shapely.LineString(ego_xy)
         layer = map_objects.MapLayer.STATIC_OBJECT
         static_objects = map_api.query(path.buffer(SCENE_MAP_MARGIN), [layer], predicate="intersects").get(layer, [])
+    if onroad_only and static_objects and map_objects.MapLayer.GENERIC_DRIVABLE in map_api.available_map_layers:
+        # NOTE: An off-road object stands behind a road edge: an agent crossing it is off-road before any collision.
+        surfaces = map_api.get_all_map_objects_in_layer(map_objects.MapLayer.GENERIC_DRIVABLE)
+        outlines = [surface.outline_3d.array for surface in surfaces]
+        tree = shapely.STRtree([shapely.Polygon(outline[:, :2]).buffer(0) for outline in outlines])
+        kept = []
+        for obj in static_objects:
+            box = obj.outline.array[:4]
+            centre = box.mean(axis=0)
+            hits = tree.query(shapely.Polygon(box[:, :2]), predicate="intersects")
+            nearest = [outlines[i][np.argmin(np.linalg.norm(outlines[i][:, :2] - centre[:2], axis=1))] for i in hits]
+            if any(abs(point[2] - centre[2]) <= STATIC_OBJECT_LEVEL_TOL for point in nearest):
+                kept.append(obj)
+        static_objects = kept
     tracks: dict[int, schema.Track] = {}
     for n, obj in enumerate(static_objects):
         corners = obj.outline.array[:4]  # footprint box at ground level

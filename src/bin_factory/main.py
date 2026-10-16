@@ -91,6 +91,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Lane speed limit: the road's own (road) or the last speed sign's as CARLA applies it (signs)",
     )
     parser.add_argument(
+        "--static_objects",
+        choices=["all", "onroad"],
+        default="onroad",
+        help="Static map objects: all, or only those on the road surface (onroad); the others stand behind a road "
+        "edge and are unreachable when off-road stops the agent",
+    )
+    parser.add_argument(
         "--shoulders",
         choices=["drivable", "offroad"],
         default="drivable",
@@ -206,7 +213,9 @@ def _validate(
 
 
 def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Namespace) -> None:
-    scenario, extras = loader.extract_scenario(py123d_data, config.scenario_id_field, config.speed_limit_source)
+    scenario, extras = loader.extract_scenario(
+        py123d_data, config.scenario_id_field, config.speed_limit_source, config.static_objects
+    )
     # py123d reports the measured mean step (0.0995-0.1002 s for --dt 0.1): store the nominal one it sampled at
     if scenario.metadata.scenario_length:
         if abs(scenario.metadata.dt - config.dt) > 0.05 * config.dt:

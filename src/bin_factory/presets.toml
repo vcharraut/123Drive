@@ -39,6 +39,7 @@ reverse_road_edges = true
 shoulders = "offroad"
 ramp_widening_m = 1.0  # Town04 cloverleaf loops: posts stand >= 1.7 m outside the lane line
 speed_limit_source = "road"
+static_objects = "onroad"
 scenario_id_field = "location"
 
 [wod-motion]
