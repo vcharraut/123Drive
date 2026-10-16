@@ -3,9 +3,10 @@
 import argparse
 import json
 import os
+from typing import Any
 
 
-DATASETS = {
+DATASETS: dict[str, dict[str, Any]] = {
     "nuplan": {"data_root_key": "nuplan_data_root", "input_subpaths": {"nuplan_maps_root": "maps"}},
     "nuplan-mini": {"data_root_key": "nuplan_data_root", "input_subpaths": {"nuplan_maps_root": "maps"}},
     "wod-motion": {"data_root_key": "wod_motion_data_root"},

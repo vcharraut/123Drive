@@ -49,7 +49,7 @@ def test_singleton_ego_corridor_is_valid():
         query=lambda corridor, layers, predicate: {},
     )
 
-    elements, stop_zones, lane_ids = extractor._extract_map(map_api, np.zeros(3), [state], False)
+    elements, stop_zones, lane_ids = extractor._extract_map(map_api, np.zeros(3), [state], False)  # ty: ignore[invalid-argument-type]
 
     assert elements == {}
     assert stop_zones == []
@@ -70,7 +70,7 @@ def test_stop_zones_drop_lanes_outside_corridor():
         query=lambda corridor, layers, predicate: {map_objects.MapLayer.STOP_ZONE: [zone]},
     )
 
-    _elements, stop_zones, _lane_ids = extractor._extract_map(map_api, np.zeros(3), [state], False)
+    _elements, stop_zones, _lane_ids = extractor._extract_map(map_api, np.zeros(3), [state], False)  # ty: ignore[invalid-argument-type]
 
     assert stop_zones == []
 
@@ -99,7 +99,7 @@ def test_validation_reports_malformed_lane_graph():
         agents={},
         objects={},
         map={},
-        lane_graph=[],
+        lane_graph=[],  # ty: ignore[invalid-argument-type]
         metadata=schema.ScenarioMetadata(id="x", dataset="d", scenario_length=0, dt=0.0),
     )
 

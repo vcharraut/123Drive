@@ -128,7 +128,7 @@ def _cross(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return a[..., 0] * b[..., 1] - a[..., 1] * b[..., 0]
 
 
-def _components(n: int, pairs: np.ndarray) -> np.ndarray:
+def _components(n: int, pairs: tuple[np.ndarray, ...]) -> np.ndarray:
     adjacency = coo_matrix((np.ones(len(pairs[0])), (pairs[0], pairs[1])), shape=(n, n))
     return connected_components(adjacency, directed=False)[1]
 

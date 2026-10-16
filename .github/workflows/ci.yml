@@ -31,6 +31,6 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra all
       - name: Type check
-        run: uv run ty check src/
+        run: uv check --extra all
       - name: Run tests
         run: uv run pytest -q

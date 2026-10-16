@@ -18,6 +18,7 @@ from shapely.strtree import STRtree
 
 from bin_factory import puffer_types, schema
 
+
 SAMPLE_SPACING_M = 2.0
 PROBE_OFFSET_M = 0.3  # just outside the lane boundary
 BAND_START_TOL_M = 0.8  # a band may begin this far from the boundary (interpolated curves, lane-line gaps)
@@ -83,7 +84,9 @@ def add_shoulder_edges(
     if not shoulders:
         return 0
     lanes = {i: e for i, e in scenario.map.items() if e.is_lane and e.polyline is not None}
-    kerbs = STRtree([shapely.LineString(e.polyline[:, :2]) for e in scenario.map.values() if e.is_edge])
+    kerbs = STRtree(
+        [shapely.LineString(e.polyline[:, :2]) for e in scenario.map.values() if e.is_edge and e.polyline is not None]
+    )
     surroundings = _Surroundings(shoulders, _Surfaces(junction_outlines), _lane_surfaces(lanes), kerbs)
     continuing = _Surfaces(shoulder_outlines + junction_outlines)  # a band goes on through junction surfaces too
     sides = {lane_id: _lane_sides(lane_id, element, surroundings, continuing) for lane_id, element in lanes.items()}
@@ -137,8 +140,10 @@ def _lane_sides(
             continue
         samples, tangents, normals, widths = _boundary_bands(boundary, lane_id, lane, surroundings)
         in_band = _band_mask(widths)
-        beyond = [_band_ahead(continuing, samples, tangents, normals, 0, -1.0),
-                  _band_ahead(continuing, samples, tangents, normals, len(samples) - 1, 1.0)]
+        beyond = [
+            _band_ahead(continuing, samples, tangents, normals, 0, -1.0),
+            _band_ahead(continuing, samples, tangents, normals, len(samples) - 1, 1.0),
+        ]
         in_band = _snap_to_lane_ends(in_band, widths, beyond)
         min_samples = 2 if in_band.all() else MIN_RUN_SAMPLES  # a short lane fully along a band still gets its edge
         sides.append(_Side(lane_on_right, samples, tangents, normals, widths, _runs(in_band, min_samples)))
@@ -209,7 +214,7 @@ def _through_stubs(lanes: dict, ids: list, forward: bool) -> list:
     return result + pending
 
 
-def _lane_length(lane) -> float:
+def _lane_length(lane: schema.MapElement) -> float:
     return float(np.linalg.norm(np.diff(np.asarray(lane.polyline)[:, :2], axis=0), axis=1).sum())
 
 
@@ -228,7 +233,9 @@ def _lane_surfaces(lanes: dict) -> "_Surfaces":
     return _Surfaces(outlines, keys)
 
 
-def _boundary_bands(boundary, lane_id, lane, surroundings):
+def _boundary_bands(
+    boundary: np.ndarray, lane_id: int, lane: schema.MapElement, surroundings: _Surroundings
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """(samples, tangents, outward normals, band width per sample) along a lane boundary; the width is 0 where the
     probe lies inside a junction surface of the same level and BLOCKED_WIDTH_M where it lies inside another lane."""
     samples = _resample(np.asarray(boundary, dtype=np.float64), SAMPLE_SPACING_M)
@@ -237,11 +244,11 @@ def _boundary_bands(boundary, lane_id, lane, surroundings):
     probes = samples.copy()
     probes[0, :2] += END_INSET_M * tangents[0]
     probes[-1, :2] -= END_INSET_M * tangents[-1]
-    widths = np.array([_band_width(surroundings, lane_id, p, n) for p, n in zip(probes, normals)])
+    widths = np.array([_band_width(surroundings, lane_id, p, n) for p, n in zip(probes, normals, strict=True)])
     return samples, tangents, normals, widths
 
 
-def _band_width(surroundings, lane_id, point_xyz: np.ndarray, normal: np.ndarray) -> float:
+def _band_width(surroundings: _Surroundings, lane_id: int, point_xyz: np.ndarray, normal: np.ndarray) -> float:
     """Band width at a boundary point, from the probe just outside the boundary."""
     probe = point_xyz.copy()
     probe[:2] += PROBE_OFFSET_M * normal
@@ -252,14 +259,14 @@ def _band_width(surroundings, lane_id, point_xyz: np.ndarray, normal: np.ndarray
     return _band(surroundings.shoulders, point_xyz, normal)[0]
 
 
-def _lane_has_run(lane_id, lane, surroundings) -> bool:
+def _lane_has_run(lane_id: int, lane: schema.MapElement | None, surroundings: _Surroundings) -> bool:
     """Whether a boundary of `lane` would get a run (same mask rules as add_shoulder_edges)."""
     if lane is None or not lane.is_lane or lane.polyline is None:
         return False
     for boundary in (lane.left_boundary, lane.right_boundary):
         if boundary is None or len(boundary) < 2:
             continue
-        samples, tangents, normals, widths = _boundary_bands(boundary, lane_id, lane, surroundings)
+        widths = _boundary_bands(boundary, lane_id, lane, surroundings)[3]
         in_band = _band_mask(widths)
         if _runs(in_band, 2 if in_band.all() else MIN_RUN_SAMPLES):
             return True
@@ -350,7 +357,9 @@ def _distinct_points(polyline: np.ndarray) -> np.ndarray:
     return np.array(kept)
 
 
-def _band_limit(surroundings, lane_id, samples, normals, outside: int, inside: int) -> np.ndarray:
+def _band_limit(
+    surroundings: _Surroundings, lane_id: int, samples: np.ndarray, normals: np.ndarray, outside: int, inside: int
+) -> np.ndarray:
     """Point between an out-of-band sample and its in-band neighbour where the band begins, by bisection."""
     low, high = 0.0, 1.0
     for _ in range(BISECTION_STEPS):
@@ -365,7 +374,9 @@ def _band_limit(surroundings, lane_id, samples, normals, outside: int, inside: i
     return samples[outside] + high * (samples[inside] - samples[outside])
 
 
-def _band_ahead(shoulders, samples, tangents, normals, idx: int, sign: float) -> float:
+def _band_ahead(
+    shoulders: "_Surfaces", samples: np.ndarray, tangents: np.ndarray, normals: np.ndarray, idx: int, sign: float
+) -> float:
     """Widest band found 1-3 m beyond sample `idx` in direction `sign` along the boundary."""
     tangent = sign * tangents[idx]
     best = 0.0
@@ -377,22 +388,26 @@ def _band_ahead(shoulders, samples, tangents, normals, idx: int, sign: float) ->
 
 
 def _edge(polyline: np.ndarray) -> schema.MapElement:
-    return schema.MapElement(type=int(puffer_types.RoadEdgeType.BOUNDARY), polyline=np.array(polyline, dtype=np.float64))
+    edge_type = int(puffer_types.RoadEdgeType.BOUNDARY)
+    return schema.MapElement(type=edge_type, polyline=np.array(polyline, dtype=np.float64))
 
 
 class _Surfaces:
     """Polygons of surface outlines with a spatial index, per-vertex heights for the level test and optional keys."""
 
-    def __init__(self, outlines: list[np.ndarray], keys: list | None = None):
+    def __init__(self, outlines: list[np.ndarray], keys: list | None = None) -> None:
         keys = list(keys) if keys is not None else [None] * len(outlines)
-        triples = [(shapely.Polygon(o[:, :2]).buffer(0), np.asarray(o, dtype=np.float64), k) for o, k in zip(outlines, keys)]
+        triples = [
+            (shapely.Polygon(o[:, :2]).buffer(0), np.asarray(o, dtype=np.float64), k)
+            for o, k in zip(outlines, keys, strict=True)
+        ]
         triples = [(polygon, outline, key) for polygon, outline, key in triples if not polygon.is_empty]
         self.polygons = [polygon for polygon, _, _ in triples]
         self.outlines = [outline for _, outline, _ in triples]
         self.keys = [key for _, _, key in triples]
         self.tree = STRtree(self.polygons) if self.polygons else None
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return bool(self.polygons)
 
     def same_level(self, index: int, point_xyz: np.ndarray) -> bool:
@@ -402,21 +417,23 @@ class _Surfaces:
         nearest = np.argmin(np.linalg.norm(outline[:, :2] - point_xyz[:2], axis=1))
         return abs(outline[nearest, 2] - point_xyz[2]) <= Z_TOL_M
 
-    def containing(self, point_xyz: np.ndarray, exclude=None) -> bool:
+    def containing(self, point_xyz: np.ndarray, exclude: int | None = None) -> bool:
         """Whether a same-level surface other than the one keyed `exclude` contains the point."""
-        if not self.polygons:
+        if self.tree is None:
             return False
         point = shapely.Point(point_xyz[:2])
         return any(
-            (exclude is None or self.keys[i] != exclude) and self.polygons[i].contains(point) and self.same_level(i, point_xyz)
+            (exclude is None or self.keys[i] != exclude)
+            and self.polygons[i].contains(point)
+            and self.same_level(i, point_xyz)
             for i in self.tree.query(point)
         )
 
 
-def _band(shoulders, point_xyz: np.ndarray, normal: np.ndarray):
+def _band(shoulders: _Surfaces, point_xyz: np.ndarray, normal: np.ndarray) -> tuple[float, np.ndarray | None]:
     """(band width along the outward normal from the lane boundary point, far-side point); (0, None) when no band
     of the same level starts there."""
-    if not shoulders:
+    if shoulders.tree is None:
         return 0.0, None
     point_xy = point_xyz[:2]
     start_xy = point_xy + 0.05 * normal
@@ -466,7 +483,10 @@ def _tangents(samples_xy: np.ndarray) -> np.ndarray:
 def _outward_normals(tangents: np.ndarray, samples_xy: np.ndarray, centerline_xy: np.ndarray) -> np.ndarray:
     """Unit normals pointing away from the lane centerline at every sample."""
     normals = np.column_stack([-tangents[:, 1], tangents[:, 0]])
-    distance = lambda points: np.min(np.linalg.norm(points[:, None, :] - centerline_xy[None, :, :], axis=2), axis=1)
+
+    def distance(points: np.ndarray) -> np.ndarray:
+        return np.min(np.linalg.norm(points[:, None, :] - centerline_xy[None, :, :], axis=2), axis=1)
+
     flip = distance(samples_xy + normals) < distance(samples_xy - normals)
     normals[flip] *= -1.0
     return normals

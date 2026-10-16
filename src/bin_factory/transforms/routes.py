@@ -6,7 +6,7 @@ lanes with dynamic programming, then extend their routes beyond the observed tra
 
 import itertools
 from collections import deque
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import shapely
@@ -172,7 +172,8 @@ def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _Rou
     }
     lane_ids = list(lanes)
     n_lanes = len(lane_ids)
-    lane_lengths = np.array([len(lanes[lane_id].polyline) for lane_id in lane_ids], dtype=np.int64)
+    lane_polylines = [cast("np.ndarray", lanes[lane_id].polyline) for lane_id in lane_ids]  # filtered above
+    lane_lengths = np.array([len(polyline) for polyline in lane_polylines], dtype=np.int64)
     max_points = int(lane_lengths.max(initial=0))
 
     lane_polylines_xyz = np.zeros((n_lanes, max_points, 3), dtype=np.float64)
@@ -183,9 +184,9 @@ def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _Rou
     lane_segment_lengths = np.zeros((n_lanes, max(0, max_points - 1)), dtype=np.float64)
     lane_cum_lengths = np.zeros((n_lanes, max_points), dtype=np.float64)
 
-    for idx, lane_id in enumerate(lane_ids):
+    for idx, lane_polyline in enumerate(lane_polylines):
         n_points = lane_lengths[idx]
-        lane_polylines_xyz[idx, :n_points] = lanes[lane_id].polyline[:, :3]
+        lane_polylines_xyz[idx, :n_points] = lane_polyline[:, :3]
         polyline = lane_polylines_xyz[idx, :n_points, :2]
         lane_bbox_mins[idx] = polyline.min(axis=0)
         lane_bbox_maxs[idx] = polyline.max(axis=0)

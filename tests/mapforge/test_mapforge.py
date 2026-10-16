@@ -155,7 +155,7 @@ def test_write_refuses_overwrite_without_flag(opendrive_bins, tmp_path):
 
 def test_write_rejects_non_static(opendrive_bins, tmp_path):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
-    scenario.agents = {0: object()}
+    scenario.agents = {0: object()}  # ty: ignore[invalid-assignment]
     with pytest.raises(StaticBinaryError):
         static_binary.write_static_scenario(scenario, tmp_path / "bad.bin")
 
@@ -203,11 +203,13 @@ def test_flip_mirrors_x_about_centroid(opendrive_bins):
     affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["flip"]["FlipX"], centroid)
 
     for eid, element in scenario.map.items():
-        ref = reference.map[eid].geometry
+        geometry, ref = element.geometry, reference.map[eid].geometry
+        assert geometry is not None
+        assert ref is not None
         # FlipX has unit singular values -> no resampling, so point counts are preserved.
-        assert len(element.geometry) == len(ref)
-        assert np.allclose(element.geometry[:, 0], 2 * centroid[0] - ref[:, 0], atol=1e-3)
-        assert np.allclose(element.geometry[:, 1], ref[:, 1], atol=1e-3)
+        assert len(geometry) == len(ref)
+        assert np.allclose(geometry[:, 0], 2 * centroid[0] - ref[:, 0], atol=1e-3)
+        assert np.allclose(geometry[:, 1], ref[:, 1], atol=1e-3)
 
 
 def test_scale_grows_extent_and_resamples(opendrive_bins):
@@ -215,12 +217,12 @@ def test_scale_grows_extent_and_resamples(opendrive_bins):
     reference = copy.deepcopy(scenario)
     centroid = _centroid(scenario)
     before_extent = np.ptp(_all_xy(reference), axis=0)
-    before_points = sum(len(e.geometry) for e in reference.map.values())
+    before_points = sum(len(e.geometry) for e in reference.map.values())  # ty: ignore[invalid-argument-type]
 
     affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["scale"]["Sc10"], centroid)
 
     after_extent = np.ptp(_all_xy(scenario), axis=0)
-    after_points = sum(len(e.geometry) for e in scenario.map.values())
+    after_points = sum(len(e.geometry) for e in scenario.map.values())  # ty: ignore[invalid-argument-type]
     assert np.allclose(after_extent / before_extent, 1.10, atol=1e-2)
     # A scale > 1 lengthens segments, so resampling can only add points, never drop them.
     assert after_points > before_points
@@ -266,14 +268,17 @@ def test_affine_object_box_encloses_mapped_footprint(opendrive_bins, name):
     local = mapped - track.position[0, :2]
     assert np.isclose(np.ptp(local @ d), track.length[0])
     assert np.isclose(np.ptp(local @ n), track.width[0])
-    assert np.allclose((local @ d).mean(), 0.0, atol=1e-9) and np.allclose((local @ n).mean(), 0.0, atol=1e-9)
+    assert np.allclose((local @ d).mean(), 0.0, atol=1e-9)
+    assert np.allclose((local @ n).mean(), 0.0, atol=1e-9)
 
 
 def test_apply_affine_rebuilds_lane_graph(opendrive_bins):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
+    assert scenario.lane_graph is not None
     lane_ids = list(scenario.lane_graph["lane_ids"])
     affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["scale"]["ScX10"], _centroid(scenario))
     # Stretching global X changes inter-lane distances but not the lane set.
+    assert scenario.lane_graph is not None
     assert list(scenario.lane_graph["lane_ids"]) == lane_ids
     assert scenario.lane_graph["distances"].shape == (len(lane_ids), len(lane_ids))
 

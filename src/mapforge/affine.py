@@ -110,7 +110,9 @@ def augment_maps(
     return written
 
 
-def apply_affine_transform(scenario: PufferScenario, matrix: np.ndarray, centroid: np.ndarray) -> None:
+def apply_affine_transform(
+    scenario: PufferScenario, matrix: np.ndarray | list[list[float]], centroid: np.ndarray
+) -> None:
     matrix = np.asarray(matrix, dtype=np.float64)
     if matrix.shape != (2, 2):
         raise ValueError(f"Affine matrix must have shape (2, 2), got {matrix.shape}")

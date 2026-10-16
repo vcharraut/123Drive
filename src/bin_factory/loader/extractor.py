@@ -134,7 +134,8 @@ def _mark_junction_lanes(map_api: py123d_api.MapAPI, lanes: dict[int, schema.Map
     """Flag lanes whose lane group belongs to an intersection (junction connectors)."""
     if map_objects.MapLayer.LANE_GROUP not in map_api.available_map_layers:
         return
-    for group in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE_GROUP):
+    groups: list[Any] = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE_GROUP))
+    for group in groups:
         if getattr(group, "intersection_id", None) is None:
             continue
         for lane_id in group.lane_ids:
@@ -152,7 +153,7 @@ def _extract_shoulder_context(
     layers = map_api.available_map_layers
     if map_objects.MapLayer.SHOULDER not in layers:
         return [], []
-    shoulders = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.SHOULDER))
+    shoulders: list[Any] = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.SHOULDER))
     intersections: list[Any] = []
     if map_objects.MapLayer.INTERSECTION in layers:
         intersections = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.INTERSECTION))
@@ -321,7 +322,7 @@ def _extract_map(
         centerline = shapely.Point(ego_xy[0]) if len(ego_xy) == 1 else shapely.LineString(ego_xy)
         corridor = centerline.buffer(SCENE_MAP_MARGIN)
         map_objects_by_layer = map_api.query(corridor, layers, predicate="intersects")
-        map_objs = cast("list[Any]", [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])])
+        map_objs = [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])]
 
     # Other elements reference lane IDs, so extract lanes first.
     for obj in map_objs:
@@ -357,6 +358,7 @@ def _extract_map(
         if (
             isinstance(element, schema.MapElement)
             and element.is_line
+            and element.polyline is not None
             and np.linalg.norm(np.diff(element.polyline[:, :2], axis=0), axis=1).sum() < MIN_LINE_LENGTH
         ):
             continue
@@ -434,7 +436,8 @@ def _write_map_object(
             polygon=_centered_array(map_object.outline_3d.array, centroid),
             controlled_lanes=map_object.lane_ids,
             # NOTE: py123d releases before the light phases have no such attributes.
-            intersection_id=getattr(map_object, "intersection_id", None),  # 123D id, mapped to element id later
+            # 123D id, mapped to element id later
+            intersection_id=-1 if (iid := getattr(map_object, "intersection_id", None)) is None else iid,
             phase_idx=-1 if (phase := getattr(map_object, "phase_idx", None)) is None else int(phase),
         )
 
@@ -454,16 +457,18 @@ def _extract_static_objects(
     With ``onroad_only`` only the objects touching the road surface (generic drivables) on their own level."""
     if map_objects.MapLayer.STATIC_OBJECT not in map_api.available_map_layers:
         return {}
+    static_objects: list[Any]
     if map_only or map_api.map_is_per_log or ego_states is None:
         static_objects = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.STATIC_OBJECT))
     else:
         ego_xy = [(s.center_se3.x, s.center_se3.y) for s in ego_states]
         path = shapely.Point(ego_xy[0]) if len(ego_xy) == 1 else shapely.LineString(ego_xy)
         layer = map_objects.MapLayer.STATIC_OBJECT
-        static_objects = map_api.query(path.buffer(SCENE_MAP_MARGIN), [layer], predicate="intersects").get(layer, [])
+        found = map_api.query(path.buffer(SCENE_MAP_MARGIN), [layer], predicate="intersects")
+        static_objects = cast("list[Any]", found.get(layer, []))
     if onroad_only and static_objects and map_objects.MapLayer.GENERIC_DRIVABLE in map_api.available_map_layers:
         # NOTE: An off-road object stands behind a road edge: an agent crossing it is off-road before any collision.
-        surfaces = map_api.get_all_map_objects_in_layer(map_objects.MapLayer.GENERIC_DRIVABLE)
+        surfaces: list[Any] = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.GENERIC_DRIVABLE))
         outlines = [surface.outline_3d.array for surface in surfaces]
         tree = shapely.STRtree([shapely.Polygon(outline[:, :2]).buffer(0) for outline in outlines])
         kept = []
@@ -630,9 +635,12 @@ def _drop_partial_neighbors(lanes: dict[int, schema.MapElement]) -> None:
     # neighbour per side and drops the range, so lanes side by side for a few metres (often branches of a split)
     # come out as whole-lane neighbours (about half the WOD pairs).
     for lane in lanes.values():
-        lane.left_neighbor = [ref for ref in lane.left_neighbor if _alongside(lane.polyline, lanes[ref].polyline, 1.0)]
+        line = cast("np.ndarray", lane.polyline)  # lanes always carry a centerline
+        lane.left_neighbor = [
+            ref for ref in lane.left_neighbor if _alongside(line, cast("np.ndarray", lanes[ref].polyline), 1.0)
+        ]
         lane.right_neighbor = [
-            ref for ref in lane.right_neighbor if _alongside(lane.polyline, lanes[ref].polyline, -1.0)
+            ref for ref in lane.right_neighbor if _alongside(line, cast("np.ndarray", lanes[ref].polyline), -1.0)
         ]
 
 
@@ -699,9 +707,10 @@ def _drop_duplicate_lines(elements: dict[int, schema.MapElement]) -> None:
     # PY123D-REPORT[nuplan,opendrive]: ~40% of road lines come twice, once per adjacent lane, often reversed and
     # sometimes sampled differently.
     ids = [eid for eid, element in elements.items() if element.is_line]
-    geoms = np.array([shapely.LineString(elements[eid].polyline[:, :2]) for eid in ids], dtype=object)
+    polylines = [cast("np.ndarray", elements[eid].polyline) for eid in ids]  # road lines always carry one
+    geoms = np.array([shapely.LineString(polyline[:, :2]) for polyline in polylines], dtype=object)
     types = np.array([elements[eid].type for eid in ids], dtype=int)
-    ends = np.array([elements[eid].polyline[[0, -1], :2] for eid in ids]).reshape(-1, 2, 2)
+    ends = np.array([polyline[[0, -1], :2] for polyline in polylines]).reshape(-1, 2, 2)
     i, j = shapely.STRtree(geoms).query(geoms, predicate="dwithin", distance=LINE_DUPLICATE_DISTANCE)
     same = np.linalg.norm(ends[i] - ends[j], axis=-1).max(-1) < LINE_DUPLICATE_DISTANCE
     flipped = np.linalg.norm(ends[i] - ends[j, ::-1], axis=-1).max(-1) < LINE_DUPLICATE_DISTANCE
@@ -721,7 +730,7 @@ def _lane_speed_limit(lane: Any, source: str) -> float:
 
 def _map_speed_limits(map_api: py123d_api.MapAPI, speed_limit_source: str = "road") -> dict[int, float]:
     """Speed limit of every lane in the whole map, unknown ones filled by ``_fill_missing_speed_limits``."""
-    objs = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE))
+    objs: list[Any] = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE))
     ids = {obj.object_id for obj in objs}
     lanes = {
         obj.object_id: schema.MapElement(
