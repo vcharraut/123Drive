@@ -60,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--edge_max_segment_length",
         type=float,
-        default=10.0,
+        default=1.0,
         help="Max segment length for road-edge interpolation (0=disabled)",
     )
     parser.add_argument(
@@ -147,15 +147,9 @@ def _scenario_identity(py123d_data: Any, field: str) -> str:
 
 
 def _build_output_path(py123d_data: Any, output_dir: pathlib.Path, field: str) -> pathlib.Path:
-    """Derive output path for a given scenario based on its metadata attributes.
+    """Build a filename from the dataset, selected identity, and scene UUID.
 
-    Arguments:
-        py123d_data: py123d scenario data object
-        output_dir: Base directory to save the output file
-        field: py123d attribute used as the scenario id
-
-    Returns:
-        A pathlib.Path object using the collision-resistant dataset/identity/UUID convention.
+    Map-only filenames use the dataset and location.
     """
 
     def sanitize(v: str) -> str:
@@ -212,7 +206,6 @@ def _validate(
 
 
 def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Namespace) -> None:
-    # 1. Load and convert 123D scenario to PufferDrive format
     scenario, extras = loader.extract_scenario(py123d_data, config.scenario_id_field, config.speed_limit_source)
     # py123d reports the measured mean step (0.0995-0.1002 s for --dt 0.1): store the nominal one it sampled at
     if scenario.metadata.scenario_length:
@@ -220,16 +213,10 @@ def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Na
             raise ValueError(f"Scene step {scenario.metadata.dt:.4f} s is not the requested --dt {config.dt} s")
         scenario.metadata.dt = config.dt
 
-    # 2. Validate scenario
     _validate(scenario, config.validate_level, "Validation failed", extras)
-
-    # 3. Process scenario (ordered transform pipeline; see transforms/pipeline.py)
     transforms.run(scenario, extras, config)
-
-    # 4. Validate transformed references and derived data
     _validate(scenario, config.validate_level, "Post-transform validation failed")
 
-    # 5. Serialize to binary and atomically replace the destination
     binary_data = serialize.scenario_to_binary(scenario)
     output_path = _build_output_path(py123d_data, output_dir, config.scenario_id_field)
     temporary_path = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")
