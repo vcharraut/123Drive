@@ -426,10 +426,9 @@ def _write_map_object(
             type=puffer_type,
             polygon=_centered_array(map_object.outline_3d.array, centroid),
             controlled_lanes=map_object.lane_ids,
-            # NOTE: py123d releases before the signal groups have no such attributes.
+            # NOTE: py123d releases before the light phases have no such attributes.
             intersection_id=getattr(map_object, "intersection_id", None),  # 123D id, mapped to element id later
-            signal_group_id=-1 if (group := getattr(map_object, "signal_group_id", None)) is None else int(group),
-            signal_sequence=-1 if (seq := getattr(map_object, "signal_sequence", None)) is None else int(seq),
+            phase_idx=-1 if (phase := getattr(map_object, "phase_idx", None)) is None else int(phase),
         )
 
     return None

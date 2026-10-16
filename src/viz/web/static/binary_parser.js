@@ -21,8 +21,8 @@
  *   Metadata:  id(char[128]), dataset(char[32]),
  *              scenario_length(i32), dt(f32),
  *              n_ooi(i32), ooi[](i32), n_ttp(i32), ttp[](i32)
- *   TrafficGroups (optional): n(i32) == num_traffic,
- *              per traffic control: intersection_id(i32), signal_group_id(i32), signal_sequence(i32), -1 if unknown
+ *   TrafficPhases (optional): tag "TLPHASE1",
+ *              per traffic control: junction_id(i32), phase_idx(i32), both -1 if not in a light cycle
  */
 'use strict';
 
@@ -173,13 +173,14 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     const objects_of_interest = intList();
     const tracks_to_predict = intList();
 
-    // --- Traffic control groups (optional trailing section) ---
-    if (off < buffer.byteLength) {
-      const nGroups = i32();
-      for (let t = 0; t < nGroups && t < numTraffic; t++) {
-        traffic_control_elements[t].intersection_id = i32();
-        traffic_control_elements[t].signal_group_id = i32();
-        traffic_control_elements[t].signal_sequence = i32();
+    // --- Traffic light phases (optional tagged trailing section) ---
+    const PHASE_TAG = 'TLPHASE1';
+    if (off + PHASE_TAG.length <= buffer.byteLength
+      && new TextDecoder().decode(new Uint8Array(buffer, off, PHASE_TAG.length)) === PHASE_TAG) {
+      off += PHASE_TAG.length;
+      for (let t = 0; t < numTraffic; t++) {
+        traffic_control_elements[t].junction_id = i32();
+        traffic_control_elements[t].phase_idx = i32();
       }
     }
 

@@ -1,3 +1,5 @@
+import dataclasses
+
 import numpy as np
 
 from bin_factory import puffer_types, schema
@@ -103,14 +105,22 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
                 heading=heading,
                 states=states,
                 intersection_id=element_data.intersection_id,
-                signal_group_id=element_data.signal_group_id,
-                signal_sequence=element_data.signal_sequence,
+                phase_idx=element_data.phase_idx if element_data.intersection_id >= 0 else -1,
             ),
         )
         covered_lanes.update(controlled_lanes)
         next_id += 1
 
-    scenario.traffic_controls = elements
+    # Phases renumbered per intersection to 0..N-1 in cycle order, so the simulator cycles N slots
+    phases = {}
+    for tc in elements:
+        if tc.phase_idx >= 0:
+            phases.setdefault(tc.intersection_id, set()).add(tc.phase_idx)
+    rank = {iid: {p: i for i, p in enumerate(sorted(ps))} for iid, ps in phases.items()}
+    scenario.traffic_controls = [
+        dataclasses.replace(tc, phase_idx=rank[tc.intersection_id][tc.phase_idx]) if tc.phase_idx >= 0 else tc
+        for tc in elements
+    ]
 
 
 def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int, schema.MapElement]) -> np.ndarray:

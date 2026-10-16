@@ -12,6 +12,7 @@ from bin_factory import schema
 
 METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
+TRAFFIC_PHASE_SECTION_TAG = b"TLPHASE1"
 CURVATURE_HALF_WINDOW = 5.0  # metres of lane on each side of a point averaged into its curvature
 
 
@@ -136,10 +137,10 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
     for int_list in [scenario.metadata.objects_of_interest, scenario.metadata.tracks_to_predict]:
         _write_int_list(buf, int_list)
 
-    # Traffic control groups (optional trailing section, readers stopping after the metadata ignore it):
-    # intersection id, signal group id, signal sequence per traffic control, -1 if unknown
-    buf.extend(struct.pack("<i", len(tcs)))
+    # Traffic light phases (optional tagged trailing section, readers stopping after the metadata ignore it):
+    # junction id and phase per traffic control, both -1 if the control is not in a light cycle
+    buf.extend(TRAFFIC_PHASE_SECTION_TAG)
     for tc in tcs:
-        buf.extend(struct.pack("<iii", tc.intersection_id, tc.signal_group_id, tc.signal_sequence))
+        buf.extend(struct.pack("<ii", tc.intersection_id if tc.phase_idx >= 0 else -1, tc.phase_idx))
 
     return bytes(buf)

@@ -100,8 +100,7 @@ class StopZone:
     polygon: np.ndarray
     controlled_lanes: list = dataclasses.field(default_factory=list)
     intersection_id: int = -1  # map element id of the intersection, -1 if unknown
-    signal_group_id: int = -1  # stop zones of one signal group share the same light state, -1 if unknown
-    signal_sequence: int = -1  # position of the signal group in the intersection's light cycle, -1 if unknown
+    phase_idx: int = -1  # slot in the intersection's light cycle (same slot: same light state), -1 if not in a cycle
 
 
 @dataclasses.dataclass
@@ -113,8 +112,7 @@ class TrafficControl:
     states: list
     controlled_lanes: list
     intersection_id: int = -1  # map element id of the intersection, -1 if unknown
-    signal_group_id: int = -1  # controls of one signal group share the same light state, -1 if unknown
-    signal_sequence: int = -1  # position of the signal group in the intersection's light cycle, -1 if unknown
+    phase_idx: int = -1  # slot in the intersection's light cycle, compact 0..N-1, -1 if not in a cycle
 
 
 @dataclasses.dataclass

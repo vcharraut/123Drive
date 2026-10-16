@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from bin_factory.schema import MapElement, PufferScenario, ScenarioMetadata, TrafficControl
-from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES, scenario_to_binary
+from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES, TRAFFIC_PHASE_SECTION_TAG, scenario_to_binary
 
 
 class StaticBinaryError(ValueError):
@@ -66,8 +66,9 @@ def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> PufferSce
         traffic_controls = _read_traffic_controls(reader, n_traffic)
         lane_graph = _read_lane_graph(reader)
         metadata = _read_metadata(reader)
-        if reader.offset < len(data):
-            _read_traffic_control_groups(reader, traffic_controls)
+        if reader.data[reader.offset : reader.offset + len(TRAFFIC_PHASE_SECTION_TAG)] == TRAFFIC_PHASE_SECTION_TAG:
+            reader.offset += len(TRAFFIC_PHASE_SECTION_TAG)
+            _read_traffic_phases(reader, traffic_controls)
     except (struct.error, ValueError) as exc:
         if isinstance(exc, StaticBinaryError):
             raise
@@ -154,13 +155,10 @@ def _read_traffic_controls(reader: _Reader, n_traffic: int) -> list[TrafficContr
     return traffic_controls
 
 
-def _read_traffic_control_groups(reader: _Reader, traffic_controls: list[TrafficControl]) -> None:
-    if reader.i32() != len(traffic_controls):
-        raise ValueError("traffic control group count does not match the traffic controls")
+def _read_traffic_phases(reader: _Reader, traffic_controls: list[TrafficControl]) -> None:
     for traffic_control in traffic_controls:
         traffic_control.intersection_id = reader.i32()
-        traffic_control.signal_group_id = reader.i32()
-        traffic_control.signal_sequence = reader.i32()
+        traffic_control.phase_idx = reader.i32()
 
 
 def _read_lane_graph(reader: _Reader) -> dict | None:

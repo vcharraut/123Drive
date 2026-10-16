@@ -2,7 +2,7 @@ PufferDrive binary format
 =========================
 
 ``bin_factory.serialize.scenario_to_binary`` writes a header followed by agents, map elements,
-traffic controls, objects, lane-graph distances, metadata, and traffic control groups. There is no
+traffic controls, objects, lane-graph distances, metadata, and traffic light phases. There is no
 magic number or version field.
 
 All multi-byte values and NumPy channels are explicitly little-endian. Integers are signed
@@ -220,7 +220,7 @@ source lane's length; lane changes to a left or right neighbour cost 25 m in eit
 Metadata
 --------
 
-Metadata ends the file, optionally followed by the traffic control groups:
+Metadata ends the file, optionally followed by the traffic light phases:
 
 .. list-table::
    :header-rows: 1
@@ -253,11 +253,13 @@ Metadata ends the file, optionally followed by the traffic control groups:
      - ``tracks_to_predict_ids``
      - Agent IDs
 
-Traffic control groups
-----------------------
+Traffic light phases
+--------------------
 
 Optional section after the metadata. Readers that stop after the metadata ignore it; readers that
-support it read it when bytes remain. It groups traffic lights for synchronized signal cycles:
+support it read it when the 8-byte tag ``TLPHASE1`` follows the metadata. It groups traffic lights
+into synchronized junction cycles. After the tag, repeat the following block once per traffic
+control, in traffic control order:
 
 .. list-table::
    :header-rows: 1
@@ -266,26 +268,12 @@ support it read it when bytes remain. It groups traffic lights for synchronized 
      - Field
      - Notes
    * - ``int32``
-     - ``n_traffic_controls``
-     - Equals the header's traffic control count
-
-Then repeat the following block ``n_traffic_controls`` times, in traffic control order:
-
-.. list-table::
-   :header-rows: 1
-
-   * - Type
-     - Field
-     - Notes
+     - ``junction_id``
+     - Road map ID of the intersection element whose cycle the light is in, ``-1`` if not in a cycle
    * - ``int32``
-     - ``intersection_id``
-     - Road map ID of the intersection element, ``-1`` if unknown
-   * - ``int32``
-     - ``signal_group_id``
-     - Controls of one group always share the same light state, ``-1`` if unknown
-   * - ``int32``
-     - ``signal_sequence``
-     - Position of the group in the intersection's light cycle (phase order), ``-1`` if unknown
+     - ``phase_idx``
+     - Slot in the junction cycle, compact ``0..N-1`` in cycle order; lights with the same phase share
+       the same state. ``-1`` with ``junction_id`` ``-1``
 
 Enum values
 -----------

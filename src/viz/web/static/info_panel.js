@@ -131,9 +131,8 @@ ${routeRow}      <details><summary>Trajectory</summary>
       <div class="info-row"><span class="info-label">Lanes</span><span class="info-val" style="font-size:9px">${controlled}</span></div>`;
     const optionalId = (value) => (value === undefined || value < 0 ? '—' : escapeHtml(value));
     html += `
-      <div class="info-row"><span class="info-label">Intersection</span><span class="info-val">${optionalId(data.intersection_id)}</span></div>
-      <div class="info-row"><span class="info-label">Signal group</span><span class="info-val">${optionalId(data.signal_group_id)}</span></div>
-      <div class="info-row"><span class="info-label">Sequence</span><span class="info-val">${optionalId(data.signal_sequence)}</span></div>`;
+      <div class="info-row"><span class="info-label">Junction</span><span class="info-val">${optionalId(data.junction_id)}</span></div>
+      <div class="info-row"><span class="info-label">Phase</span><span class="info-val">${optionalId(data.phase_idx)}</span></div>`;
 
     // Only show state timeline for traffic lights (type=1) with states
     if (tcType === 1 && data.states.length > 0) {
