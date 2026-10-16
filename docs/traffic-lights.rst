@@ -22,11 +22,16 @@ motion. The preset enables it for ``nuplan-mini`` and ``wod-motion``.
 #. Connectors whose polylines touch form an intersection. Inside it, connectors with the same
    approach heading and turn (left, straight, right) form a movement group sharing one light,
    unless their detections disagree.
-#. Two groups conflict when their connectors cross, they come from different approaches and
-   neither is a free turn (right turn, or left turn in left-hand traffic such as Singapore).
-#. Each connected set of conflicting or same-approach groups runs a hidden Markov model over joint
-   states (every group GO or STOP) where no two conflicting groups are GO together. Sets with more
-   than 1024 joint states fall back to conflict links only, then to single groups.
+#. Two groups conflict when their connectors cross, they come from roughly perpendicular approaches
+   (start directions with \|cos\| below 0.7) and neither is a free turn (right turn, or left turn in
+   left-hand traffic such as Singapore). Crossing groups from opposite approaches, typically a left
+   turn and the oncoming straight traffic, may share a permissive green: they are only discouraged
+   from being GO together.
+#. Each connected set of conflicting, same-approach or opposite groups runs a hidden Markov model
+   over joint states (every group GO or STOP) where no two conflicting groups are GO together. Sets
+   with more than 1024 joint states fall back to conflict links only, then to single groups.
+#. Lanes whose detections are only yellow (WOMD maps flashing caution to yellow) keep their
+   detections as they are and give no evidence: flashing is not a GO/STOP phase.
 #. Forward-backward gives a GO probability per group and frame. Frames above 0.9 become green,
    below 0.1 red, the rest stay ``UNKNOWN``. Inferred green that switches to red gets a 3 s yellow
    tail.
@@ -48,7 +53,8 @@ Per group and frame, as a log-likelihood ratio of GO over STOP:
 
 The group sum is clipped to ±16. Groups switch on average every 30 s. Each pair of groups from the
 same approach gets +0.05 per frame where they show the same state (left and straight of one
-approach agree about 80% of the time in nuPlan and WOD). All windows scale with the scenario ``dt``.
+approach agree about 80% of the time in nuPlan and WOD), and each pair of opposite groups -0.2 per
+frame where both are GO. All windows scale with the scenario ``dt``.
 
 Scoring
 -------

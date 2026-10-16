@@ -1,16 +1,21 @@
 """Traffic-light state completion from detections, intersection geometry and vehicle behaviour.
 
-Signalized connectors are the lanes carrying a TL track plus the successors of lanes in TL stop zones. Connectors of
-one intersection with the same approach and turn share a light (a movement group), unless their detections disagree.
-Groups linked by conflicts (crossing paths from different approaches) or by a shared approach run one hidden Markov
-model over joint states (every group GO or STOP), restricted to states where no two conflicting groups are both GO
-and softly favouring same-approach groups that agree. Per-frame evidence:
-- detections: strong, and detected frames are copied to the output, except the last seconds of a RED run before a
-  gap (detectors switch to green late), where the inference may overrule them,
-- vehicles crossing the stop line onto a connector: GO,
-- vehicles stopped right at the stop line: STOP.
-Forward-backward yields a GO posterior per group and frame. Confident frames become GREEN or RED, inferred GREEN
-ending in RED gets a yellow tail, everything else stays UNKNOWN.
+Signalized connectors carry a light track or follow a lane in a traffic-light stop zone.
+Connectors in one intersection share a movement group when their approach and turn match,
+unless their detections disagree.
+
+Crossing paths from perpendicular approaches conflict. A left turn and oncoming traffic may
+share a permissive green. Groups linked by conflicts, a shared approach, or opposite crossing
+paths run a joint hidden Markov model. It forbids conflicting greens, favours matching states
+on the same approach, and penalizes simultaneous greens on opposite crossing paths.
+Lanes detected only YELLOW keep their detections and contribute no evidence.
+
+Detections provide strong evidence. Vehicles crossing a stop line support GO, while vehicles
+waiting there support STOP. Detected frames stay unchanged except near the end of a RED run
+before a gap, where inference may override a late detector switch to green.
+
+Forward-backward computes a GO probability per group and frame. Confident frames become
+GREEN or RED. Inferred GREEN followed by RED gets a yellow tail. Other frames stay UNKNOWN.
 """
 
 from __future__ import annotations
@@ -30,6 +35,8 @@ _FREE_ENTRY_LLR = 1.0  # same on a free turn (right turn on red is legal)
 _WAIT_LLR = -0.2  # per frame a vehicle stands at the stop line
 _MAX_GROUP_LLR = 16.0
 _COUPLING = 0.05  # per-frame log bonus for each pair of same-approach groups showing the same state
+_OPPOSE = 0.2  # per-frame log penalty for each pair of crossing groups from opposite approaches both GO
+_PERPENDICULAR_COS = 0.7  # crossing approaches more perpendicular than this conflict, the others oppose
 _CONFIDENCE = 0.9
 _YELLOW_S = 3.0
 _LAG_S = 2.0  # RED detections lag the switch to green: their last seconds before a gap can be overruled
@@ -67,6 +74,9 @@ def interpolate_traffic_lights(scenario: schema.PufferScenario, extras: schema.E
         [[int(s) for s in tracks[lid].states[:length]] if lid in tracks else [0] * length for lid in ids]
     )
     obs = np.select([observed == _RED, (observed == _GREEN) | (observed == _YELLOW)], [-1, 1], 0)
+    # Flashing caution (WOMD maps it to YELLOW) is no GO/STOP phase: such lanes keep their detections only
+    caution = (observed == _YELLOW).any(1) & ~((observed == _GREEN) | (observed == _RED)).any(1)
+    obs[caution] = 0
     start = np.array([line[0] for line in lines])
     start_dir = np.array([_first_dir(line) for line in lines])
     end_dir = np.array([-_first_dir(line[::-1]) for line in lines])
@@ -75,17 +85,18 @@ def interpolate_traffic_lights(scenario: schema.PufferScenario, extras: schema.E
     # free turn: right turn on red allowed, left turn in left-hand traffic
     free = turn_class == (1 if scenario.metadata.location.startswith("sg-") else -1)
 
-    group, conflict, couple = _movement_groups(lines, start_dir, turn_class, free, obs)
+    group, conflict, couple, oppose = _movement_groups(lines, start_dir, turn_class, free, obs)
     lag = _lag_frames(obs, round(_LAG_S / dt))
     llr = obs * np.where(lag, _LAG_LLR, _DETECTION_LLR)
     llr += _vehicle_evidence(scenario.agents, lines, start, start_dir, free, length, dt)
     group_llr = np.zeros((group.max() + 1, length))
     np.add.at(group_llr, group, llr)
-    go = _group_posterior(np.clip(group_llr, -_MAX_GROUP_LLR, _MAX_GROUP_LLR), conflict, couple, dt / _SWITCH_S)
+    group_llr = np.clip(group_llr, -_MAX_GROUP_LLR, _MAX_GROUP_LLR)
+    go = _group_posterior(group_llr, conflict, couple, oppose, dt / _SWITCH_S)
 
     go = go[group]
     inferred = np.select([go > _CONFIDENCE, go < 1 - _CONFIDENCE], [_GREEN, _RED], 0)
-    kept = (observed != 0) & ~(lag & (inferred != 0))
+    kept = (observed != 0) & ~(lag & (inferred != 0)) | caution[:, None]
     states = np.where(kept, observed, _yellow_tails(inferred, kept, round(_YELLOW_S / dt)))
     for lid, row in zip(ids, states, strict=True):
         if lid in tracks:
@@ -124,9 +135,9 @@ def _components(n: int, pairs: np.ndarray) -> np.ndarray:
 
 def _movement_groups(
     lines: list[np.ndarray], start_dir: np.ndarray, turn_class: np.ndarray, free: np.ndarray, obs: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Group label per connector, and boolean group matrices: conflicts (crossing paths from different approaches,
-    no free turn) and couples (same approach)."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Group label per connector, and boolean group matrices: conflicts (crossing paths from perpendicular approaches,
+    no free turn), couples (same approach) and opposites (crossing paths from opposite approaches, no free turn)."""
     n = len(lines)
     geoms = [shapely.LineString(line) for line in lines]
     tree = shapely.STRtree(geoms)
@@ -139,12 +150,16 @@ def _movement_groups(
 
     i, j = tree.query(geoms, predicate="crosses")
     keep = ~free[i] & ~free[j] & (approach[i] != approach[j])
+    perpendicular = np.abs((start_dir[i] * start_dir[j]).sum(1)) < _PERPENDICULAR_COS
     conflict = np.zeros((group.max() + 1,) * 2, dtype=bool)
-    conflict[group[i[keep]], group[j[keep]]] = True
+    conflict[group[i[keep & perpendicular]], group[j[keep & perpendicular]]] = True
+    oppose = np.zeros_like(conflict)
+    oppose[group[i[keep & ~perpendicular]], group[j[keep & ~perpendicular]]] = True
     couple = np.zeros_like(conflict)
     couple[group[:, None], group] = approach[:, None] == approach
     np.fill_diagonal(couple, False)
-    return group, conflict | conflict.T, couple
+    conflict |= conflict.T
+    return group, conflict, couple, (oppose | oppose.T) & ~conflict
 
 
 def _vehicle_evidence(
@@ -207,17 +222,20 @@ def _path_fit(path: np.ndarray, line: np.ndarray, line_length: float) -> float:
     return float(np.linalg.norm(points[:, None] - (seg_start + t[..., None] * seg), axis=-1).min(1).mean())
 
 
-def _group_posterior(llr: np.ndarray, conflict: np.ndarray, couple: np.ndarray, switch: float) -> np.ndarray:
-    """GO posterior per group and frame. Groups linked by conflicts or couples are decoded jointly; components with
-    too many joint states fall back to conflict links only, then to single groups."""
+def _group_posterior(
+    llr: np.ndarray, conflict: np.ndarray, couple: np.ndarray, oppose: np.ndarray, switch: float
+) -> np.ndarray:
+    """GO posterior per group and frame. Groups linked by conflicts, couples or opposites are decoded jointly;
+    components with too many joint states fall back to conflict links only, then to single groups."""
     posterior = np.full_like(llr, np.nan)
-    for links in (conflict | couple, conflict, np.zeros_like(conflict)):
+    for links in (conflict | couple | oppose, conflict, np.zeros_like(conflict)):
         component = _components(len(llr), np.nonzero(links))
         for label in np.unique(component[np.isnan(posterior[:, 0])]):
             members = np.flatnonzero(component == label)
             states = _feasible(conflict[np.ix_(members, members)]) if len(members) <= _MAX_JOINT_GROUPS else None
             if states is not None and len(states) <= _MAX_JOINT_STATES:
-                posterior[members] = _forward_backward(llr[members], states, couple[np.ix_(members, members)], switch)
+                pairs = np.ix_(members, members)
+                posterior[members] = _forward_backward(llr[members], states, couple[pairs], oppose[pairs], switch)
     return posterior
 
 
@@ -226,12 +244,15 @@ def _feasible(conflict: np.ndarray) -> np.ndarray:
     return states[np.einsum("sg,gh,sh->s", states, conflict.astype(int), states) == 0]
 
 
-def _forward_backward(llr: np.ndarray, states: np.ndarray, couple: np.ndarray, switch: float) -> np.ndarray:
+def _forward_backward(
+    llr: np.ndarray, states: np.ndarray, couple: np.ndarray, oppose: np.ndarray, switch: float
+) -> np.ndarray:
     flips = (states[:, None] != states[None]).sum(-1)
     trans = switch**flips * (1 - switch) ** (states.shape[1] - flips)
     trans /= trans.sum(1, keepdims=True)
     agree = ((states[:, :, None] == states[:, None]) & couple).sum((1, 2)) / 2
-    log_emit = states @ llr + _COUPLING * agree[:, None]
+    both_go = ((states[:, :, None] & states[:, None]) * oppose).sum((1, 2)) / 2
+    log_emit = states @ llr + _COUPLING * agree[:, None] - _OPPOSE * both_go[:, None]
     emit = np.exp(log_emit - log_emit.max(0))
     alpha, beta = np.empty_like(emit), np.ones_like(emit)
     alpha[:, 0] = emit[:, 0] / emit[:, 0].sum()
