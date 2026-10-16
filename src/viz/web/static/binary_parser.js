@@ -168,6 +168,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
     // --- Metadata ---
     const id = str(128);
     const dataset = str(32);
+    const location = str(32);
     const scenario_length = i32();
     const dt = f32();
     const objects_of_interest = intList();
@@ -190,7 +191,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       traffic_control_elements,
       objects,
       lane_graph,
-      metadata: { id, dataset, scenario_length, dt, num_objects: numObjects, objects_of_interest, tracks_to_predict },
+      metadata: { id, dataset, location, scenario_length, dt, num_objects: numObjects, objects_of_interest, tracks_to_predict },
     };
   } catch (error) {
     if (error instanceof RangeError) {

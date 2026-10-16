@@ -234,6 +234,9 @@ Metadata ends the file, optionally followed by the traffic light phases:
    * - ``char[32]``
      - ``dataset``
      - UTF-8, truncated and null-padded
+   * - ``char[32]``
+     - ``location``
+     - Map location (e.g. ``us-pa-pittsburgh-hazelwood``, ``Town03``); UTF-8, truncated and null-padded, empty if unknown
    * - ``int32``
      - ``scenario_length``
      - Frame count

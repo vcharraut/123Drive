@@ -12,6 +12,7 @@ from bin_factory import schema
 
 METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
+METADATA_LOCATION_BYTES = 32
 TRAFFIC_PHASE_SECTION_TAG = b"TLPHASE1"
 CURVATURE_HALF_WINDOW = 5.0  # metres of lane on each side of a point averaged into its curvature
 
@@ -42,14 +43,10 @@ def _write_dynamic_states(buf: bytearray, track: schema.Track) -> None:
 
 
 def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
-    """Serialize a PufferScenario into the PufferDrive .bin format.
+    """Return the scenario bytes in the layout specified in ``docs/binary-format.rst``.
 
-    See the module docstring for the full binary layout. Map elements must already be
-    serializable (>= min_points geometry) — transforms.sanitize.prune_invalid_map_elements
-    guarantees this before reindexing.
-
-    Returns:
-        ``bytes`` containing the serialized scenario.
+    Run ``prune_invalid_map_elements`` before reindexing so every map element has at least
+    ``min_points`` geometry points.
     """
     buf = bytearray()
     agents, road_map, tcs, objects = scenario.agents, scenario.map, scenario.traffic_controls, scenario.objects
@@ -127,10 +124,13 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
     else:
         buf.extend(struct.pack("<i", 0))
 
-    # Metadata: scenario id, dataset, timing, prediction targets
+    # Metadata: scenario id, dataset, location, timing, prediction targets
     buf.extend(str(scenario.metadata.id).encode("utf-8")[:METADATA_ID_BYTES].ljust(METADATA_ID_BYTES, b"\0"))
     buf.extend(
         str(scenario.metadata.dataset).encode("utf-8")[:METADATA_DATASET_BYTES].ljust(METADATA_DATASET_BYTES, b"\0")
+    )
+    buf.extend(
+        str(scenario.metadata.location).encode("utf-8")[:METADATA_LOCATION_BYTES].ljust(METADATA_LOCATION_BYTES, b"\0")
     )
     buf.extend(struct.pack("<i", int(scenario.metadata.scenario_length)))
     buf.extend(struct.pack("<f", float(scenario.metadata.dt)))

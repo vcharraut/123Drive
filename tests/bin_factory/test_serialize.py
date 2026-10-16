@@ -156,6 +156,7 @@ def _parse(data):
 
     meta_id = r.raw(serialize.METADATA_ID_BYTES).rstrip(b"\0").decode()
     meta_dataset = r.raw(serialize.METADATA_DATASET_BYTES).rstrip(b"\0").decode()
+    r.raw(serialize.METADATA_LOCATION_BYTES)
     (scenario_length,) = r.ints(1)
     (dt,) = r.floats(1)
     ooi = r.ints(r.ints(1)[0])

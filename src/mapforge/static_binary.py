@@ -5,7 +5,13 @@ from pathlib import Path
 import numpy as np
 
 from bin_factory.schema import MapElement, PufferScenario, ScenarioMetadata, TrafficControl
-from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES, TRAFFIC_PHASE_SECTION_TAG, scenario_to_binary
+from bin_factory.serialize import (
+    METADATA_DATASET_BYTES,
+    METADATA_ID_BYTES,
+    METADATA_LOCATION_BYTES,
+    TRAFFIC_PHASE_SECTION_TAG,
+    scenario_to_binary,
+)
 
 
 class StaticBinaryError(ValueError):
@@ -173,6 +179,7 @@ def _read_lane_graph(reader: _Reader) -> dict | None:
 def _read_metadata(reader: _Reader) -> ScenarioMetadata:
     scenario_id = reader.string(METADATA_ID_BYTES)
     dataset = reader.string(METADATA_DATASET_BYTES)
+    location = reader.string(METADATA_LOCATION_BYTES)
     scenario_length = reader.i32()
     dt = reader.f32()
     objects_of_interest = reader.int_list()
@@ -180,6 +187,7 @@ def _read_metadata(reader: _Reader) -> ScenarioMetadata:
     return ScenarioMetadata(
         id=scenario_id,
         dataset=dataset,
+        location=location,
         scenario_length=scenario_length,
         dt=dt,
         objects_of_interest=objects_of_interest,
