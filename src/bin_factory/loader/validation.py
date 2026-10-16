@@ -1,7 +1,7 @@
-"""Input validation for Scenario — runs after extraction, before processing.
+"""Validate scenarios before and after transforms.
 
-Level 1 (schema): shapes, dtypes, required fields.
-Level 2 (semantic): NaN/Inf, cross-refs, physics.
+Level 1 checks shapes, dtypes, and required fields.
+Level 2 adds finite-value, reference, and physics checks.
 """
 
 import numpy as np
@@ -51,7 +51,7 @@ def validate_scenario(
     meta = scenario.metadata
     length = meta.scenario_length
 
-    # ── Schema ──
+    # Schema checks
     if length < 0:
         errors.append("metadata.scenario_length must be non-negative")
     if not np.isfinite(meta.dt):
@@ -60,7 +60,8 @@ def validate_scenario(
         errors.append("metadata.dt must be > 0 when scenario_length > 0")
 
     _validate_dynamic_states(scenario.agents, "Agent", length, errors)
-    _validate_dynamic_states(scenario.objects, "Object", length, errors)
+    # NOTE: Map-only scenarios (no frames) carry their static map objects as one-frame tracks.
+    _validate_dynamic_states(scenario.objects, "Object", max(length, 1), errors)
     _validate_map_elements(scenario.map, errors)
     _validate_stop_zones(stop_zones, errors)
     _validate_traffic_lights(traffic_lights, length, scenario.map, errors)
@@ -70,7 +71,7 @@ def validate_scenario(
     if errors or level < 2:
         return errors
 
-    # ── Semantic ──
+    # Semantic checks
     _validate_no_nan_inf(scenario, errors)
     lane_ids = {eid for eid, e in scenario.map.items() if e.is_lane}
     _validate_lane_topology(scenario.map, lane_ids, errors)
@@ -194,7 +195,7 @@ def _validate_lane_graph(lane_graph: dict | None, errors: list[str]) -> None:
         )
 
 
-# ── Semantic checks ──
+# Semantic checks
 
 
 def _validate_no_nan_inf(scenario: schema.PufferScenario, errors: list[str]) -> None:

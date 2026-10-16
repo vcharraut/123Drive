@@ -34,11 +34,11 @@ def extract_scenario(
     scenario_id_field: str = "scene_uuid",
     speed_limit_source: str = "road",
 ) -> tuple[schema.PufferScenario, schema.ExtractionExtras]:
-    """Convert 123D SceneAPI or MapAPI to (PufferScenario, extras).
+    """Convert a 123D scene or map into a scenario and extraction extras.
 
-    scenario_id_field picks the py123d attribute used as metadata.id (scene_uuid|log_name|location).
-    speed_limit_source picks the lane speed limit: the road's own (road) or the last speed sign's (signs).
-    extras is an ExtractionExtras (traffic_lights, stop_zones) — consumed by the traffic_controls processor.
+    ``scenario_id_field`` selects scene_uuid, log_name, or location for metadata.id.
+    ``speed_limit_source`` selects the road limit or the last speed sign's limit.
+    Transforms use the extras for traffic controls and shoulder edges.
     """
     if isinstance(py123_arrow, py123d_api.MapAPI):
         scene_api = None
@@ -100,6 +100,9 @@ def extract_scenario(
         traffic_lights = _extract_traffic_lights(scene_api, map_api, centroid, map_lane_ids)
         metadata.scenario_length = scene_api.number_of_iterations
         metadata.dt = dt
+
+    first_id = max([*agents, *objects], default=-1) + 1
+    objects.update(_extract_static_objects(map_api, centroid, ego_states, map_only, metadata.scenario_length, first_id))
 
     if not map_api.map_has_z:
         _zero_all_z(agents, objects, traffic_lights, map_elements, stop_zones)
@@ -163,9 +166,6 @@ def _extract_shoulder_context(
     return non_junction, junction
 
 
-# ── Main Extraction Functions ───────────────────────
-
-
 def _extract_objects(
     scene_api: py123d_api.SceneAPI,
     centroid: np.ndarray,
@@ -173,8 +173,8 @@ def _extract_objects(
 ) -> tuple[dict[int, schema.Track], dict[int, detections.DefaultBoxDetectionLabel], dict[str, int]]:
     """Extract dynamic objects from 123D box detections and ego state.
 
-    Returns (tracks, labels, tokens_to_object_id) — labels carry the 123D detection
-    label per object id until extract_scenario maps it to a puffer type.
+    Return tracks, 123D detection labels, and a token-to-object-ID map.
+    ``extract_scenario`` maps the labels to PufferDrive types.
     """
     episode_length = scene_api.number_of_iterations
     objects: dict[int, schema.Track] = {0: _make_empty_track(episode_length)}
@@ -316,7 +316,7 @@ def _extract_map(
         map_objects_by_layer = map_api.query(corridor, layers, predicate="intersects")
         map_objs = cast("list[Any]", [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])])
 
-    # Lanes first — other elements reference lane IDs
+    # Other elements reference lane IDs, so extract lanes first.
     for obj in map_objs:
         if obj.layer == map_objects.MapLayer.LANE:
             element = _write_map_object(obj, centroid, speed_limit_source)
@@ -373,7 +373,7 @@ def _extract_map(
     return result, stop_zones, lane_ids
 
 
-# ── Writer functions ───────────────────────
+# Writer functions
 
 
 def _write_map_object(
@@ -432,6 +432,46 @@ def _write_map_object(
         )
 
     return None
+
+
+def _extract_static_objects(
+    map_api: py123d_api.MapAPI,
+    centroid: np.ndarray,
+    ego_states: list[Any] | None,
+    map_only: bool,
+    episode_length: int,
+    first_id: int,
+) -> dict[int, schema.Track]:
+    """Static map objects (barriers, poles, parked cars, ...) as objects that stand still over the whole episode."""
+    if map_objects.MapLayer.STATIC_OBJECT not in map_api.available_map_layers:
+        return {}
+    if map_only or map_api.map_is_per_log or ego_states is None:
+        static_objects = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.STATIC_OBJECT))
+    else:
+        ego_xy = [(s.center_se3.x, s.center_se3.y) for s in ego_states]
+        path = shapely.Point(ego_xy[0]) if len(ego_xy) == 1 else shapely.LineString(ego_xy)
+        layer = map_objects.MapLayer.STATIC_OBJECT
+        static_objects = map_api.query(path.buffer(SCENE_MAP_MARGIN), [layer], predicate="intersects").get(layer, [])
+    tracks: dict[int, schema.Track] = {}
+    for n, obj in enumerate(static_objects):
+        corners = obj.outline.array[:4]  # footprint box at ground level
+        sides = np.diff(corners[:3, :2], axis=0)
+        long_side = sides[int(np.argmax(np.linalg.norm(sides, axis=1)))]
+        track = _make_empty_track(max(episode_length, 1))  # one frame in map-only scenarios (no frames)
+        track.type = int(
+            puffer_types.ObjectType.BARRIER
+            if obj.static_object_type == map_objects.StaticObjectType.BARRIER
+            else puffer_types.ObjectType.GENERIC_OBJECT
+        )
+        track.position[:] = corners[:, :3].mean(axis=0) - centroid
+        track.heading[:] = np.arctan2(long_side[1], long_side[0])
+        track.velocity[:] = 0.0
+        track.valid[:] = 1
+        track.length[:] = np.linalg.norm(sides, axis=1).max()
+        track.width[:] = np.linalg.norm(sides, axis=1).min()
+        track.height[:] = obj.height
+        tracks[first_id + n] = track
+    return tracks
 
 
 def _write_detection_frame(
@@ -512,7 +552,7 @@ def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) 
     return np.zeros(3, dtype=np.float64)
 
 
-# ── Corrective functions ───────────────────────
+# Source data corrections
 
 
 def _zero_all_z(
