@@ -11,7 +11,8 @@ import pathlib
 import numpy as np
 import pytest
 
-from bin_factory import loader, main, puffer_types, schema, serialize, transforms
+from bin_factory import loader, main, puffer_types, schema, serialize
+from bin_factory.preparation import prepare_scenario
 from mapforge import affine, static_binary
 from mapforge.static_binary import StaticBinaryError
 
@@ -24,12 +25,10 @@ def _opendrive_static_bytes(location):
     """Map-only conversion of one opendrive map -> serialized static .bin bytes."""
     config = main.build_parser().parse_args(["--py123d_path", str(DATA_ROOT)])
     config.map_only = True
+    config.validate_level = 2
     maps = loader.discover_scenes(py123d_data_root=str(DATA_ROOT), workers=1, map_only=True, datasets=["opendrive"])
     scene = next(m for m in maps if m.location == location)
-    scenario, extras = loader.extract_scenario(scene)
-    assert loader.validate_scenario(scenario, extras=extras, level=2) == []
-    transforms.run(scenario, extras, config)
-    return serialize.scenario_to_binary(scenario)
+    return serialize.scenario_to_binary(prepare_scenario(scene, config))
 
 
 @pytest.fixture(scope="module")

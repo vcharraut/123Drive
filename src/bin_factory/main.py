@@ -11,8 +11,9 @@ from typing import Any
 import joblib
 import tqdm
 
-from bin_factory import loader, schema, serialize, transforms
+from bin_factory import loader, serialize
 from bin_factory.log_context import bind, log, unbind
+from bin_factory.preparation import prepare_scenario
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -200,32 +201,8 @@ def _worker_fn(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Name
         unbind(tokens)
 
 
-def _validate(
-    scenario: schema.PufferScenario, level: int, failure: str, extras: schema.ExtractionExtras | None = None
-) -> None:
-    if level <= 0:
-        return
-    errors = loader.validate_scenario(scenario, extras=extras, level=level)
-    for error in errors:
-        log.error(f"{scenario.metadata.id}: {error}")
-    if errors:
-        raise loader.ValidationError(f"{failure} for scenario {scenario.metadata.id} with {len(errors)} errors")
-
-
 def _convert_one(py123d_data: Any, output_dir: pathlib.Path, config: argparse.Namespace) -> None:
-    scenario, extras = loader.extract_scenario(
-        py123d_data, config.scenario_id_field, config.speed_limit_source, config.static_objects
-    )
-    # py123d reports the measured mean step (0.0995-0.1002 s for --dt 0.1): store the nominal one it sampled at
-    if scenario.metadata.scenario_length:
-        if abs(scenario.metadata.dt - config.dt) > 0.05 * config.dt:
-            raise ValueError(f"Scene step {scenario.metadata.dt:.4f} s is not the requested --dt {config.dt} s")
-        scenario.metadata.dt = config.dt
-
-    _validate(scenario, config.validate_level, "Validation failed", extras)
-    transforms.run(scenario, extras, config)
-    _validate(scenario, config.validate_level, "Post-transform validation failed")
-
+    scenario = prepare_scenario(py123d_data, config)
     binary_data = serialize.scenario_to_binary(scenario)
     output_path = _build_output_path(py123d_data, output_dir, config.scenario_id_field)
     temporary_path = output_path.with_name(f".{output_path.name}.{os.getpid()}.tmp")

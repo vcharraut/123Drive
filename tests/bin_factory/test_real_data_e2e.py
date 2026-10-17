@@ -11,7 +11,8 @@ import struct
 import numpy as np
 import pytest
 
-from bin_factory import loader, main, puffer_types, serialize, transforms
+from bin_factory import loader, main, puffer_types, serialize
+from bin_factory.preparation import prepare_scenario
 
 
 DATA_ROOT = pathlib.Path(__file__).parent.parent / "py123d_data"
@@ -23,6 +24,7 @@ MAP_LOCATIONS = ["Town02", "Town10HD"]  # opendrive maps under tests/py123d_data
 
 def _config(**overrides):
     cfg = main.build_parser().parse_args(["--py123d_path", str(DATA_ROOT)])
+    cfg.validate_level = 2
     for key, value in overrides.items():
         setattr(cfg, key, value)
     return cfg
@@ -37,13 +39,7 @@ def _discover(log_name):
 
 
 def _process(log_name, **cfg_overrides):
-    """Run extract -> validate(level 2) -> pipeline. Returns (scenario, extras)."""
-    config = _config(**cfg_overrides)
-    scenario, extras = loader.extract_scenario(_discover(log_name))
-    errors = loader.validate_scenario(scenario, extras=extras, level=2)
-    assert errors == [], f"{log_name} failed semantic validation: {errors}"
-    transforms.run(scenario, extras, config)
-    return scenario, extras
+    return prepare_scenario(_discover(log_name), _config(**cfg_overrides))
 
 
 def _discover_map(location):
@@ -54,13 +50,7 @@ def _discover_map(location):
 
 
 def _process_map(location, **cfg_overrides):
-    """Map-only flow: extract -> validate(level 2) -> pipeline on a bare MapAPI."""
-    config = _config(map_only=True, **cfg_overrides)
-    scenario, extras = loader.extract_scenario(_discover_map(location))
-    errors = loader.validate_scenario(scenario, extras=extras, level=2)
-    assert errors == [], f"{location} failed semantic validation: {errors}"
-    transforms.run(scenario, extras, config)
-    return scenario, extras
+    return prepare_scenario(_discover_map(location), _config(map_only=True, **cfg_overrides))
 
 
 # ── Binary walker ───────────────────────
@@ -195,7 +185,7 @@ def test_discovers_both_fixtures():
 @pytest.mark.parametrize("log_name", LOG_NAMES)
 @pytest.mark.parametrize("interpolate_tl", [False, True])
 def test_binary_walk_consumes_whole_buffer(log_name, interpolate_tl):
-    scenario, _ = _process(log_name, interpolate_tl=interpolate_tl)
+    scenario = _process(log_name, interpolate_tl=interpolate_tl)
     data = serialize.scenario_to_binary(scenario)
     parsed = _parse(data)
     # Walking every field and landing exactly on the buffer end proves layout consistency
@@ -205,7 +195,7 @@ def test_binary_walk_consumes_whole_buffer(log_name, interpolate_tl):
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
 def test_header_counts_match_processed_scenario(log_name):
-    scenario, _ = _process(log_name)
+    scenario = _process(log_name)
     parsed = _parse(serialize.scenario_to_binary(scenario))
     n_road = sum(1 for e in scenario.map.values() if e.geometry is not None and len(e.geometry) > 1)
     assert parsed["counts"] == (
@@ -221,7 +211,7 @@ def test_header_counts_match_processed_scenario(log_name):
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
 def test_reindex_makes_ids_contiguous(log_name):
-    scenario, _ = _process(log_name)
+    scenario = _process(log_name)
     assert list(scenario.agents) == list(range(len(scenario.agents)))
     assert list(scenario.map) == list(range(len(scenario.map)))
     assert list(scenario.objects) == list(range(len(scenario.objects)))
@@ -232,7 +222,7 @@ def test_reindex_makes_ids_contiguous(log_name):
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
 def test_no_reindex_preserves_source_ids(log_name):
-    scenario, _ = _process(log_name, no_reindex=True)
+    scenario = _process(log_name, no_reindex=True)
     # Source map IDs from WOD are not a contiguous 0..n range; keeping them proves reindex was skipped.
     assert list(scenario.map) != list(range(len(scenario.map)))
 
@@ -242,7 +232,7 @@ def test_no_reindex_preserves_source_ids(log_name):
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
 def test_references_stay_within_bounds(log_name):
-    scenario, _ = _process(log_name)
+    scenario = _process(log_name)
     parsed = _parse(serialize.scenario_to_binary(scenario))
     lane_ids = {r["id"] for r in parsed["roads"] if r["lane"]}
     road_ids = {r["id"] for r in parsed["roads"]}
@@ -269,7 +259,7 @@ def test_references_stay_within_bounds(log_name):
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
 def test_map_types_in_valid_ranges(log_name):
-    scenario, _ = _process(log_name)
+    scenario = _process(log_name)
     # 0-9 lane, 10-19 line, 20-29 edge, 31 crosswalk (see puffer_types / CLAUDE.md).
     for elem in scenario.map.values():
         assert 0 <= elem.type <= 31
@@ -281,7 +271,7 @@ def test_map_types_in_valid_ranges(log_name):
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
 def test_metadata_round_trips(log_name):
-    scenario, _ = _process(log_name)
+    scenario = _process(log_name)
     parsed = _parse(serialize.scenario_to_binary(scenario))
     meta = scenario.metadata
     assert parsed["id"] == meta.id
@@ -298,11 +288,11 @@ def test_metadata_round_trips(log_name):
 
 
 def test_traffic_lights_present_and_imputed():
-    scenario, _ = _process(TL_LOG)
+    scenario = _process(TL_LOG)
     parsed = _parse(serialize.scenario_to_binary(scenario))
     assert parsed["counts"][2] > 0, "expected traffic controls in the TL fixture"
 
-    interp, _ = _process(TL_LOG, interpolate_tl=True)
+    interp = _process(TL_LOG, interpolate_tl=True)
     parsed_interp = _parse(serialize.scenario_to_binary(interp))
     # Imputation fills gaps from neighbour trajectories, never dropping controls.
     assert parsed_interp["counts"][2] >= parsed["counts"][2]
@@ -313,8 +303,8 @@ def test_traffic_lights_present_and_imputed():
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
 def test_serialization_is_deterministic(log_name):
-    s1, _ = _process(log_name)
-    s2, _ = _process(log_name)
+    s1 = _process(log_name)
+    s2 = _process(log_name)
     assert serialize.scenario_to_binary(s1) == serialize.scenario_to_binary(s2)
 
 
@@ -345,14 +335,14 @@ def test_discovers_opendrive_maps():
 @pytest.mark.parametrize("location", MAP_LOCATIONS)
 @pytest.mark.parametrize("reverse_road_edges", [False, True])  # opendrive preset reverses edges
 def test_map_only_binary_walk_consumes_whole_buffer(location, reverse_road_edges):
-    scenario, _ = _process_map(location, reverse_road_edges=reverse_road_edges)
+    scenario = _process_map(location, reverse_road_edges=reverse_road_edges)
     data = serialize.scenario_to_binary(scenario)
     assert _parse(data)["consumed"] == len(data)
 
 
 @pytest.mark.parametrize("location", MAP_LOCATIONS)
 def test_map_only_has_map_but_no_dynamic_entities(location):
-    scenario, _ = _process_map(location)
+    scenario = _process_map(location)
     assert scenario.agents == {}
     assert scenario.objects == {}
     assert scenario.metadata.scenario_length == 0
@@ -369,7 +359,7 @@ def test_map_only_has_map_but_no_dynamic_entities(location):
 
 @pytest.mark.parametrize("location", MAP_LOCATIONS)
 def test_map_only_reindex_and_references(location):
-    scenario, _ = _process_map(location)
+    scenario = _process_map(location)
     assert list(scenario.map) == list(range(len(scenario.map)))
 
     parsed = _parse(serialize.scenario_to_binary(scenario))
@@ -386,7 +376,7 @@ def test_map_only_reindex_and_references(location):
 
 @pytest.mark.parametrize("location", MAP_LOCATIONS)
 def test_map_only_metadata_uses_location_as_id(location):
-    scenario, _ = _process_map(location)
+    scenario = _process_map(location)
     parsed = _parse(serialize.scenario_to_binary(scenario))
     assert parsed["id"] == location  # opendrive identity is the map location
     assert parsed["dataset"] == "opendrive"

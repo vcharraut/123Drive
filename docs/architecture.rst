@@ -12,6 +12,8 @@ Architecture
      - Discover 123D inputs, map source types, extract the in-memory scenario, and validate it
    * - ``bin_factory.transforms``
      - Run the fixed, order-dependent scenario processing stages
+   * - ``bin_factory.preparation``
+     - Apply extraction options, normalize timing, validate, and run the ordered transforms
    * - ``bin_factory.serialize``
      - Encode the processed scenario as the PufferDrive binary layout
    * - ``mapforge``
@@ -51,6 +53,14 @@ Why two extraction outputs?
 ``PufferScenario`` contains data that survives into the binary. ``ExtractionExtras`` contains
 source-level traffic-light tracks and stop zones needed while transforming the scenario.
 Traffic-control processing converts those extras into the serialized control records.
+
+Shared scenario preparation
+---------------------------
+
+``bin_factory.preparation.prepare_scenario`` returns the processed scenario for conversion and
+parked-agent analysis. It owns extraction options, nominal timing, and validation before and
+after the ordered transforms. Callers retain serialization, file writing, and reporting.
+Traffic-light scoring keeps direct extraction because it needs raw observations.
 
 Mutation and ordering
 ---------------------
