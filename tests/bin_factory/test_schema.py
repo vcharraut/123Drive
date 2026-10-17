@@ -16,6 +16,12 @@ def _pts(n):
         (puffer_types.RoadLineType.SOLID_SINGLE_WHITE, True, 2),
         (puffer_types.RoadEdgeType.BOUNDARY, True, 2),
         (puffer_types.MiscRoadType.CROSSWALK, False, 3),
+        (puffer_types.MiscRoadType.SPEED_BUMP, False, 3),
+        (puffer_types.MiscRoadType.CARPARK, False, 3),
+        (puffer_types.MiscRoadType.LANE_GROUP, False, 3),
+        (puffer_types.MiscRoadType.INTERSECTION, False, 3),
+        (puffer_types.MiscRoadType.WALKWAY, False, 3),
+        (puffer_types.MiscRoadType.GENERIC_DRIVABLE, False, 3),
     ],
 )
 def test_geometry_key_and_min_points(road_type, uses_polyline, min_points):

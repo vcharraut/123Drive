@@ -248,12 +248,13 @@ def test_references_stay_within_bounds(log_name):
 
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
-def test_map_types_in_valid_ranges(log_name):
+def test_map_types_and_geometry_are_supported(log_name):
     scenario = _process(log_name)
-    # 0-9 lane, 10-19 line, 20-29 edge, 31 crosswalk (see puffer_types / CLAUDE.md).
     for elem in scenario.map.values():
-        assert 0 <= elem.type <= 31
-        assert elem.is_lane or elem.is_line or elem.is_edge or elem.is_crosswalk
+        assert elem.type in puffer_types.ROAD_TYPE_NAMES
+        geometry = elem.polyline if elem.uses_polyline else elem.polygon
+        assert geometry is not None
+        assert len(geometry) >= elem.min_points
 
 
 # ── Metadata round-trip ───────────────────────

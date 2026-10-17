@@ -38,7 +38,7 @@ viz = [
 dev = [
   "pytest",
   "ruff",
-  "ty==0.0.48",
+  "ty",
 ]
 all = [
   "123Drive[viz,dev]",
