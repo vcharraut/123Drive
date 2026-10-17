@@ -1,8 +1,9 @@
-"""Serialize a PufferScenario to PufferDrive binary format.
+"""Encode scenarios and decode static PufferDrive binaries.
 
 Full binary layout is specified in ``docs/binary-format.rst``; enum values are in ``puffer_types.py``.
 """
 
+import dataclasses
 import struct
 
 import numpy as np
@@ -15,6 +16,12 @@ METADATA_DATASET_BYTES = 32
 METADATA_LOCATION_BYTES = 32
 TRAFFIC_PHASE_SECTION_TAG = b"TLPHASE1"
 CURVATURE_HALF_WINDOW = 5.0  # metres of lane on each side of a point averaged into its curvature
+_TRACK_FIELDS = (("position", 3), ("heading", 1), ("velocity", 2), ("length", 1), ("width", 1), ("height", 1))
+_METADATA_STRINGS = (
+    ("id", METADATA_ID_BYTES),
+    ("dataset", METADATA_DATASET_BYTES),
+    ("location", METADATA_LOCATION_BYTES),
+)
 
 
 def _write_int_list(buf: bytearray, values: list[int]) -> None:
@@ -29,22 +36,11 @@ def _write_dynamic_states(buf: bytearray, track: schema.Track) -> None:
     Only frames [first, first + n), from the first to the last valid frame, are stored; readers fill the others with
     zeros (invalid).
     """
-    xyz = np.asarray(track.position, dtype="<f4")
     valid = np.flatnonzero(np.asarray(track.valid))
     first, n = (int(valid[0]), int(valid[-1] - valid[0] + 1)) if len(valid) else (0, 0)
-    buf.extend(struct.pack("<iii", len(xyz), first, n))
-    for col in [
-        xyz[:, 0],
-        xyz[:, 1],
-        xyz[:, 2],
-        track.heading,
-        track.velocity[:, 0],
-        track.velocity[:, 1],
-        track.length,
-        track.width,
-        track.height,
-    ]:
-        buf.extend(np.asarray(col, dtype="<f4")[first : first + n].tobytes())
+    buf.extend(struct.pack("<iii", len(track.position), first, n))
+    for name, _ in _TRACK_FIELDS:
+        buf.extend(np.asarray(getattr(track, name), dtype="<f4")[first : first + n].T.tobytes())
     buf.extend(np.asarray(track.valid, dtype="<i4")[first : first + n].tobytes())
 
 
@@ -131,13 +127,8 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         buf.extend(struct.pack("<i", 0))
 
     # Metadata: scenario id, dataset, location, timing, prediction targets
-    buf.extend(str(scenario.metadata.id).encode("utf-8")[:METADATA_ID_BYTES].ljust(METADATA_ID_BYTES, b"\0"))
-    buf.extend(
-        str(scenario.metadata.dataset).encode("utf-8")[:METADATA_DATASET_BYTES].ljust(METADATA_DATASET_BYTES, b"\0")
-    )
-    buf.extend(
-        str(scenario.metadata.location).encode("utf-8")[:METADATA_LOCATION_BYTES].ljust(METADATA_LOCATION_BYTES, b"\0")
-    )
+    for name, width in _METADATA_STRINGS:
+        buf.extend(str(getattr(scenario.metadata, name)).encode("utf-8")[:width].ljust(width, b"\0"))
     buf.extend(struct.pack("<i", int(scenario.metadata.scenario_length)))
     buf.extend(struct.pack("<f", float(scenario.metadata.dt)))
     for int_list in [scenario.metadata.objects_of_interest, scenario.metadata.tracks_to_predict]:
@@ -150,3 +141,189 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         buf.extend(struct.pack("<ii", tc.intersection_id if tc.phase_idx >= 0 else -1, tc.phase_idx))
 
     return bytes(buf)
+
+
+class StaticBinaryError(ValueError):
+    """Raised when a .bin payload is not a supported static map binary."""
+
+
+@dataclasses.dataclass
+class _Reader:
+    data: bytes
+    offset: int = 0
+
+    def i32(self) -> int:
+        value = struct.unpack_from("<i", self.data, self.offset)[0]
+        self.offset += 4
+        return int(value)
+
+    def f32(self) -> float:
+        value = struct.unpack_from("<f", self.data, self.offset)[0]
+        self.offset += 4
+        return float(value)
+
+    def i32_array(self, n: int) -> np.ndarray:
+        if n == 0:
+            return np.zeros(0, dtype=np.int32)
+        arr = np.frombuffer(self.data, dtype="<i4", count=n, offset=self.offset).copy()
+        self.offset += 4 * n
+        return arr
+
+    def f32_array(self, n: int) -> np.ndarray:
+        if n == 0:
+            return np.zeros(0, dtype=np.float32)
+        arr = np.frombuffer(self.data, dtype="<f4", count=n, offset=self.offset).copy()
+        self.offset += 4 * n
+        return arr
+
+    def int_list(self) -> list[int]:
+        n = self.i32()
+        return self.i32_array(n).astype(np.int64).tolist()
+
+    def string(self, n: int) -> str:
+        raw = self.data[self.offset : self.offset + n]
+        self.offset += n
+        return raw.split(b"\0", 1)[0].decode("utf-8")
+
+
+def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> schema.PufferScenario:
+    reader = _Reader(data)
+    try:
+        n_agents = reader.i32()
+        n_roads = reader.i32()
+        n_traffic = reader.i32()
+        n_objects = reader.i32()
+
+        if n_agents:
+            raise StaticBinaryError(f"{source} is not static: found {n_agents} agents")
+
+        road_map = _read_roads(reader, n_roads)
+        traffic_controls = _read_traffic_controls(reader, n_traffic)
+        objects = _read_objects(reader, n_objects)
+        lane_graph = _read_lane_graph(reader)
+        metadata = _read_metadata(reader)
+        if reader.data[reader.offset : reader.offset + len(TRAFFIC_PHASE_SECTION_TAG)] == TRAFFIC_PHASE_SECTION_TAG:
+            reader.offset += len(TRAFFIC_PHASE_SECTION_TAG)
+            _read_traffic_phases(reader, traffic_controls)
+    except (struct.error, ValueError) as exc:
+        if isinstance(exc, StaticBinaryError):
+            raise
+        raise StaticBinaryError(f"{source} is not a valid static PufferDrive binary") from exc
+
+    if reader.offset != len(data):
+        raise StaticBinaryError(f"{source} has {len(data) - reader.offset} trailing bytes after metadata")
+
+    return schema.PufferScenario(
+        agents={},
+        objects=objects,
+        map=road_map,
+        traffic_controls=traffic_controls,
+        lane_graph=lane_graph,
+        metadata=metadata,
+    )
+
+
+def _read_roads(reader: _Reader, n_roads: int) -> dict[int, schema.MapElement]:
+    road_map = {}
+    for _ in range(n_roads):
+        element_id = reader.i32()
+        road_type = reader.i32()
+        n_points = reader.i32()
+        x = reader.f32_array(n_points)
+        y = reader.f32_array(n_points)
+        z = reader.f32_array(n_points)
+        reader.f32_array(n_points)
+
+        element = schema.MapElement(type=road_type)
+        xyz = np.column_stack([x, y, z]).astype(np.float64)
+        setattr(element, "polyline" if element.uses_polyline else "polygon", xyz)
+
+        if element.is_lane:
+            element.entry_lanes = reader.int_list()
+            element.exit_lanes = reader.int_list()
+            element.left_neighbor = reader.int_list()
+            element.right_neighbor = reader.int_list()
+            element.speed_limit_mps = reader.f32()
+            element.length = reader.f32()
+            element.cum_length = reader.f32_array(n_points).astype(np.float64)
+            reader.f32_array(n_points)
+
+        road_map[element_id] = element
+    return road_map
+
+
+def _read_traffic_controls(reader: _Reader, n_traffic: int) -> list[schema.TrafficControl]:
+    traffic_controls = []
+    for _ in range(n_traffic):
+        control_id = reader.i32()
+        control_type = reader.i32()
+        stop_line = np.array(
+            [
+                [reader.f32(), reader.f32(), reader.f32()],
+                [reader.f32(), reader.f32(), reader.f32()],
+            ],
+            dtype=np.float64,
+        )
+        heading = reader.f32()
+        states = reader.int_list()
+        controlled_lanes = reader.int_list()
+        traffic_controls.append(
+            schema.TrafficControl(
+                id=control_id,
+                type=control_type,
+                stop_line=stop_line,
+                heading=heading,
+                states=states,
+                controlled_lanes=controlled_lanes,
+            )
+        )
+    return traffic_controls
+
+
+def _read_objects(reader: _Reader, n_objects: int) -> dict[int, schema.Track]:
+    objects = {}
+    for _ in range(n_objects):
+        object_id = reader.i32()
+        object_type = reader.i32()
+        n_frames = reader.i32()
+        first = reader.i32()
+        n_stored = reader.i32()
+        channels = {}
+        for name, width in _TRACK_FIELDS:
+            values = np.zeros((width, n_frames), dtype=np.float64)
+            values[:, first : first + n_stored] = reader.f32_array(width * n_stored).reshape(width, n_stored)
+            channels[name] = values.T.copy() if width > 1 else values[0]
+        valid = np.zeros(n_frames, dtype=np.int32)
+        valid[first : first + n_stored] = reader.i32_array(n_stored)
+        objects[object_id] = schema.Track(type=object_type, valid=valid, **channels)
+    return objects
+
+
+def _read_traffic_phases(reader: _Reader, traffic_controls: list[schema.TrafficControl]) -> None:
+    for traffic_control in traffic_controls:
+        traffic_control.intersection_id = reader.i32()
+        traffic_control.phase_idx = reader.i32()
+
+
+def _read_lane_graph(reader: _Reader) -> dict | None:
+    n_lanes = reader.i32()
+    if n_lanes == 0:
+        return None
+    lane_ids = reader.i32_array(n_lanes).astype(np.int64).tolist()
+    distances = reader.f32_array(n_lanes * n_lanes).reshape(n_lanes, n_lanes).astype(np.float64)
+    return {"lane_ids": lane_ids, "distances": distances}
+
+
+def _read_metadata(reader: _Reader) -> schema.ScenarioMetadata:
+    strings = {name: reader.string(width) for name, width in _METADATA_STRINGS}
+    scenario_length = reader.i32()
+    dt = reader.f32()
+    objects_of_interest = reader.int_list()
+    tracks_to_predict = reader.int_list()
+    return schema.ScenarioMetadata(
+        **strings,
+        scenario_length=scenario_length,
+        dt=dt,
+        objects_of_interest=objects_of_interest,
+        tracks_to_predict=tracks_to_predict,
+    )

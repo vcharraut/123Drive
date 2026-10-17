@@ -315,6 +315,8 @@ Compatibility
 -------------
 
 Because the payload has no version marker, producers and consumers must update together when the
-layout changes. Keep parsing order identical to serialization order. The browser implementation in
-``src/viz/web/static/binary_parser.js`` and the static-map reader in
-``src/mapforge/static_binary.py`` are useful independent readers.
+layout changes. Python encoding and static decoding share trajectory fields and metadata string
+order in ``src/bin_factory/serialize.py``. ``mapforge.static_binary`` preserves the static reader's
+import path and owns file-writing policy. The browser parser in
+``src/viz/web/static/binary_parser.js`` and the binary walkers in ``tests/bin_factory/`` remain
+independent readers.

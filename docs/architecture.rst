@@ -11,11 +11,11 @@ Architecture
    * - ``bin_factory.loader``
      - Discover 123D inputs, map source types, extract the in-memory scenario, and validate it
    * - ``bin_factory.transforms``
-     - Run the fixed, order-dependent scenario processing stages
+     - Implement scenario geometry, routes, traffic controls, and reference transforms
    * - ``bin_factory.preparation``
      - Apply extraction options, normalize timing, validate, and run the ordered transforms
    * - ``bin_factory.serialize``
-     - Encode the processed scenario as the PufferDrive binary layout
+     - Own the binary layout, scenario encoding, and static-map decoding
    * - ``mapforge``
      - Read static binaries, apply affine map augmentation, and write variants
    * - ``viz``
@@ -61,6 +61,13 @@ Shared scenario preparation
 parked-agent analysis. It owns extraction options, nominal timing, and validation before and
 after the ordered transforms. Callers retain serialization, file writing, and reporting.
 Traffic-light scoring keeps direct extraction because it needs raw observations.
+
+Binary ownership
+----------------
+
+``bin_factory.serialize`` owns byte encoding and static decoding, with shared trajectory fields
+and metadata string order. ``mapforge.static_binary`` preserves existing imports and owns static
+file-writing restrictions and overwrite policy. The browser parser remains independent.
 
 Mutation and ordering
 ---------------------

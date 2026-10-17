@@ -69,7 +69,7 @@ def process_polylines(
         # so long edge segments drop corners near the observation window border.
         segment_length = edge_max_segment_length if element.is_edge else max_segment_length
         if segment_length > 0:
-            polyline = _distance_based_interpolate(polyline, segment_length)
+            polyline = resample_polyline(polyline, segment_length)
 
         element.polyline = polyline
 
@@ -82,7 +82,10 @@ def _remove_duplicate_points(polyline: np.ndarray, tol: float = 1e-9) -> np.ndar
     return polyline[keep_mask]
 
 
-def _distance_based_interpolate(polyline: np.ndarray, max_segment_length: float) -> np.ndarray:
+def resample_polyline(polyline: np.ndarray, max_segment_length: float) -> np.ndarray:
+    if len(polyline) < 2:
+        return polyline.copy()
+
     diffs = np.diff(polyline, axis=0)
     seg_lengths = np.linalg.norm(diffs, axis=1)
     subdivisions = np.maximum(np.ceil(seg_lengths / max_segment_length).astype(int), 1)

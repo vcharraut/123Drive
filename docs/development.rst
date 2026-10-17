@@ -11,9 +11,9 @@ Repository layout
      transforms/      ordered scenario transformations
      main.py          convert CLI and worker orchestration
      schema.py        in-memory data model
-     serialize.py     binary writer
+     serialize.py     binary writer and static reader
      presets.toml     dataset defaults
-   src/mapforge/      static binary reader and affine augmentation
+   src/mapforge/      static file policy and affine augmentation
    src/viz/           FastAPI server and bundled browser frontend
    docker_tools/      image builder, Dockerfiles, entrypoints
    docs/              Sphinx source

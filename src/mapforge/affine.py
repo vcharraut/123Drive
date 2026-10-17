@@ -8,6 +8,7 @@ import numpy as np
 
 from bin_factory.schema import PufferScenario
 from bin_factory.transforms import build_lane_distance_matrix, compute_lane_lengths
+from bin_factory.transforms.geometry import resample_polyline
 from mapforge import static_binary
 
 
@@ -133,7 +134,7 @@ def apply_affine_transform(
             max_length = MAX_AUGMENTED_SEGMENT_LENGTH
             if element.is_edge:
                 max_length = min(max_length, float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).max()))
-            transformed = _resample_xyz_segments(transformed, max_length)
+            transformed = resample_polyline(transformed, max_length)
         setattr(element, key, transformed)
 
     for traffic_control in scenario.traffic_controls:
@@ -167,28 +168,6 @@ def _transform_xyz(xyz: np.ndarray, matrix: np.ndarray, centroid: np.ndarray) ->
     transformed = xyz.copy()
     transformed[:, :2] = (transformed[:, :2] - centroid) @ matrix.T + centroid
     return transformed
-
-
-def _resample_xyz_segments(xyz: np.ndarray, max_segment_length: float) -> np.ndarray:
-    if len(xyz) < 2:
-        return xyz.copy()
-
-    diffs = np.diff(xyz, axis=0)
-    seg_lengths = np.linalg.norm(diffs, axis=1)
-    subdivisions = np.maximum(np.ceil(seg_lengths / max_segment_length).astype(int), 1)
-
-    total_points = int(subdivisions.sum()) + 1
-    result = np.empty((total_points, xyz.shape[1]), dtype=xyz.dtype)
-
-    idx = 0
-    for i, diff in enumerate(diffs):
-        n = subdivisions[i]
-        t = np.arange(n, dtype=xyz.dtype).reshape(-1, 1) / n
-        result[idx : idx + n] = xyz[i] + t * diff
-        idx += n
-    result[idx] = xyz[-1]
-
-    return result
 
 
 def build_parser() -> argparse.ArgumentParser:

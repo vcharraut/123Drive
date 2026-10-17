@@ -1,5 +1,13 @@
-from bin_factory import loader, transforms
+from bin_factory import loader
 from bin_factory.log_context import log
+from bin_factory.transforms.geometry import interpolate_all_polygons, process_polylines, reverse_road_edges
+from bin_factory.transforms.graph import build_lane_distance_matrix, compute_lane_lengths
+from bin_factory.transforms.reindex import reindex_scenario
+from bin_factory.transforms.routes import process_agent_routes
+from bin_factory.transforms.sanitize import prune_invalid_map_elements
+from bin_factory.transforms.shoulder_edges import add_shoulder_edges
+from bin_factory.transforms.traffic_controls import process_traffic_controls
+from bin_factory.transforms.traffic_light_interpolation import interpolate_traffic_lights
 
 
 def prepare_scenario(py123d_data, config):
@@ -13,7 +21,24 @@ def prepare_scenario(py123d_data, config):
         scenario.metadata.dt = config.dt
 
     _validate(scenario, config.validate_level, "Validation failed", extras)
-    transforms.run(scenario, extras, config)
+    if config.interpolate_tl:
+        interpolate_traffic_lights(scenario, extras)
+    if config.shoulders == "offroad":
+        added = add_shoulder_edges(
+            scenario, extras.non_junction_shoulders, extras.junction_drivables, config.ramp_widening_m
+        )
+        log.info("offroad shoulders: %d road edges added along lane boundaries", added)
+    if config.reverse_road_edges:
+        reverse_road_edges(scenario)
+    process_polylines(scenario, config.max_segment_length, config.area_threshold, config.edge_max_segment_length)
+    interpolate_all_polygons(scenario)
+    prune_invalid_map_elements(scenario, extras)
+    process_traffic_controls(scenario, extras)
+    process_agent_routes(scenario, config.route_check_timestep)
+    compute_lane_lengths(scenario)
+    scenario.lane_graph = build_lane_distance_matrix(scenario.map)
+    if not config.no_reindex:
+        reindex_scenario(scenario)
     _validate(scenario, config.validate_level, "Post-transform validation failed")
     return scenario
 
