@@ -184,7 +184,7 @@ def test_discovers_both_fixtures():
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
 @pytest.mark.parametrize("interpolate_tl", [False, True])
-def test_binary_walk_consumes_whole_buffer(log_name, interpolate_tl):
+def test_binary_layout_and_counts_match_processed_scenario(log_name, interpolate_tl):
     scenario = _process(log_name, interpolate_tl=interpolate_tl)
     data = serialize.scenario_to_binary(scenario)
     parsed = _parse(data)
@@ -192,11 +192,6 @@ def test_binary_walk_consumes_whole_buffer(log_name, interpolate_tl):
     # against real, variable-shaped data (mixed map types, routes, TL state vectors).
     assert parsed["consumed"] == len(data)
 
-
-@pytest.mark.parametrize("log_name", LOG_NAMES)
-def test_header_counts_match_processed_scenario(log_name):
-    scenario = _process(log_name)
-    parsed = _parse(serialize.scenario_to_binary(scenario))
     n_road = sum(1 for e in scenario.map.values() if e.geometry is not None and len(e.geometry) > 1)
     assert parsed["counts"] == (
         len(scenario.agents),

@@ -181,7 +181,9 @@ def _parse(data):
 
 
 def test_round_trip_high_level_fields():
-    data = serialize.scenario_to_binary(_build_scenario())
+    scenario = _build_scenario()
+    data = serialize.scenario_to_binary(scenario)
+    assert serialize.scenario_to_binary(scenario) == data
     parsed = _parse(data)
 
     # Header counts: agents, road elements, traffic controls, objects.
@@ -215,11 +217,6 @@ def test_trajectory_stores_only_valid_span():
     # (T, first, n): frames from the first to the last valid one; none for an all-invalid track.
     assert [a["span"] for a in parsed["agents"]] == [(3, 0, 3), (3, 1, 1)]
     assert parsed["object_spans"] == [(3, 0, 0)]
-
-
-def test_serialization_is_deterministic():
-    scenario = _build_scenario()
-    assert serialize.scenario_to_binary(scenario) == serialize.scenario_to_binary(scenario)
 
 
 def test_big_endian_inputs_serialize_identically():

@@ -135,18 +135,11 @@ def test_read_rejects_truncated_payload(opendrive_bins):
 # ── static_binary: write ───────────────────────
 
 
-def test_write_then_read_round_trips(opendrive_bins, tmp_path):
+def test_write_round_trips_and_requires_explicit_overwrite(opendrive_bins, tmp_path):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
     out = tmp_path / "out.bin"
     static_binary.write_static_scenario(scenario, out)
-    assert out.exists()
     assert list(static_binary.static_binary_to_scenario(out.read_bytes()).map) == list(scenario.map)
-
-
-def test_write_refuses_overwrite_without_flag(opendrive_bins, tmp_path):
-    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
-    out = tmp_path / "out.bin"
-    static_binary.write_static_scenario(scenario, out)
     with pytest.raises(FileExistsError):
         static_binary.write_static_scenario(scenario, out)
     static_binary.write_static_scenario(scenario, out, overwrite=True)  # explicit overwrite is allowed
@@ -297,19 +290,10 @@ def test_augment_maps_writes_original_plus_variants(opendrive_bins, tmp_path):
 
     assert len(written) == len(MAP_LOCATIONS) * (1 + len(catalog))
     for loc in MAP_LOCATIONS:
-        assert (output_dir / f"opendrive__{loc}.bin").exists()  # untouched copy of the original
+        assert (output_dir / f"opendrive__{loc}.bin").read_bytes() == opendrive_bins[loc]
         variant = output_dir / f"opendrive__{loc}_FlipX.bin"
         assert variant.exists()
         assert static_binary.static_binary_to_scenario(variant.read_bytes()).metadata.id == f"opendrive__{loc}_FlipX"
-
-
-def test_augment_maps_original_copy_is_byte_identical(opendrive_bins, tmp_path):
-    input_dir = tmp_path / "in"
-    input_dir.mkdir()
-    (input_dir / "opendrive__Town02.bin").write_bytes(opendrive_bins["Town02"])
-    output_dir = tmp_path / "out"
-    affine.augment_maps(input_dir, output_dir, affine.select_transforms(["flip"]))
-    assert (output_dir / "opendrive__Town02.bin").read_bytes() == opendrive_bins["Town02"]
 
 
 def test_augment_maps_empty_input_raises(tmp_path):
