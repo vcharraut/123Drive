@@ -6,7 +6,7 @@ import numpy as np
 from bin_factory import puffer_types, schema, serialize
 
 
-def _track(length, agent_type, valid, route=(), route_gt_len=0, control_state=2, base=0.0):
+def _track(length, agent_type, valid, route=(), base=0.0):
     position = np.arange(length * 3, dtype=np.float64).reshape(length, 3) + base
     return schema.Track(
         type=int(agent_type),
@@ -18,8 +18,6 @@ def _track(length, agent_type, valid, route=(), route_gt_len=0, control_state=2,
         width=np.full(length, 2.0),
         height=np.full(length, 1.6),
         route=list(route),
-        route_gt_len=route_gt_len,
-        control_state=control_state,
     )
 
 
@@ -48,7 +46,7 @@ def _build_scenario():
         tracks_to_predict=[0, 1],
     )
     agents = {
-        0: _track(3, puffer_types.AgentType.VEHICLE, [1, 1, 1], route=[10, 11], route_gt_len=1, control_state=0),
+        0: _track(3, puffer_types.AgentType.VEHICLE, [1, 1, 1], route=[10, 11]),
         1: _track(3, puffer_types.AgentType.PEDESTRIAN, [0, 1, 0], base=100.0),
     }
     crosswalk = schema.MapElement(
@@ -120,9 +118,7 @@ def _parse(data):
         span = r.skip_dynamic()
         (n_route,) = r.ints(1)
         route = r.ints(n_route)
-        (route_gt_len,) = r.ints(1)
-        (control_state,) = r.ints(1)
-        agents.append({"id": eid, "span": span, "route": route, "route_gt_len": route_gt_len, "cs": control_state})
+        agents.append({"id": eid, "span": span, "route": route})
 
     lanes = []
     for _ in range(n_road):
@@ -191,8 +187,6 @@ def test_round_trip_high_level_fields():
 
     ego = next(a for a in parsed["agents"] if a["id"] == 0)
     assert ego["route"] == [10, 11]
-    assert ego["route_gt_len"] == 1
-    assert ego["cs"] == int(puffer_types.ControlState.CONTROLLABLE)
 
     lane10 = next(ln for ln in parsed["lanes"] if ln["id"] == 10)
     assert lane10["exit"] == [11]

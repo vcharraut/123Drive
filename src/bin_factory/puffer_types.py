@@ -8,12 +8,6 @@ class AgentType(enum.IntEnum):
     CYCLIST = 3
 
 
-class ControlState(enum.IntEnum):
-    CONTROLLABLE = 0
-    NON_CONTROLLABLE_MOVING = 1
-    NON_CONTROLLABLE_STATIC = 2
-
-
 class LaneType(enum.IntEnum):
     UNKNOWN = 0
     FREEWAY = 1

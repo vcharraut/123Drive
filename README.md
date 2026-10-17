@@ -1,15 +1,15 @@
 # 123Drive
 
 Convert [123D](https://github.com/autonomousvision/py123d) Arrow datasets into
-[PufferDrive](https://github.com/Emerge-Lab/PufferDrive) `.bin` scenarios.
+`.bin` scenarios for PufferDinde.
 
 ```text
-raw dataset -> 123D Arrow -> 123Drive -> PufferDrive binary
+raw dataset -> 123D Arrow -> 123Drive -> .bin
 ```
 
 ## Documentation
 
-[Installation, conversion, algorithms, and binary format](https://vcharraut.github.io/123Drive/).
+[Process, dataset differences, and command options](docs/index.md).
 
 ## Quick start
 
@@ -35,3 +35,12 @@ uv run web --dir ./output
 ```
 
 Python 3.11 to 3.13. MIT licensed.
+
+## Agent control and format changes
+
+An agent with a nonempty route is eligible for control. An empty route makes it
+a background entity. PufferDinde chooses the controller and background behavior.
+
+The binary no longer stores `control_state` or `route_gt_len`. Reconvert existing
+scenes and update the PufferDinde reader before using new output. See the
+[binary writer](src/bin_factory/serialize.py).

@@ -38,8 +38,6 @@ class Track:
     width: np.ndarray
     height: np.ndarray
     route: list = dataclasses.field(default_factory=list)
-    route_gt_len: int = 0
-    control_state: int = int(puffer_types.ControlState.NON_CONTROLLABLE_STATIC)
 
 
 @dataclasses.dataclass

@@ -41,7 +41,6 @@ def _build_id_map(ids: Iterable[int]) -> dict[int, int]:
 
 def _remap_track(track: schema.Track, map_id_map: dict[int, int]) -> schema.Track:
     track.route = [map_id_map[ref_id] for ref_id in track.route if ref_id in map_id_map]
-    track.route_gt_len = min(track.route_gt_len, len(track.route))
     return track
 
 

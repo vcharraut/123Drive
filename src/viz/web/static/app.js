@@ -623,20 +623,15 @@ function cropPathToStart(path, startPos) {
 function getAgentRouteSegments(agent, roadMap) {
   const startPos = getAgentRouteStart(agent);
   const route = Array.isArray(agent.route) ? agent.route : [];
-  const routeGtLen = Math.max(0, Math.min(agent.route_gt_len ?? route.length, route.length));
-  const toSegments = (laneIds, cropFirst) => laneIds
+  return route
     .map(laneId => roadMap.get(laneId))
     .filter(road => road && Array.isArray(road.xyz) && road.xyz.length > 1)
     .map((road, idx) => {
       const path = road.xyz.map(([x, y, z = 0]) => [x, y, z]);
-      const croppedPath = cropFirst && idx === 0 ? cropPathToStart(path, startPos) : path;
+      const croppedPath = idx === 0 ? cropPathToStart(path, startPos) : path;
       return {path: croppedPath, laneId: road.id, agentId: agent.id};
     })
     .filter(seg => seg.path.length > 1);
-  return {
-    observed: toSegments(route.slice(0, routeGtLen), true),
-    extension: toSegments(route.slice(routeGtLen), false),
-  };
 }
 
 // deck.gl setup
@@ -1389,16 +1384,11 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
 
       if (isAgent) {
         const routeSegments = getAgentRouteSegments(item, roadMap);
-        for (const [kind, data, alpha, dash] of [
-          ['observed', routeSegments.observed, 200, [1, 0]],
-          ['extension', routeSegments.extension, 120, [8, 5]],
-        ]) if (data.length) layers.push(new PathLayer({
-          id: `sel-agent-route-${kind}`, data,
+        if (routeSegments.length) layers.push(new PathLayer({
+          id: 'sel-agent-route', data: routeSegments,
           getPath: toPath,
-          getColor: [...BROWN, alpha],
+          getColor: [...BROWN, 200],
           getWidth: 2, widthUnits: 'pixels',
-          getDashArray: dash, dashJustified: kind === 'extension',
-          extensions: kind === 'extension' ? [new PathStyleExtension({dash: true})] : [],
           jointRounded: true, capRounded: true,
         }));
       }

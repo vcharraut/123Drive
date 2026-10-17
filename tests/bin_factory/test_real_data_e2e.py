@@ -92,16 +92,12 @@ def _parse(data):
         eid, _type = r.ints(2)
         n_points = r.skip_dynamic()
         route = r.ints(r.ints(1)[0])
-        (route_gt_len,) = r.ints(1)
-        (control_state,) = r.ints(1)
         agents.append(
             {
                 "id": eid,
                 "type": _type,
                 "n_points": n_points,
                 "route": route,
-                "route_gt_len": route_gt_len,
-                "cs": control_state,
             }
         )
 
@@ -239,7 +235,6 @@ def test_references_stay_within_bounds(log_name):
 
     for agent in parsed["agents"]:
         assert set(agent["route"]) <= lane_ids  # routes reference lanes only
-        assert agent["route_gt_len"] <= len(agent["route"])
 
     for tc in parsed["tcs"]:
         assert set(tc["lanes"]) <= road_ids

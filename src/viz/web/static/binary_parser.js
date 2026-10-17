@@ -6,7 +6,7 @@
  *              x[n](f32), y[n](f32), z[n](f32),
  *              heading[n](f32), vx[n](f32), vy[n](f32),
  *              length[n](f32), width[n](f32), height[n](f32), valid[n](i32),
- *              n_route(i32), route[n_route](i32), route_gt_len(i32), control_state(i32)
+ *              n_route(i32), route[n_route](i32)
  *              (frames [first, first + n) of T; the others are zero / invalid)
  *   Roads[]:   id(i32), type(i32), S(i32),
  *              x[S](f32), y[S](f32), z[S](f32), heading[S](f32),
@@ -102,9 +102,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer) {
       const states = readDynamicStateArrays();
       if (!hasRoute) return {id, type, ...states};
       const route = intList();
-      const route_gt_len = i32();
-      const control_state = i32();
-      return {id, type, ...states, route, route_gt_len, control_state};
+      return {id, type, ...states, route};
     };
 
     // --- Header ---

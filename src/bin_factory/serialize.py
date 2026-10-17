@@ -55,15 +55,13 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
 
     buf.extend(struct.pack("<iiii", len(agents), len(road_map), len(tcs), len(objects)))
 
-    # Agents: id, type, trajectory, route, route_gt_len, control_state
+    # Agents: id, type, trajectory, route
     for eid, track in agents.items():
         buf.extend(struct.pack("<ii", int(eid), int(track.type)))
         _write_dynamic_states(buf, track)
 
         # Route
         _write_int_list(buf, track.route)
-        buf.extend(struct.pack("<i", int(track.route_gt_len)))
-        buf.extend(struct.pack("<i", int(track.control_state)))
 
     # Road map: id, type, geometry, heading; lanes get topology (entry/exit/left/right),
     # speed limit, lengths and curvature

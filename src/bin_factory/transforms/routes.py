@@ -39,7 +39,7 @@ _Candidate = tuple[int, int, float, float]  # (point_idx, lane_id, distance, s)
 
 
 def process_agent_routes(scenario: schema.PufferScenario, route_check_timestep: int = 0) -> None:
-    """Set each agent's ``route``, ``route_gt_len``, and ``control_state``.
+    """Set each agent's ``route``; a nonempty route determines control eligibility.
 
     Project vehicle trajectories onto lane centerlines, choose a connected sequence with
     dynamic programming, then extend it to a dead end. Non-ego vehicles must be valid and
@@ -59,9 +59,9 @@ def process_agent_routes(scenario: schema.PufferScenario, route_check_timestep: 
         is_ego = is_vehicle and agent_id == 0
         is_static = not is_ego and _is_static(agent_data, dt)
 
-        # Parked cars are NON_CONTROLLABLE_STATIC regardless of route, so skip the route DP for them.
-        route, route_gt_len = (
-            ([], 0)
+        # Parked cars are ineligible for control, so skip the route DP for them.
+        route = (
+            []
             if not is_vehicle or is_static
             else compute_agent_route(
                 agent_id=agent_id,
@@ -76,7 +76,7 @@ def process_agent_routes(scenario: schema.PufferScenario, route_check_timestep: 
             )
         )
         t = route_check_timestep
-        # The simulator retires an agent that spawns at its route end, so such a vehicle is replayed, not controlled
+        # The simulator retires an agent that spawns at its route end, so clear routes with too little road ahead.
         has_road_ahead = bool(route) and (
             _route_remaining(agent_data.position[t], route, route_cache) >= MIN_ROUTE_REMAINING
         )
@@ -90,24 +90,16 @@ def process_agent_routes(scenario: schema.PufferScenario, route_check_timestep: 
                 f"Ego vehicle (agent 0) has no route, under {MIN_ROUTE_REMAINING:g} m of route ahead or an off-road "
                 f"start in scenario {scenario.metadata.id}"
             )
-        agent_data.route = route
-        agent_data.route_gt_len = route_gt_len
-        agent_data.control_state = int(
-            puffer_types.ControlState.NON_CONTROLLABLE_STATIC
-            if is_static
-            else puffer_types.ControlState.CONTROLLABLE
-            if has_road_ahead
-            else puffer_types.ControlState.NON_CONTROLLABLE_MOVING
-        )
-    _replay_log_conflicts(scenario.agents, route_check_timestep)
+        agent_data.route = route if has_road_ahead else []
+    _clear_conflicting_routes(scenario.agents, route_check_timestep)
 
 
-def _replay_log_conflicts(agents: dict[int, schema.Track], start: int) -> None:
-    """Switch controllable non-ego vehicles to replay when their logged boxes overlap
-    another agent at the start frame or a replayed or frozen agent later.
+def _clear_conflicting_routes(agents: dict[int, schema.Track], start: int) -> None:
+    """Clear non-ego routes when logged boxes overlap another agent at the start frame
+    or an agent without a route later.
 
-    This avoids collisions already present in the log. Keep trajectories, validity, and
-    routes for log replay and WOSAC. An ego overlap at the start frame raises an error.
+    This avoids collisions already present in the log. Clear routes but keep trajectories
+    and validity for log replay and WOSAC. An ego overlap at the start frame raises an error.
     """
     tracks = list(agents.values())
     corners = _box_corners(tracks) if tracks else np.zeros((0, 0, 4, 2))
@@ -122,16 +114,16 @@ def _replay_log_conflicts(agents: dict[int, schema.Track], start: int) -> None:
     if not hits:
         return
     agent, other, frame = np.concatenate(hits).T
-    was_controllable = np.array([track.control_state == puffer_types.ControlState.CONTROLLABLE for track in tracks])
+    was_controllable = np.array([bool(track.route) for track in tracks])
     is_ego = np.array([aid == 0 for aid in agents])
     if (is_ego[agent] & was_controllable[agent] & (frame == start)).any():
         raise ValueError("Ego vehicle (agent 0) overlaps another agent at the start frame")
     controlled = was_controllable.copy()
-    # A vehicle handed to replay is log-driven too, so controlled vehicles it overlaps later are handed over in turn
+    # A vehicle losing its route becomes background, so clear routes of vehicles it overlaps later too.
     while (hit := controlled[agent] & ~is_ego[agent] & ((frame == start) | ~controlled[other])).any():
         controlled[agent[hit]] = False
     for k in np.flatnonzero(was_controllable & ~controlled):
-        tracks[k].control_state = int(puffer_types.ControlState.NON_CONTROLLABLE_MOVING)
+        tracks[k].route = []
 
 
 def _route_remaining(position: np.ndarray, route: list[int], route_cache: _RouteCache) -> float:
@@ -234,8 +226,8 @@ def compute_agent_route(
     is_ego: bool,
     route_cache: _RouteCache,
     route_check_timestep: int = 0,
-) -> tuple[list[int], int]:
-    """Return ``(route, route_gt_len)`` for one agent, or ``([], 0)``.
+) -> list[int]:
+    """Return the lane route for one agent, or ``[]``.
 
     Ego bypasses the check-timestep gate; a non-ego agent must be valid and on-road there.
     """
@@ -247,19 +239,19 @@ def compute_agent_route(
         or (not is_ego and (not valid[t] or _is_offroad(positions[t], headings[t], lengths[t], widths[t], route_cache)))
     ):
         log.debug("agent=%d: skipping route computation (insufficient valid data or offroad start)", agent_id)
-        return [], 0
+        return []
 
     observations = _build_point_observations(positions[valid], headings[valid], route_cache)
     if not observations:
         log.debug("agent=%d: no GT-supported lane candidates found", agent_id)
-        return [], 0
+        return []
 
     candidate_path = _select_candidate_path(observations, int(valid.sum()), route_cache)
     gt_route = [candidate_path[0][1]]
     for prev_candidate, next_candidate in itertools.pairwise(candidate_path):
         gt_route.extend(_find_shortest_lane_path(prev_candidate[1], next_candidate[1], route_cache)[1:])
 
-    return _extend_route_to_dead_end(gt_route.copy(), route_cache), len(gt_route)
+    return _extend_route_to_dead_end(gt_route, route_cache)
 
 
 def _build_point_observations(
