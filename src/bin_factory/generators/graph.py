@@ -3,7 +3,7 @@ from scipy import sparse as scipy_sparse
 from scipy.sparse import csgraph as scipy_csgraph
 
 from bin_factory import puffer_types, schema
-from bin_factory.transforms.geometry import arc_length
+from bin_factory.conversion.geometry import arc_length
 
 
 GRAPH_LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}

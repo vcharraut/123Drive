@@ -1,7 +1,7 @@
 import numpy as np
 
 from bin_factory import puffer_types, schema
-from bin_factory.transforms.routes import (
+from bin_factory.generators.routes import (
     _is_static,
     build_route_cache,
     compute_agent_route,

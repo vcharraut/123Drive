@@ -77,5 +77,5 @@ Yellow-only detections stay unchanged. See [interpolation code].
 [loader]: https://github.com/vcharraut/123Drive/tree/main/src/bin_factory/loader
 [schema]: https://github.com/vcharraut/123Drive/blob/main/src/bin_factory/schema.py
 [binary writer]: https://github.com/vcharraut/123Drive/blob/main/src/bin_factory/serialize.py
-[route code]: https://github.com/vcharraut/123Drive/blob/main/src/bin_factory/transforms/routes.py
-[interpolation code]: https://github.com/vcharraut/123Drive/blob/main/src/bin_factory/transforms/traffic_light_interpolation.py
+[route code]: https://github.com/vcharraut/123Drive/blob/main/src/bin_factory/generators/routes.py
+[interpolation code]: https://github.com/vcharraut/123Drive/blob/main/src/bin_factory/generators/traffic_light_interpolation.py

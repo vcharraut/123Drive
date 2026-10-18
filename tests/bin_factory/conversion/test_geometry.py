@@ -1,6 +1,6 @@
 import numpy as np
 
-from bin_factory.transforms.geometry import _simplify_polyline, arc_length, polyline_length
+from bin_factory.conversion.geometry import _simplify_polyline, arc_length, polyline_length
 
 
 def test_arc_length_cumulative():

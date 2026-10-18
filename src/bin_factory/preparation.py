@@ -1,12 +1,12 @@
 from bin_factory import loader
 from bin_factory.log_context import log
-from bin_factory.transforms.geometry import interpolate_all_polygons, process_polylines, reverse_road_edges
-from bin_factory.transforms.graph import build_lane_distance_matrix, compute_lane_lengths
-from bin_factory.transforms.routes import process_agent_routes
-from bin_factory.transforms.sanitize import prune_invalid_map_elements
-from bin_factory.transforms.shoulder_edges import add_shoulder_edges
-from bin_factory.transforms.traffic_controls import process_traffic_controls
-from bin_factory.transforms.traffic_light_interpolation import interpolate_traffic_lights
+from bin_factory.conversion.geometry import interpolate_all_polygons, process_polylines, reverse_road_edges
+from bin_factory.conversion.sanitize import prune_invalid_map_elements
+from bin_factory.conversion.traffic_controls import process_traffic_controls
+from bin_factory.generators.graph import build_lane_distance_matrix, compute_lane_lengths
+from bin_factory.generators.routes import process_agent_routes
+from bin_factory.generators.shoulder_edges import add_shoulder_edges
+from bin_factory.generators.traffic_light_interpolation import interpolate_traffic_lights
 
 
 def prepare_scenario(py123d_data, config):

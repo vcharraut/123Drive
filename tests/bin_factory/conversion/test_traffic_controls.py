@@ -10,7 +10,7 @@ sim and are dropped here. Vehicle/bus-lane signals are kept.
 import numpy as np
 
 from bin_factory import puffer_types, schema
-from bin_factory.transforms.traffic_controls import process_traffic_controls
+from bin_factory.conversion.traffic_controls import process_traffic_controls
 
 
 def _lane(lane_type, polyline):

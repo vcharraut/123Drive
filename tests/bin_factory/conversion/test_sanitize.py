@@ -1,7 +1,7 @@
 import numpy as np
 
 from bin_factory import puffer_types, schema
-from bin_factory.transforms.sanitize import prune_invalid_map_elements
+from bin_factory.conversion.sanitize import prune_invalid_map_elements
 
 
 def _lane(points, exit_lanes=()):

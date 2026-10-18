@@ -14,7 +14,7 @@ from shapely import geometry as shapely_geom
 
 from bin_factory import puffer_types, schema
 from bin_factory.log_context import log
-from bin_factory.transforms.geometry import arc_length, polyline_length
+from bin_factory.conversion.geometry import arc_length, polyline_length
 
 
 LANE_WIDTH_THRESHOLD = 7.0  # meters, maximum point-to-lane distance
