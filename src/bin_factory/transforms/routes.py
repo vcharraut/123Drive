@@ -23,8 +23,9 @@ ROUTE_CANDIDATE_BBOX_MARGIN = 12.0  # meters, bounding-box expansion for nearby 
 MAX_CANDIDATES_PER_POINT = 7
 MAX_TRANSITION_HOPS = 3
 BACKWARD_PROGRESS_TOLERANCE = 2.0  # meters, allowed backward projection on one lane
-OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters, maximum lane distance at the check timestep
-MIN_ROUTE_REMAINING = 15.0  # meters of route ahead at the check timestep; above the simulator's largest goal radius
+OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters, maximum lane distance at an eligible start timestep
+MIN_ROUTE_REMAINING = 15.0  # meters of route ahead at an eligible start timestep; above largest goal radius
+MAX_INIT_TIMESTEP = 10  # latest timestep checked for route eligibility (covers t=0 through WOD's t=10 init step)
 ELEVATION_THRESHOLD = 2.0  # meters, maximum elevation difference for lane matches
 SMOOTH_WINDOW = 7  # frames, odd median-filter window for perception spikes
 PARKED_MOTION_THRESHOLD = 1.5
@@ -38,119 +39,171 @@ _RouteCache = dict[str, Any]
 _Candidate = tuple[int, int, float, float]  # (point_idx, lane_id, distance, s)
 
 
-def process_agent_routes(scenario: schema.PufferScenario, route_check_timestep: int = 0) -> None:
+def process_agent_routes(scenario: schema.PufferScenario) -> None:
     """Set each agent's ``route``; a nonempty route determines control eligibility.
 
     Project vehicle trajectories onto lane centerlines, choose a connected sequence with
-    dynamic programming, then extend it to a dead end. Non-ego vehicles must be valid and
-    on-road at ``route_check_timestep``. Ego bypasses this gate and the parked filter,
-    but conversion fails if its route or starting position prevents control.
+    dynamic programming, then extend it to a dead end. Non-ego vehicles must be valid,
+    on-road, and have at least ``MIN_ROUTE_REMAINING`` ahead at some timestep in
+    ``0..MAX_INIT_TIMESTEP`` (stopping at the first eligible timestep). Ego bypasses the
+    parked filter and must be valid, on-road, and have enough route ahead at timestep 0.
     """
     scenario_length = scenario.metadata.scenario_length
-    if scenario_length > 0 and route_check_timestep >= scenario_length:
-        raise ValueError(
-            f"route_check_timestep={route_check_timestep} is out of range for scenario length {scenario_length}",
-        )
-
+    max_check = min(MAX_INIT_TIMESTEP + 1, scenario_length)
     route_cache = build_route_cache(scenario.map)
     dt = scenario.metadata.dt
-    for agent_id, agent_data in scenario.agents.items():
+    start_frames = np.zeros(len(scenario.agents), dtype=np.int64)
+
+    for agent_idx, (agent_id, agent_data) in enumerate(scenario.agents.items()):
         is_vehicle = agent_data.type == puffer_types.AgentType.VEHICLE
         is_ego = is_vehicle and agent_id == 0
-        is_static = not is_ego and _is_static(agent_data, dt)
+        if not is_vehicle or (not is_ego and _is_static(agent_data, dt)):
+            agent_data.route = []
+            continue
 
-        # Parked cars are ineligible for control, so skip the route DP for them.
-        route = (
-            []
-            if not is_vehicle or is_static
-            else compute_agent_route(
+        if is_ego:
+            route = compute_agent_route(
                 agent_id=agent_id,
                 positions=agent_data.position,
                 headings=agent_data.heading,
                 valid=agent_data.valid,
                 lengths=agent_data.length,
                 widths=agent_data.width,
-                is_ego=is_ego,
+                is_ego=True,
                 route_cache=route_cache,
-                route_check_timestep=route_check_timestep,
             )
+            has_road_ahead = (
+                bool(route)
+                and bool(agent_data.valid[0])
+                and (_route_remaining(agent_data.position[0], route, route_cache) >= MIN_ROUTE_REMAINING)
+            )
+            if not has_road_ahead or _is_offroad(
+                agent_data.position[0], agent_data.heading[0], agent_data.length[0], agent_data.width[0], route_cache
+            ):
+                raise ValueError(
+                    f"Ego vehicle (agent 0) has no route, under {MIN_ROUTE_REMAINING:g} m of route ahead or an "
+                    f"off-road start in scenario {scenario.metadata.id}"
+                )
+            agent_data.route = route
+            continue
+
+        onroad_t = next(
+            (
+                t
+                for t in range(max_check)
+                if agent_data.valid[t]
+                and not _is_offroad(
+                    agent_data.position[t],
+                    agent_data.heading[t],
+                    agent_data.length[t],
+                    agent_data.width[t],
+                    route_cache,
+                )
+            ),
+            None,
         )
-        t = route_check_timestep
-        # The simulator retires an agent that spawns at its route end, so clear routes with too little road ahead.
-        has_road_ahead = bool(route) and (
-            _route_remaining(agent_data.position[t], route, route_cache) >= MIN_ROUTE_REMAINING
+        if onroad_t is None:
+            agent_data.route = []
+            continue
+
+        route = compute_agent_route(
+            agent_id=agent_id,
+            positions=agent_data.position,
+            headings=agent_data.heading,
+            valid=agent_data.valid,
+            lengths=agent_data.length,
+            widths=agent_data.width,
+            is_ego=True,
+            route_cache=route_cache,
         )
-        if is_ego and (
-            not has_road_ahead
-            or _is_offroad(
-                agent_data.position[t], agent_data.heading[t], agent_data.length[t], agent_data.width[t], route_cache
+        init_t = (
+            next(
+                (
+                    t
+                    for t in range(onroad_t, max_check)
+                    if agent_data.valid[t]
+                    and (
+                        t == onroad_t
+                        or not _is_offroad(
+                            agent_data.position[t],
+                            agent_data.heading[t],
+                            agent_data.length[t],
+                            agent_data.width[t],
+                            route_cache,
+                        )
+                    )
+                    and _route_remaining(agent_data.position[t], route, route_cache) >= MIN_ROUTE_REMAINING
+                ),
+                None,
             )
-        ):
-            raise ValueError(
-                f"Ego vehicle (agent 0) has no route, under {MIN_ROUTE_REMAINING:g} m of route ahead or an off-road "
-                f"start in scenario {scenario.metadata.id}"
-            )
-        agent_data.route = route if has_road_ahead else []
-    _clear_conflicting_routes(scenario.agents, route_check_timestep)
+            if route
+            else None
+        )
+        if init_t is not None:
+            agent_data.route = route
+            start_frames[agent_idx] = init_t
+        else:
+            agent_data.route = []
+
+    _clear_conflicting_routes(scenario.agents, start_frames)
 
 
-def _clear_conflicting_routes(agents: dict[int, schema.Track], start: int) -> None:
-    """Clear non-ego routes when logged boxes overlap another agent at the start frame
+def _clear_conflicting_routes(agents: dict[int, schema.Track], start_frames: np.ndarray) -> None:
+    """Clear non-ego routes when logged boxes overlap another agent at the agent's start frame
     or an agent without a route later.
 
     This avoids collisions already present in the log. Clear routes but keep trajectories
-    and validity for log replay and WOSAC. An ego overlap at the start frame raises an error.
+    and validity for log replay and WOSAC. An ego overlap at frame 0 raises an error.
     """
     tracks = list(agents.values())
     was_controllable = np.array([bool(track.route) for track in tracks], dtype=bool)
     ctrl_idx = np.flatnonzero(was_controllable)
-    if len(ctrl_idx) == 0 or not tracks or start >= tracks[0].position.shape[0]:
+    if len(ctrl_idx) == 0 or not tracks or tracks[0].position.shape[0] == 0:
         return
 
     is_ego = np.array([aid == 0 for aid in agents], dtype=bool)
-    pos = np.stack([track.position[start:, :2] for track in tracks])
-    valid = np.stack([track.valid[start:] > 0 for track in tracks])
-    lengths = np.stack([track.length[start:] for track in tracks])
-    widths = np.stack([track.width[start:] for track in tracks])
+    pos = np.stack([track.position[:, :2] for track in tracks])
+    valid = np.stack([track.valid > 0 for track in tracks])
+    lengths = np.stack([track.length for track in tracks])
+    widths = np.stack([track.width for track in tracks])
     radii = 0.5 * np.hypot(lengths, widths)
 
-    both_valid = valid[ctrl_idx, None, :] & valid[None, :, :]
+    frame_idx = np.arange(pos.shape[1])[None, None, :]
+    in_window = np.where(is_ego[ctrl_idx, None, None], frame_idx == 0, frame_idx >= start_frames[ctrl_idx, None, None])
+    both_valid = valid[ctrl_idx, None, :] & valid[None, :, :] & in_window
     both_valid[np.arange(len(ctrl_idx)), ctrl_idx, :] = False
-    for c_i, a_i in enumerate(ctrl_idx):
-        if is_ego[a_i]:
-            both_valid[c_i, :, 1:] = False
 
     diff = pos[ctrl_idx, None, :, :] - pos[None, :, :, :]
     dist_sq = diff[..., 0] ** 2 + diff[..., 1] ** 2
     r_sum = radii[ctrl_idx, None, :] + radii[None, :, :] + 1e-6
-    c_idx, other_idx, f_offset = np.nonzero(both_valid & (dist_sq <= r_sum * r_sum))
+    c_idx, other_idx, frame = np.nonzero(both_valid & (dist_sq <= r_sum * r_sum))
     if len(c_idx) == 0:
         return
 
     agent_idx = ctrl_idx[c_idx]
-    headings = np.stack([track.heading[start:] for track in tracks])
+    headings = np.stack([track.heading for track in tracks])
     corners_a = _pair_box_corners(
-        pos[agent_idx, f_offset],
-        headings[agent_idx, f_offset],
-        lengths[agent_idx, f_offset],
-        widths[agent_idx, f_offset],
+        pos[agent_idx, frame],
+        headings[agent_idx, frame],
+        lengths[agent_idx, frame],
+        widths[agent_idx, frame],
     )
     corners_b = _pair_box_corners(
-        pos[other_idx, f_offset],
-        headings[other_idx, f_offset],
-        lengths[other_idx, f_offset],
-        widths[other_idx, f_offset],
+        pos[other_idx, frame],
+        headings[other_idx, frame],
+        lengths[other_idx, frame],
+        widths[other_idx, frame],
     )
     keep = shapely.intersects(shapely.polygons(corners_a), shapely.polygons(corners_b))
     if not np.any(keep):
         return
 
-    agent, other, frame = agent_idx[keep], other_idx[keep], start + f_offset[keep]
-    if (is_ego[agent] & was_controllable[agent] & (frame == start)).any():
+    agent, other, frame = agent_idx[keep], other_idx[keep], frame[keep]
+    if (is_ego[agent] & was_controllable[agent] & (frame == 0)).any():
         raise ValueError("Ego vehicle (agent 0) overlaps another agent at the start frame")
     controlled = was_controllable.copy()
     # A vehicle losing its route becomes background, so clear routes of vehicles it overlaps later too.
-    while (hit := controlled[agent] & ~is_ego[agent] & ((frame == start) | ~controlled[other])).any():
+    while (hit := controlled[agent] & ~is_ego[agent] & ((frame == start_frames[agent]) | ~controlled[other])).any():
         controlled[agent[hit]] = False
     for k in np.flatnonzero(was_controllable & ~controlled):
         tracks[k].route = []
@@ -263,18 +316,23 @@ def compute_agent_route(
     widths: np.ndarray,
     is_ego: bool,
     route_cache: _RouteCache,
-    route_check_timestep: int = 0,
 ) -> list[int]:
     """Return the lane route for one agent, or ``[]``.
 
-    Ego bypasses the check-timestep gate; a non-ego agent must be valid and on-road there.
+    Ego bypasses the on-road gate; a non-ego agent must be valid and on-road at some
+    timestep in ``0..MAX_INIT_TIMESTEP``.
     """
     valid = np.asarray(valid, dtype=bool)
-    t = route_check_timestep
     if (
         not valid.any()
         or len(route_cache["lane_id_array"]) == 0
-        or (not is_ego and (not valid[t] or _is_offroad(positions[t], headings[t], lengths[t], widths[t], route_cache)))
+        or (
+            not is_ego
+            and not any(
+                valid[t] and not _is_offroad(positions[t], headings[t], lengths[t], widths[t], route_cache)
+                for t in range(min(MAX_INIT_TIMESTEP + 1, len(valid)))
+            )
+        )
     ):
         log.debug("agent=%d: skipping route computation (insufficient valid data or offroad start)", agent_id)
         return []

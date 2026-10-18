@@ -49,13 +49,12 @@ the route toward a dead end, choosing the straightest continuation at branches.
 A non-ego vehicle keeps its route only if it:
 
 * passes the parked-vehicle filter;
-* is valid and on-road at `--route_check_timestep`;
-* has at least 15 metres of route ahead;
-* has no logged overlap at that frame or later overlap with an agent without a route.
+* is valid, on-road, and has at least 15 metres of route ahead at some timestep in `0..10`;
+* has no logged overlap at its first eligible frame or later overlap with an agent without a route.
 
 The overlap check repeats when another vehicle loses its route. Non-vehicles have
 empty routes. Ego bypasses the parked filter; conversion rejects scenes where ego
-has no usable route, starts off-road, or overlaps another agent at the check frame.
+has no usable route, starts off-road, or overlaps another agent at frame 0.
 
 A nonempty route means eligible for control. An empty route means background.
 PufferDinde chooses the controller and whether to replay, freeze, or omit background

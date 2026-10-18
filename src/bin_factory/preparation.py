@@ -34,7 +34,7 @@ def prepare_scenario(py123d_data, config):
     interpolate_all_polygons(scenario)
     prune_invalid_map_elements(scenario, extras)
     process_traffic_controls(scenario, extras)
-    process_agent_routes(scenario, config.route_check_timestep)
+    process_agent_routes(scenario)
     compute_lane_lengths(scenario)
     scenario.lane_graph = build_lane_distance_matrix(scenario.map)
     if not config.no_reindex:

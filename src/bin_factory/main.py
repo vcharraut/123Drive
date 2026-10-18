@@ -71,12 +71,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Tolerance for polyline simplification (0=disabled)",
     )
     parser.add_argument(
-        "--route_check_timestep",
-        type=int,
-        default=0,
-        help="Timestep at which agent must be valid for route computation",
-    )
-    parser.add_argument(
         "--no_reindex", action="store_true", help="Skip reindexing element IDs to contiguous range(0, n)"
     )
     parser.add_argument(
@@ -220,8 +214,6 @@ def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         parser.error("--num_scenes must be > 0")
     if args.chunk_target_scenes <= 0:
         parser.error("--chunk_target_scenes must be > 0")
-    if args.route_check_timestep < 0:
-        parser.error("--route_check_timestep must be >= 0")
     if args.workers < -1:
         parser.error("--workers must be -1, 0, or a positive integer")
     if not 0.0 <= args.ramp_widening_m <= 5.0:
