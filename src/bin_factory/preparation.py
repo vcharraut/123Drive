@@ -2,7 +2,6 @@ from bin_factory import loader
 from bin_factory.log_context import log
 from bin_factory.transforms.geometry import interpolate_all_polygons, process_polylines, reverse_road_edges
 from bin_factory.transforms.graph import build_lane_distance_matrix, compute_lane_lengths
-from bin_factory.transforms.reindex import reindex_scenario
 from bin_factory.transforms.routes import process_agent_routes
 from bin_factory.transforms.sanitize import prune_invalid_map_elements
 from bin_factory.transforms.shoulder_edges import add_shoulder_edges
@@ -37,8 +36,6 @@ def prepare_scenario(py123d_data, config):
     process_agent_routes(scenario)
     compute_lane_lengths(scenario)
     scenario.lane_graph = build_lane_distance_matrix(scenario.map)
-    if not config.no_reindex:
-        reindex_scenario(scenario)
     _validate(scenario, config.validate_level, "Post-transform validation failed")
     return scenario
 

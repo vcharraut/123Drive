@@ -71,9 +71,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Tolerance for polyline simplification (0=disabled)",
     )
     parser.add_argument(
-        "--no_reindex", action="store_true", help="Skip reindexing element IDs to contiguous range(0, n)"
-    )
-    parser.add_argument(
         "--interpolate_tl",
         "--impute_tl",
         action="store_true",

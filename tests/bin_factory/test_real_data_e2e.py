@@ -83,27 +83,6 @@ def test_binary_layout_and_counts_match_processed_scenario(log_name, interpolate
     )
 
 
-# Reindexing
-
-
-@pytest.mark.parametrize("log_name", LOG_NAMES)
-def test_reindex_makes_ids_contiguous(log_name):
-    scenario = _process(log_name)
-    assert list(scenario.agents) == list(range(len(scenario.agents)))
-    assert list(scenario.map) == list(range(len(scenario.map)))
-    assert list(scenario.objects) == list(range(len(scenario.objects)))
-
-    parsed = _parse(serialize.scenario_to_binary(scenario))
-    assert [a["id"] for a in parsed["agents"]] == list(range(len(parsed["agents"])))
-
-
-@pytest.mark.parametrize("log_name", LOG_NAMES)
-def test_no_reindex_preserves_source_ids(log_name):
-    scenario = _process(log_name, no_reindex=True)
-    # Source map IDs from WOD are not a contiguous 0..n range; keeping them proves reindex was skipped.
-    assert list(scenario.map) != list(range(len(scenario.map)))
-
-
 @pytest.mark.parametrize("log_name", LOG_NAMES)
 def test_source_data_restores_coordinates_and_preserves_identities_and_timestamps(log_name):
     scene = _discover(log_name)
@@ -193,7 +172,6 @@ def test_metadata_round_trips(log_name):
     assert abs(parsed["dt"] - meta.dt) < 1e-6
     assert parsed["ttp"] == list(meta.tracks_to_predict)
     assert parsed["ooi"] == list(meta.objects_of_interest)
-    # Prediction targets must point at real agents after reindex.
     assert set(parsed["ttp"]) <= set(scenario.agents)
 
 
@@ -271,10 +249,8 @@ def test_map_only_has_map_but_no_dynamic_entities(location):
 
 
 @pytest.mark.parametrize("location", MAP_LOCATIONS)
-def test_map_only_reindex_and_references(location):
+def test_map_only_references(location):
     scenario = _process_map(location)
-    assert list(scenario.map) == list(range(len(scenario.map)))
-
     parsed = _parse(serialize.scenario_to_binary(scenario))
     lane_ids = {r["id"] for r in parsed["roads"] if r["lane"]}
     road_ids = {r["id"] for r in parsed["roads"]}
