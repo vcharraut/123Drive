@@ -25,6 +25,15 @@ class ScenarioMetadata:
     location: str = ""
     objects_of_interest: list = dataclasses.field(default_factory=list)
     tracks_to_predict: list = dataclasses.field(default_factory=list)
+    origin_xyz: tuple = (0.0, 0.0, 0.0)
+    map_has_z: bool = False
+    scene_uuid: str = ""
+    log_name: str = ""
+    split: str = ""
+    log_version: str = ""
+    map_version: str = ""
+    timestamps_us: list = dataclasses.field(default_factory=list)
+    timestamps_are_relative: bool = False
 
 
 @dataclasses.dataclass
@@ -38,6 +47,7 @@ class Track:
     width: np.ndarray
     height: np.ndarray
     route: list = dataclasses.field(default_factory=list)
+    source_id: str = ""
 
 
 @dataclasses.dataclass

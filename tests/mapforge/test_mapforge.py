@@ -105,8 +105,10 @@ def test_read_serialize_is_idempotent(opendrive_bins, location):
 
 
 def test_read_rejects_binary_with_agents():
-    # Header: n_agents=1, n_roads=0, n_traffic=0, n_objects=0.
-    data = np.array([1, 0, 0, 0], dtype="<i4").tobytes()
+    scenario = schema.PufferScenario(agents={}, objects={}, map={},
+                                     metadata=schema.ScenarioMetadata(id="", dataset="", scenario_length=0, dt=0.0))
+    data = bytearray(serialize.scenario_to_binary(scenario))
+    data[40:44] = (1).to_bytes(4, "little")
     with pytest.raises(StaticBinaryError, match="not static"):
         static_binary.static_binary_to_scenario(data)
 

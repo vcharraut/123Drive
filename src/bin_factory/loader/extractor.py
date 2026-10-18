@@ -66,6 +66,10 @@ def extract_scenario(
         scenario_length=0,
         dt=0.0,
         location=map_api.location or "",
+        map_has_z=map_api.map_has_z,
+        map_version=map_api.version,
+        log_name=map_api.map_metadata.log_name or "",
+        split=map_api.map_metadata.split or "",
     )
 
     map_only = scene_api is None
@@ -79,6 +83,7 @@ def extract_scenario(
         raise ValueError("Ego states are required at every frame to convert scenario with SceneAPI")
 
     centroid = _compute_centroid(ego_states, map_api)
+    metadata.origin_xyz = tuple(float(value) for value in centroid)
     map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, ego_states, map_only, speed_limit_source)
 
     if scene_api is not None and ego_states is not None:
@@ -103,6 +108,11 @@ def extract_scenario(
         traffic_lights = _extract_traffic_lights(scene_api, map_api, centroid, map_lane_ids)
         metadata.scenario_length = scene_api.number_of_iterations
         metadata.dt = dt
+        metadata.scene_uuid = scene_api.scene_uuid
+        metadata.log_name = scene_api.log_name
+        metadata.split = scene_api.split
+        metadata.log_version = scene_api.log_metadata.version
+        metadata.timestamps_us = [timestamp.time_us for timestamp in scene_api.get_all_iteration_timestamps()]
 
     first_id = max([*agents, *objects], default=-1) + 1
     objects.update(
@@ -191,6 +201,7 @@ def _extract_objects(
 
     # Ego agent is always object ID 0, built from cached ego states
     ego = objects[0]
+    ego.source_id = ego_states[0].box_detection_se3.attributes.track_token
 
     for frame_idx, ego_state in enumerate(ego_states):
         if ego_state is None:
@@ -220,6 +231,7 @@ def _extract_objects(
                 object_id = next_object_id
                 tokens_to_object_id[track_token] = object_id
                 objects[object_id] = _make_empty_track(episode_length)
+                objects[object_id].source_id = track_token
                 labels[object_id] = detection.attributes.default_label
 
             obj = objects[object_id]
@@ -248,6 +260,8 @@ def _extract_prediction_targets(
     if aux is None:
         return
     meta = aux.metadata
+    metadata.timestamps_are_relative = meta["timestamps_are_relative"]
+    agents[0].source_id = meta["track_index_to_token"][meta["sdc_track_index"]]
     idx2tok = meta["track_index_to_token"]
 
     def _resolve(track_indices: Iterable[int]) -> list[int]:
@@ -486,6 +500,7 @@ def _extract_static_objects(
         sides = np.diff(corners[:3, :2], axis=0)
         long_side = sides[int(np.argmax(np.linalg.norm(sides, axis=1)))]
         track = _make_empty_track(max(episode_length, 1))  # one frame in map-only scenarios (no frames)
+        track.source_id = str(obj.object_id)
         track.type = int(
             puffer_types.ObjectType.BARRIER
             if obj.static_object_type == map_objects.StaticObjectType.BARRIER

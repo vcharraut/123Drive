@@ -1,206 +1,167 @@
-/* Parse PufferDrive .bin format into the scenario object expected by app.js.
- *
- * Binary layout (all little-endian):
- *   Header: num_agents(i32), num_roads(i32), num_traffic(i32), num_objects(i32)
- *   Agents[]:  id(i32), type(i32), T(i32), first(i32), n(i32),
- *              x[n](f32), y[n](f32), z[n](f32),
- *              heading[n](f32), vx[n](f32), vy[n](f32),
- *              length[n](f32), width[n](f32), height[n](f32), valid[n](i32),
- *              n_route(i32), route[n_route](i32)
- *              (frames [first, first + n) of T; the others are zero / invalid)
- *   Roads[]:   id(i32), type(i32), S(i32),
- *              x[S](f32), y[S](f32), z[S](f32), heading[S](f32),
- *              [if lane (type 0-9): n_entry(i32), entry[](i32), n_exit(i32), exit[](i32), n_left(i32), left[](i32), n_right(i32), right[](i32), speed_limit(f32), length(f32), cum_length[S](f32), curvature[S](f32)]
- *   Traffic[]: id(i32), type(i32), stop_line(6xf32), heading(f32),
- *              n_states(i32), states[](i32), n_ctrl(i32), ctrl[](i32)
- *   Objects[]: id(i32), type(i32), T(i32), first(i32), n(i32),
- *              x[n](f32), y[n](f32), z[n](f32),
- *              heading[n](f32), vx[n](f32), vy[n](f32),
- *              length[n](f32), width[n](f32), height[n](f32), valid[n](i32)
- *   LaneGraph: n_lanes_graph(i32),
- *              [if n>0: lane_ids[n](i32), distances[n*n](f32)]
- *   Metadata:  id(char[128]), dataset(char[32]),
- *              scenario_length(i32), dt(f32),
- *              n_ooi(i32), ooi[](i32), n_ttp(i32), ttp[](i32)
- *   TrafficPhases (optional): tag "TLPHASE1",
- *              per traffic control: junction_id(i32), phase_idx(i32), both -1 if not in a light cycle
- */
+/* 123Drive v2 decoder. The layout is defined in src/bin_factory/serialize.py. */
 'use strict';
 
-window.parsePufferBinary = function parsePufferBinary(buffer) {
+window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true} = {}) {
   try {
     const view = new DataView(buffer);
+    const decoder = new TextDecoder();
     let off = 0;
-
     const i32 = () => { const v = view.getInt32(off, true); off += 4; return v; };
     const f32 = () => { const v = view.getFloat32(off, true); off += 4; return v; };
-
-    const i32arr = (n) => {
-      const a = new Int32Array(buffer, off, n);
-      off += n * 4;
-      return a;
+    const f64 = () => { const v = view.getFloat64(off, true); off += 8; return v; };
+    const u64 = () => {
+      const v = view.getUint32(off, true) + 4294967296 * view.getUint32(off + 4, true);
+      off += 8;
+      if (!Number.isSafeInteger(v)) throw new Error('Binary offset exceeds supported size');
+      return v;
     };
-    const f32arr = (n) => {
-      const a = new Float32Array(buffer, off, n);
-      off += n * 4;
-      return a;
+    const i32arr = (n) => { const a = new Int32Array(buffer, off, n); off += n * 4; return a; };
+    const f32arr = (n) => { const a = new Float32Array(buffer, off, n); off += n * 4; return a; };
+    const intList = () => Array.from(i32arr(i32()));
+    const str = () => {
+      const n = i32();
+      const value = decoder.decode(new Uint8Array(buffer, off, n));
+      off = Math.ceil((off + n) / 4) * 4;
+      return value;
     };
+    const magic = decoder.decode(new Uint8Array(buffer, 0, 8));
+    off = 8;
+    const version = i32();
+    if (magic !== '123DRIVE' || version !== 2) {
+      throw new Error('Unsupported binary format; regenerate bins with the current converter');
+    }
+    const sectionCount = i32();
+    const sections = new Map();
+    let end = 16 + 32 * sectionCount;
+    for (let s = 0; s < sectionCount; s++) {
+      const tag = decoder.decode(new Uint8Array(buffer, off, 8)).replace(/\0+$/, '');
+      off += 8;
+      const start = u64(), size = u64(), count = i32(), frames = i32();
+      if (start % 8 || start < end || start + size > buffer.byteLength || sections.has(tag)) {
+        throw new Error('Invalid binary section directory');
+      }
+      sections.set(tag, {start, size, count, frames});
+      end = start + size;
+    }
+    if (end !== buffer.byteLength) throw new Error('Binary has trailing bytes after sections');
 
-    const intList = () => { const n = i32(); return n > 0 ? Array.from(i32arr(n)) : []; };
-
-    const str = (len) => {
-      const bytes = new Uint8Array(buffer, off, len);
-      off += len;
-      let end = bytes.indexOf(0);
-      if (end === -1) end = len;
-      return new TextDecoder().decode(bytes.subarray(0, end));
+    const records = (tag, read) => {
+      const section = sections.get(tag);
+      off = section.start;
+      const offsets = Array.from({length: section.count + 1}, u64);
+      if (offsets[0] !== 8 * (section.count + 1) || offsets[section.count] !== section.size) {
+        throw new Error('Invalid binary record offsets');
+      }
+      return Array.from({length: section.count}, (_, index) => {
+        const start = offsets[index], stop = offsets[index + 1];
+        if (start % 8 || stop < start || stop > section.size) throw new Error('Invalid binary record offsets');
+        off = section.start + start;
+        const value = read(section.frames);
+        if (off > section.start + stop) throw new Error('Binary record exceeds its indexed size');
+        return value;
+      });
     };
-
-    // Column-major f32 channels → row-major array of [c0, c1, ...] per row
     const colsToRows = (channels) => {
-      const T = channels[0].length;
-      const C = channels.length;
-      const rows = new Array(T);
-      for (let t = 0; t < T; t++) {
-        const row = new Array(C);
-        for (let c = 0; c < C; c++) row[c] = channels[c][t];
+      const rows = new Array(channels[0].length);
+      for (let t = 0; t < rows.length; t++) {
+        const row = new Array(channels.length);
+        for (let c = 0; c < channels.length; c++) row[c] = channels[c][t];
         rows[t] = row;
       }
       return rows;
     };
-
-    // Stored frames [first, first + n) of T, zero-filled outside
-    const readDynamicStateArrays = () => {
-      const T = i32();
-      const first = i32();
-      const n = i32();
-      const pad = (stored, Arr) => { const a = new Arr(T); a.set(stored, first); return a; };
-      const xArr = pad(f32arr(n), Float32Array);
-      const yArr = pad(f32arr(n), Float32Array);
-      const zArr = pad(f32arr(n), Float32Array);
-      const heading = pad(f32arr(n), Float32Array);
-      const vxArr = pad(f32arr(n), Float32Array);
-      const vyArr = pad(f32arr(n), Float32Array);
-      const length = pad(f32arr(n), Float32Array);
-      const width = pad(f32arr(n), Float32Array);
-      const height = pad(f32arr(n), Float32Array);
-      const valid = pad(i32arr(n), Int32Array);
-      return {
-        xyz: colsToRows([xArr, yArr, zArr]),
-        heading: Array.from(heading),
-        velocity: colsToRows([vxArr, vyArr]),
-        length: Array.from(length),
-        width: Array.from(width),
-        height: Array.from(height),
-        valid: Array.from(valid),
+    const readTrack = (frameCount, hasRoute) => {
+      const id = i32(), type = i32(), first = i32(), n = i32(), flags = i32();
+      const T = flags & 16 ? i32() : frameCount;
+      const pad = (stored, Arr) => {
+        if (first === 0 && n === T) return stored;
+        const result = new Arr(T);
+        result.set(stored, first);
+        return result;
       };
+      const x = pad(f32arr(n), Float32Array);
+      const y = pad(f32arr(n), Float32Array);
+      const z = flags & 8 ? new Float32Array(T) : pad(f32arr(n), Float32Array);
+      const heading = pad(f32arr(n), Float32Array);
+      const vx = pad(f32arr(n), Float32Array);
+      const vy = pad(f32arr(n), Float32Array);
+      const dimensions = [0, 1, 2].map(bit => {
+        if (!(flags & (1 << bit))) return pad(f32arr(n), Float32Array);
+        return new Float32Array(T).fill(f32(), first, first + n);
+      });
+      const valid = pad(new Uint8Array(buffer, off, n), Uint8Array);
+      off = Math.ceil((off + n) / 4) * 4;
+      const track = {
+        id, type, xyz: colsToRows([x, y, z]), heading, velocity: colsToRows([vx, vy]),
+        length: dimensions[0], width: dimensions[1], height: dimensions[2], valid,
+      };
+      if (hasRoute) track.route = intList();
+      return track;
     };
-
-    const readDynamicEntity = (hasRoute) => {
-      const id = i32();
-      const type = i32();
-      const states = readDynamicStateArrays();
-      if (!hasRoute) return {id, type, ...states};
-      const route = intList();
-      return {id, type, ...states, route};
-    };
-
-    // --- Header ---
-    const numAgents = i32();
-    const numRoads = i32();
-    const numTraffic = i32();
-    const numObjects = i32();
-
-    // --- Agents ---
-    const agents = new Array(numAgents);
-    for (let a = 0; a < numAgents; a++) agents[a] = readDynamicEntity(true);
-
-    // --- Roads ---
-    const road_map_elements = new Array(numRoads);
-    for (let r = 0; r < numRoads; r++) {
-      const id = i32();
-      const type = i32();
-      const S = i32();
-
-      const xArr = f32arr(S);
-      const yArr = f32arr(S);
-      const zArr = f32arr(S);
-      const heading = Array.from(f32arr(S));
-
-      let entry_lanes = [], exit_lanes = [], left_neighbors = [], right_neighbors = [], speed_limit = 0, length = 0, cum_length = [], curvature = [];
+    const agents = records('AGENTS', frames => readTrack(frames, true));
+    const road_map_elements = records('ROADS', () => {
+      const id = i32(), type = i32(), S = i32(), flags = i32();
+      const x = f32arr(S), y = f32arr(S);
+      const z = flags & 1 ? new Float32Array(S) : f32arr(S);
+      const heading = f32arr(S);
+      let entry_lanes = [], exit_lanes = [], left_neighbors = [], right_neighbors = [];
+      let speed_limit = 0, length = 0, cum_length = [], curvature = [];
       if (type >= TYPES.LANE_RANGE[0] && type <= TYPES.LANE_RANGE[1]) {
         entry_lanes = intList();
         exit_lanes = intList();
         left_neighbors = intList();
         right_neighbors = intList();
         speed_limit = f32();
-        length = f32();
-        cum_length = Array.from(f32arr(S));
-        curvature = Array.from(f32arr(S));
+        cum_length = f32arr(S);
+        length = cum_length[S - 1];
+        curvature = f32arr(S);
       }
-
-      road_map_elements[r] = { id, type, xyz: colsToRows([xArr, yArr, zArr]), heading, entry_lanes, exit_lanes, left_neighbors, right_neighbors, speed_limit, length, cum_length, curvature };
-    }
-
-    // --- Traffic ---
-    const traffic_control_elements = new Array(numTraffic);
-    for (let t = 0; t < numTraffic; t++) {
-      const id = i32();
-      const type = i32();
-      const x1 = f32(), y1 = f32(), z1 = f32();
-      const x2 = f32(), y2 = f32(), z2 = f32();
-      const heading = f32();
-      const states = intList();
-      const controlled_lanes = intList();
-
-      traffic_control_elements[t] = { id, type, stop_line: [[x1,y1,z1],[x2,y2,z2]], heading, states, controlled_lanes };
-    }
-
-    // --- Objects ---
-    const objects = new Array(numObjects);
-    for (let o = 0; o < numObjects; o++) objects[o] = readDynamicEntity(false);
-
-    // --- Lane Graph Distances ---
-    const nGraphLanes = i32();
+      return {
+        id, type, xyz: colsToRows([x, y, z]), heading, entry_lanes, exit_lanes, left_neighbors, right_neighbors,
+        speed_limit, length, cum_length, curvature,
+      };
+    });
+    const traffic_control_elements = records('TRAFFIC', () => {
+      const id = i32(), type = i32();
+      const stop_line = [[f32(), f32(), f32()], [f32(), f32(), f32()]];
+      const heading = f32(), states = intList(), controlled_lanes = intList();
+      return {id, type, stop_line, heading, states, controlled_lanes};
+    });
+    const objects = records('OBJECTS', frames => readTrack(frames, false));
+    const graph = sections.get('LANEGRPH');
     let lane_graph = null;
-    if (nGraphLanes > 0) {
-      const graphLaneIds = Array.from(i32arr(nGraphLanes));
-      const distances = f32arr(nGraphLanes * nGraphLanes);
-      lane_graph = { lane_ids: graphLaneIds, distances, n: nGraphLanes };
+    if (laneGraph && graph.count) {
+      off = graph.start;
+      lane_graph = {lane_ids: i32arr(graph.count), distances: f32arr(graph.count * graph.count), n: graph.count};
     }
-
-    // --- Metadata ---
-    const id = str(128);
-    const dataset = str(32);
-    const location = str(32);
-    const scenario_length = i32();
-    const dt = f32();
-    const objects_of_interest = intList();
-    const tracks_to_predict = intList();
-
-    // --- Traffic light phases (optional tagged trailing section) ---
-    const PHASE_TAG = 'TLPHASE1';
-    if (off + PHASE_TAG.length <= buffer.byteLength
-      && new TextDecoder().decode(new Uint8Array(buffer, off, PHASE_TAG.length)) === PHASE_TAG) {
-      off += PHASE_TAG.length;
-      for (let t = 0; t < numTraffic; t++) {
-        traffic_control_elements[t].junction_id = i32();
-        traffic_control_elements[t].phase_idx = i32();
+    off = sections.get('METADATA').start;
+    const id = str(), dataset = str(), location = str();
+    const scenario_length = i32(), dt = f32();
+    const objects_of_interest = intList(), tracks_to_predict = intList();
+    const metadata = {id, dataset, location, scenario_length, dt, num_objects: objects.length,
+                      objects_of_interest, tracks_to_predict};
+    if (sections.has('TLPHASE1')) {
+      off = sections.get('TLPHASE1').start;
+      for (const control of traffic_control_elements) {
+        control.junction_id = i32();
+        control.phase_idx = i32();
       }
     }
-
-    return {
-      agents,
-      road_map_elements,
-      traffic_control_elements,
-      objects,
-      lane_graph,
-      metadata: { id, dataset, location, scenario_length, dt, num_objects: numObjects, objects_of_interest, tracks_to_predict },
-    };
-  } catch (error) {
-    if (error instanceof RangeError) {
-      throw new Error('Unexpected end of binary payload');
+    if (sections.has('SOURCE01')) {
+      off = sections.get('SOURCE01').start;
+      metadata.origin_xyz = [f64(), f64(), f64()];
+      metadata.map_has_z = Boolean(i32());
+      metadata.timestamps_are_relative = Boolean(i32());
+      const count = i32();
+      i32();
+      metadata.timestamps_us = new BigInt64Array(buffer, off, count);
+      off += count * 8;
+      for (const name of ['scene_uuid', 'log_name', 'split', 'log_version', 'map_version']) metadata[name] = str();
+      for (const track of [...agents, ...objects]) track.source_id = str();
     }
+    return {agents, road_map_elements, traffic_control_elements, objects, lane_graph, metadata};
+  } catch (error) {
+    if (error instanceof RangeError) throw new Error('Unexpected end of binary payload');
     throw error;
-  };
+  }
 };

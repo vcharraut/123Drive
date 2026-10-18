@@ -6,10 +6,10 @@ maps. Each test drives the real conversion path (discover -> extract -> validate
 """
 
 import pathlib
-import struct
 
 import numpy as np
 import pytest
+from binary_reader import parse_binary as _parse
 
 from bin_factory import loader, main, puffer_types, serialize
 from bin_factory.preparation import prepare_scenario
@@ -51,119 +51,6 @@ def _discover_map(location):
 
 def _process_map(location, **cfg_overrides):
     return prepare_scenario(_discover_map(location), _config(map_only=True, **cfg_overrides))
-
-
-# ── Binary walker ───────────────────────
-# Walks every field of the serialized buffer; ending exactly at len(data) proves layout.
-
-
-class _Reader:
-    def __init__(self, data):
-        self.data, self.off = data, 0
-
-    def ints(self, n):
-        vals = struct.unpack_from(f"<{n}i", self.data, self.off)
-        self.off += 4 * n
-        return list(vals)
-
-    def floats(self, n):
-        vals = struct.unpack_from(f"<{n}f", self.data, self.off)
-        self.off += 4 * n
-        return list(vals)
-
-    def raw(self, n):
-        chunk = self.data[self.off : self.off + n]
-        self.off += n
-        return chunk
-
-    def skip_dynamic(self, channels=9):
-        t, _first, n = self.ints(3)  # only frames [first, first + n) are stored
-        self.floats(channels * n)  # xyz, heading, vx, vy, length, width, height
-        self.ints(n)  # valid
-        return t
-
-
-def _parse(data):
-    r = _Reader(data)
-    n_agents, n_road, n_tc, n_objects = r.ints(4)
-
-    agents = []
-    for _ in range(n_agents):
-        eid, _type = r.ints(2)
-        n_points = r.skip_dynamic()
-        route = r.ints(r.ints(1)[0])
-        agents.append(
-            {
-                "id": eid,
-                "type": _type,
-                "n_points": n_points,
-                "route": route,
-            }
-        )
-
-    roads = []
-    for _ in range(n_road):
-        eid, road_type = r.ints(2)
-        (npts,) = r.ints(1)
-        r.floats(4 * npts)  # xyz + heading
-        is_lane = 0 <= road_type <= 9
-        if is_lane:
-            entry = r.ints(r.ints(1)[0])
-            exit_ = r.ints(r.ints(1)[0])
-            r.ints(r.ints(1)[0])  # left neighbours
-            r.ints(r.ints(1)[0])  # right neighbours
-            r.floats(1)  # speed
-            r.floats(1)  # length
-            r.floats(2 * npts)  # cum_length, curvature
-        else:
-            entry, exit_ = [], []
-        roads.append({"id": eid, "type": road_type, "npts": npts, "lane": is_lane, "entry": entry, "exit": exit_})
-
-    tcs = []
-    for _ in range(n_tc):
-        eid, tc_type = r.ints(2)
-        r.floats(7)  # stop line (2x3) + heading
-        states = r.ints(r.ints(1)[0])
-        lanes = r.ints(r.ints(1)[0])
-        tcs.append({"id": eid, "type": tc_type, "states": states, "lanes": lanes})
-
-    objects = []
-    for _ in range(n_objects):
-        eid, _type = r.ints(2)
-        r.skip_dynamic()
-        objects.append(eid)
-
-    (lg_n,) = r.ints(1)
-    lane_graph_ids = []
-    if lg_n:
-        lane_graph_ids = r.ints(lg_n)
-        r.floats(lg_n * lg_n)
-
-    meta_id = r.raw(serialize.METADATA_ID_BYTES).rstrip(b"\0").decode()
-    meta_dataset = r.raw(serialize.METADATA_DATASET_BYTES).rstrip(b"\0").decode()
-    r.raw(serialize.METADATA_LOCATION_BYTES)
-    (scenario_length,) = r.ints(1)
-    (dt,) = r.floats(1)
-    ooi = r.ints(r.ints(1)[0])
-    ttp = r.ints(r.ints(1)[0])
-    assert r.raw(len(serialize.TRAFFIC_PHASE_SECTION_TAG)) == serialize.TRAFFIC_PHASE_SECTION_TAG
-    r.ints(2 * n_tc)  # junction id, phase per traffic control
-
-    return {
-        "counts": (n_agents, n_road, n_tc, n_objects),
-        "agents": agents,
-        "roads": roads,
-        "tcs": tcs,
-        "objects": objects,
-        "lane_graph_ids": lane_graph_ids,
-        "id": meta_id,
-        "dataset": meta_dataset,
-        "scenario_length": scenario_length,
-        "dt": dt,
-        "ooi": ooi,
-        "ttp": ttp,
-        "consumed": r.off,
-    }
 
 
 # ── Discovery ───────────────────────
@@ -216,6 +103,42 @@ def test_no_reindex_preserves_source_ids(log_name):
     scenario = _process(log_name, no_reindex=True)
     # Source map IDs from WOD are not a contiguous 0..n range; keeping them proves reindex was skipped.
     assert list(scenario.map) != list(range(len(scenario.map)))
+
+
+@pytest.mark.parametrize("log_name", LOG_NAMES)
+def test_source_data_restores_coordinates_and_preserves_identities_and_timestamps(log_name):
+    scene = _discover(log_name)
+    scenario = prepare_scenario(scene, _config())
+    parsed = _parse(serialize.scenario_to_binary(scenario))
+    source = parsed["source"]
+
+    assert source["scene_uuid"] == scene.scene_uuid
+    assert source["log_name"] == log_name
+    assert source["split"] == SPLIT
+    assert source["log_version"] == scene.log_metadata.version
+    assert source["map_version"] == scene.get_map_api().version
+    assert source["map_has_z"] is True
+    assert source["timestamps_are_relative"] is True
+    assert source["timestamps_us"] == [timestamp.time_us for timestamp in scene.get_all_iteration_timestamps()]
+    assert source["origin_xyz"] == scenario.metadata.origin_xyz
+
+    ego = scene.get_ego_state_se3_at_iteration(0)
+    world_position = scenario.agents[0].position[0] + source["origin_xyz"]
+    np.testing.assert_allclose(
+        world_position,
+        [ego.center_se3.x, ego.center_se3.y, ego.center_se3.z - ego.bounding_box_se3.height / 2],
+    )
+    aux = scene.get_all_custom_modality_metadatas()["aux"].metadata
+    assert parsed["agents"][0]["source_id"] == aux["track_index_to_token"][aux["sdc_track_index"]]
+    detections = scene.get_box_detections_se3_at_iteration(0)
+    token = detections[0].attributes.track_token
+    assert token in {agent["source_id"] for agent in parsed["agents"]}
+    track = next(track for track in scenario.agents.values() if track.source_id == token)
+    box = detections[0].bounding_box_se3
+    np.testing.assert_allclose(
+        track.position[0] + source["origin_xyz"],
+        [box.center_se3.x, box.center_se3.y, box.center_se3.z - box.height / 2],
+    )
 
 
 # ── Cross-reference integrity on real data ───────────────────────
@@ -311,7 +234,7 @@ def test_convert_one_writes_parseable_bin(tmp_path, log_name):
     data = bins[0].read_bytes()
     assert len(data) > 0
     assert _parse(data)["consumed"] == len(data)
-    assert (np.frombuffer(data[:16], dtype="<i4") >= 0).all()  # header counts non-negative
+    assert all(count >= 0 for count in _parse(data)["counts"])
 
 
 # ── Map-only pipeline (opendrive, no logs) ───────────────────────

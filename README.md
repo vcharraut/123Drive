@@ -41,6 +41,7 @@ Python 3.11 to 3.13. MIT licensed.
 An agent with a nonempty route is eligible for control. An empty route makes it
 a background entity. PufferDinde chooses the controller and background behavior.
 
-The binary no longer stores `control_state` or `route_gt_len`. Reconvert existing
-scenes and update the PufferDinde reader before using new output. See the
+Binary format v2 has a versioned header and indexed sections. It no longer stores
+`control_state` or `route_gt_len`. Reconvert existing scenes and update the
+PufferDinde reader before using new output. See the
 [binary writer](src/bin_factory/serialize.py).
