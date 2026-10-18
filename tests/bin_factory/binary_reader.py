@@ -1,3 +1,4 @@
+import itertools
 import struct
 
 
@@ -28,14 +29,14 @@ class _Reader:
 
     def finish(self):
         assert len(self.data) - self.off < 8
-        assert not any(self.data[self.off:])
+        assert not any(self.data[self.off :])
 
     def records(self, count):
         offsets = struct.unpack(f"<{count + 1}Q", self.raw(8 * (count + 1)))
         assert offsets[0] == self.off
         assert offsets[-1] == len(self.data)
-        assert all(start <= stop and start % 8 == 0 for start, stop in zip(offsets[:-1], offsets[1:]))
-        return [_Reader(self.data[start:stop]) for start, stop in zip(offsets[:-1], offsets[1:])]
+        assert all(start <= stop and start % 8 == 0 for start, stop in itertools.pairwise(offsets))
+        return [_Reader(self.data[start:stop]) for start, stop in itertools.pairwise(offsets)]
 
     def dynamic(self, frames):
         first, n, flags = self.ints(3)
@@ -51,12 +52,15 @@ class _Reader:
 
 def parse_binary(data):
     magic, version, count = struct.unpack_from("<8sII", data)
-    assert magic == b"123DRIVE" and version == 2
+    assert magic == b"123DRIVE"
+    assert version == 2
     sections = {}
     end = 16 + 32 * count
     for index in range(count):
         tag, start, size, n, frames = struct.unpack_from("<8sQQII", data, 16 + 32 * index)
-        assert start % 8 == 0 and start >= end and start + size <= len(data)
+        assert start % 8 == 0
+        assert start >= end
+        assert start + size <= len(data)
         assert not any(data[end:start])
         sections[tag.rstrip(b"\0")] = (_Reader(data[start : start + size]), n, frames)
         end = start + size
@@ -129,13 +133,33 @@ def parse_binary(data):
     assert reserved == 0
     timestamps = list(struct.unpack(f"<{count}q", r.raw(8 * count)))
     source = {name: r.string() for name in ("scene_uuid", "log_name", "split", "log_version", "map_version")}
-    source.update(origin_xyz=origin_xyz, map_has_z=bool(map_has_z), timestamps_are_relative=bool(relative),
-                  timestamps_us=timestamps)
+    source.update(
+        origin_xyz=origin_xyz,
+        map_has_z=bool(map_has_z),
+        timestamps_are_relative=bool(relative),
+        timestamps_us=timestamps,
+    )
     for agent in agents:
         agent["source_id"] = r.string()
     object_sources = [r.string() for _ in objects]
     r.finish()
-    return {"counts": (n_agents, n_roads, n_tc, n_objects), "agents": agents, "roads": roads, "lanes": lanes,
-            "tcs": tcs, "objects": objects, "object_spans": object_spans, "lane_graph_ids": graph_ids,
-            "id": meta_id, "dataset": dataset, "location": location, "scenario_length": scenario_length,
-            "dt": dt, "ooi": ooi, "ttp": ttp, "source": source, "object_sources": object_sources, "consumed": end}
+    return {
+        "counts": (n_agents, n_roads, n_tc, n_objects),
+        "agents": agents,
+        "roads": roads,
+        "lanes": lanes,
+        "tcs": tcs,
+        "objects": objects,
+        "object_spans": object_spans,
+        "lane_graph_ids": graph_ids,
+        "id": meta_id,
+        "dataset": dataset,
+        "location": location,
+        "scenario_length": scenario_length,
+        "dt": dt,
+        "ooi": ooi,
+        "ttp": ttp,
+        "source": source,
+        "object_sources": object_sources,
+        "consumed": end,
+    }

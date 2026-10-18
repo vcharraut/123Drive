@@ -13,8 +13,8 @@ import shapely
 from shapely import geometry as shapely_geom
 
 from bin_factory import puffer_types, schema
-from bin_factory.log_context import log
 from bin_factory.conversion.geometry import arc_length, polyline_length
+from bin_factory.log_context import log
 
 
 LANE_WIDTH_THRESHOLD = 7.0  # meters, maximum point-to-lane distance
@@ -225,9 +225,7 @@ def _route_remaining(position: np.ndarray, route: list[int], route_cache: _Route
     return float(lengths[nearest] - progress + lengths[nearest + 1 :].sum())
 
 
-def _pair_box_corners(
-    position: np.ndarray, heading: np.ndarray, length: np.ndarray, width: np.ndarray
-) -> np.ndarray:
+def _pair_box_corners(position: np.ndarray, heading: np.ndarray, length: np.ndarray, width: np.ndarray) -> np.ndarray:
     """Oriented box corners (K, 4, 2) for K agent-frame pairs."""
     half = np.stack([length, width], -1) / 2
     local = half[:, None] * np.array([[1, 1], [1, -1], [-1, -1], [-1, 1]])

@@ -124,8 +124,15 @@ def test_round_trip_high_level_fields():
     assert parsed["source"] == {
         name: getattr(scenario.metadata, name)
         for name in (
-            "origin_xyz", "map_has_z", "scene_uuid", "log_name", "split", "log_version", "map_version",
-            "timestamps_us", "timestamps_are_relative",
+            "origin_xyz",
+            "map_has_z",
+            "scene_uuid",
+            "log_name",
+            "split",
+            "log_version",
+            "map_version",
+            "timestamps_us",
+            "timestamps_are_relative",
         )
     }
     assert [agent["source_id"] for agent in parsed["agents"]] == ["ego-source", "pedestrian-source"]
@@ -205,7 +212,7 @@ def test_compact_channels_preserve_values_and_validity(valid):
         expected[first:stop] = getattr(track, name)[first:stop].astype(np.float32)
         np.testing.assert_array_equal(getattr(decoded, name), expected)
     np.testing.assert_array_equal(decoded.valid, valid)
-    object_data, count, frames = serialize.read_sections(data)[b"OBJECTS"]
+    object_data, _count, _frames = serialize.read_sections(data)[b"OBJECTS"]
     record_offset = struct.unpack_from("<Q", object_data)[0]
     flags = struct.unpack_from("<i", object_data, record_offset + 16)[0]
     assert flags & 8
@@ -276,7 +283,10 @@ def test_browser_reader_preserves_tracks_sources_and_curvature(tmp_path):
     binary.write_bytes(serialize.scenario_to_binary(scenario))
     parser = Path(__file__).parents[2] / "src/viz/web/static/binary_parser.js"
     result = subprocess.run(
-        ["node", "-e", '''
+        [
+            "node",
+            "-e",
+            """
 const fs = require('fs'), assert = require('assert');
 global.window = {}; global.TYPES = {LANE_RANGE: [0, 9]};
 require(process.argv[1]);
@@ -303,19 +313,31 @@ console.log(JSON.stringify(scene, (_, value) => {
   if (ArrayBuffer.isView(value)) return Array.from(value);
   return value;
 }));
-''', str(parser), str(binary)],
-        capture_output=True, text=True, check=True,
+""",
+            str(parser),
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
     )
     parsed = json.loads(result.stdout)
     assert parsed["metadata"]["origin_xyz"] == list(scenario.metadata.origin_xyz)
     assert parsed["metadata"]["timestamps_us"] == [str(value) for value in scenario.metadata.timestamps_us]
     assert parsed["metadata"]["log_name"] == scenario.metadata.log_name
-    for actual, expected in zip(parsed["agents"] + parsed["objects"],
-                                [*scenario.agents.values(), *scenario.objects.values()]):
+    for actual, expected in zip(
+        parsed["agents"] + parsed["objects"], [*scenario.agents.values(), *scenario.objects.values()], strict=True
+    ):
         valid = np.flatnonzero(expected.valid)
         first, stop = (valid[0], valid[-1] + 1) if len(valid) else (0, 0)
-        for field, key in [("position", "xyz"), ("velocity", "velocity"), ("heading", "heading"),
-                           ("length", "length"), ("width", "width"), ("height", "height")]:
+        for field, key in [
+            ("position", "xyz"),
+            ("velocity", "velocity"),
+            ("heading", "heading"),
+            ("length", "length"),
+            ("width", "width"),
+            ("height", "height"),
+        ]:
             channel = np.zeros_like(getattr(expected, field))
             channel[first:stop] = getattr(expected, field)[first:stop].astype(np.float32)
             np.testing.assert_array_equal(actual[key], channel)

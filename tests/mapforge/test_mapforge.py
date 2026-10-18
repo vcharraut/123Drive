@@ -104,8 +104,9 @@ def test_read_serialize_is_idempotent(opendrive_bins, location):
 
 
 def test_read_rejects_binary_with_agents():
-    scenario = schema.PufferScenario(agents={}, objects={}, map={},
-                                     metadata=schema.ScenarioMetadata(id="", dataset="", scenario_length=0, dt=0.0))
+    scenario = schema.PufferScenario(
+        agents={}, objects={}, map={}, metadata=schema.ScenarioMetadata(id="", dataset="", scenario_length=0, dt=0.0)
+    )
     data = bytearray(serialize.scenario_to_binary(scenario))
     data[40:44] = (1).to_bytes(4, "little")
     with pytest.raises(StaticBinaryError, match="not static"):
@@ -148,7 +149,7 @@ def test_write_round_trips_and_requires_explicit_overwrite(opendrive_bins, tmp_p
 
 def test_write_rejects_non_static(opendrive_bins, tmp_path):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
-    scenario.agents = {0: object()}  # ty: ignore[invalid-assignment]
+    scenario.agents = dict(_with_object(scenario).objects)
     with pytest.raises(StaticBinaryError):
         static_binary.write_static_scenario(scenario, tmp_path / "bad.bin")
 
@@ -210,12 +211,12 @@ def test_scale_grows_extent_and_resamples(opendrive_bins):
     reference = copy.deepcopy(scenario)
     centroid = _centroid(scenario)
     before_extent = np.ptp(_all_xy(reference), axis=0)
-    before_points = sum(len(e.geometry) for e in reference.map.values())  # ty: ignore[invalid-argument-type]
+    before_points = sum(len(e.geometry) for e in reference.map.values() if e.geometry is not None)
 
     affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["scale"]["Sc10"], centroid)
 
     after_extent = np.ptp(_all_xy(scenario), axis=0)
-    after_points = sum(len(e.geometry) for e in scenario.map.values())  # ty: ignore[invalid-argument-type]
+    after_points = sum(len(e.geometry) for e in scenario.map.values() if e.geometry is not None)
     assert np.allclose(after_extent / before_extent, 1.10, atol=1e-2)
     # A scale > 1 lengthens segments, so resampling can only add points, never drop them.
     assert after_points > before_points

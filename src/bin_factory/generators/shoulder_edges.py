@@ -287,7 +287,7 @@ def _boundary_bands(
     rays = shapely.linestrings(np.stack([starts_xy, ends_xy], axis=1))
     r_idx, s_idx = surroundings.shoulders.tree.query(rays, predicate="intersects")
     hits_by_ray: dict[int, list[int]] = {}
-    for r_i, s_i in zip(r_idx.tolist(), s_idx.tolist()):
+    for r_i, s_i in zip(r_idx.tolist(), s_idx.tolist(), strict=False):
         hits_by_ray.setdefault(r_i, []).append(s_i)
     for r_i, s_list in hits_by_ray.items():
         idx = int(active[r_i])
@@ -497,7 +497,7 @@ class _Surfaces:
             return mask
         pts = shapely.points(points_xyz[:, :2])
         pt_idx, poly_idx = self.tree.query(pts, predicate="within")
-        for p_i, s_i in zip(pt_idx.tolist(), poly_idx.tolist()):
+        for p_i, s_i in zip(pt_idx.tolist(), poly_idx.tolist(), strict=False):
             if (
                 not mask[p_i]
                 and (exclude is None or self.keys[s_i] != exclude)
@@ -529,9 +529,7 @@ def _band(
     if not candidates:
         return 0.0, None
     covered = (
-        ray.intersection(candidates[0])
-        if len(candidates) == 1
-        else ray.intersection(shapely.union_all(candidates))
+        ray.intersection(candidates[0]) if len(candidates) == 1 else ray.intersection(shapely.union_all(candidates))
     )
     if covered.is_empty:
         return 0.0, None

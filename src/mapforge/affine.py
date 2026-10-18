@@ -6,9 +6,9 @@ from pathlib import Path
 
 import numpy as np
 
-from bin_factory.schema import PufferScenario
 from bin_factory.conversion.geometry import resample_polyline
 from bin_factory.generators import build_lane_distance_matrix, compute_lane_lengths
+from bin_factory.schema import PufferScenario
 from mapforge import static_binary
 
 

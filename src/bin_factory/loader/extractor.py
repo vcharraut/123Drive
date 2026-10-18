@@ -231,7 +231,7 @@ def _extract_objects(
             continue
         quaternions = np.array([d.bounding_box_se3.array[PoseSE3Index.QUATERNION] for d in detections_list])
         headings = get_euler_array_from_quaternion_array(quaternions)[:, EulerAnglesIndex.YAW]
-        for detection, heading in zip(detections_list, headings):
+        for detection, heading in zip(detections_list, headings, strict=False):
             track_token = detection.attributes.track_token
             object_id = tokens_to_object_id.get(track_token)
             if object_id is None:
@@ -504,11 +504,11 @@ def _extract_static_objects(
         box_polys = [shapely.Polygon(box[:, :2]) for box in boxes]
         q_idx, s_idx = tree.query(box_polys, predicate="intersects")
         hits_by_obj: dict[int, list[int]] = collections.defaultdict(list)
-        for qi, si in zip(q_idx.tolist(), s_idx.tolist()):
+        for qi, si in zip(q_idx.tolist(), s_idx.tolist(), strict=False):
             hits_by_obj[qi].append(si)
         kept_objs = []
         kept_boxes = []
-        for idx, (obj, box) in enumerate(zip(static_objects, boxes)):
+        for idx, (obj, box) in enumerate(zip(static_objects, boxes, strict=False)):
             hits = hits_by_obj.get(idx)
             if not hits:
                 continue
@@ -524,7 +524,7 @@ def _extract_static_objects(
         boxes = kept_boxes
     tracks: dict[int, schema.Track] = {}
     num_frames = max(episode_length, 1)
-    for n, (obj, corners) in enumerate(zip(static_objects, boxes)):
+    for n, (obj, corners) in enumerate(zip(static_objects, boxes, strict=False)):
         sides = np.diff(corners[:3, :2], axis=0)
         side_norms = np.linalg.norm(sides, axis=1)
         long_side = sides[int(np.argmax(side_norms))]
@@ -590,8 +590,8 @@ def _fill_missing_velocities(track: schema.Track, dt: float) -> None:
         return
     left = valid_indices[np.maximum(missing - 1, 0)]
     right = valid_indices[np.minimum(missing + 1, len(valid_indices) - 1)]
-    track.velocity[valid_indices[missing]] = (
-        (track.position[right, :2] - track.position[left, :2]) / ((right - left)[:, None] * dt)
+    track.velocity[valid_indices[missing]] = (track.position[right, :2] - track.position[left, :2]) / (
+        (right - left)[:, None] * dt
     )
 
 
