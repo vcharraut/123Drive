@@ -27,7 +27,7 @@ def build_lane_distance_matrix(map_elements: dict[int, schema.MapElement]) -> di
     id_to_idx = {lid: i for i, lid in enumerate(lane_ids)}
     n = len(lanes)
 
-    # Keyed by (src, dst) so a pair listed twice is not summed by csr_matrix; the cheaper edge wins.
+    # Keep the cheapest edge per (src, dst) pair so csr_matrix does not sum duplicate costs.
     edges: dict[tuple[int, int], float] = {}
     for eid, element in lanes:
         for exit_id in element.exit_lanes:

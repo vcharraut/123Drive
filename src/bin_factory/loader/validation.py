@@ -36,9 +36,9 @@ def validate_scenario(
     extras: schema.ExtractionExtras | None = None,
     level: int = 1,
 ) -> list[str]:
-    """Returns list of error strings. Empty = valid.
+    """Return validation errors, or an empty list for a valid scenario.
 
-    extras: ExtractionExtras (traffic_lights, stop_zones) from extraction.
+    ``extras`` contains traffic lights and stop zones from extraction.
     """
     if level <= 0:
         return []
@@ -60,7 +60,7 @@ def validate_scenario(
         errors.append("metadata.dt must be > 0 when scenario_length > 0")
 
     _validate_dynamic_states(scenario.agents, "Agent", length, errors)
-    # NOTE: Map-only scenarios (no frames) carry their static map objects as one-frame tracks.
+    # Map-only scenarios have no frames but store static map objects as one-frame tracks.
     _validate_dynamic_states(scenario.objects, "Object", max(length, 1), errors)
     _validate_map_elements(scenario.map, errors)
     _validate_stop_zones(stop_zones, errors)

@@ -39,10 +39,10 @@ _OPPOSE = 0.2  # per-frame log penalty for each pair of crossing groups from opp
 _PERPENDICULAR_COS = 0.7  # crossing approaches more perpendicular than this conflict, the others oppose
 _CONFIDENCE = 0.9
 _YELLOW_S = 3.0
-_LAG_S = 2.0  # RED detections lag the switch to green: their last seconds before a gap can be overruled
+_LAG_S = 2.0  # allow inference to override late RED detections in these seconds before a gap
 _LAG_LLR = 1.0  # detection evidence in those seconds
 _ENTRY_S = 0.5  # GO evidence spread before the crossing frame
-_DEPART_S = 2.0  # last part of a stop dropped: the light is already green while the vehicle starts
+_DEPART_S = 2.0  # ignore the end of a stop, when the light is green but the vehicle has not moved yet
 _PATH_S = 3.0  # vehicle path length used to tell connectors sharing a start apart
 _MAX_JOINT_GROUPS = 14
 _MAX_JOINT_STATES = 1024
@@ -74,7 +74,7 @@ def interpolate_traffic_lights(scenario: schema.PufferScenario, extras: schema.E
         [[int(s) for s in tracks[lid].states[:length]] if lid in tracks else [0] * length for lid in ids]
     )
     obs = np.select([observed == _RED, (observed == _GREEN) | (observed == _YELLOW)], [-1, 1], 0)
-    # Flashing caution (WOMD maps it to YELLOW) is no GO/STOP phase: such lanes keep their detections only
+    # WOMD maps flashing caution to YELLOW. Keep these detections without GO/STOP inference.
     caution = (observed == _YELLOW).any(1) & ~((observed == _GREEN) | (observed == _RED)).any(1)
     obs[caution] = 0
     start = np.array([line[0] for line in lines])
@@ -136,8 +136,11 @@ def _components(n: int, pairs: tuple[np.ndarray, ...]) -> np.ndarray:
 def _movement_groups(
     lines: list[np.ndarray], start_dir: np.ndarray, turn_class: np.ndarray, free: np.ndarray, obs: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Group label per connector, and boolean group matrices: conflicts (crossing paths from perpendicular approaches,
-    no free turn), couples (same approach) and opposites (crossing paths from opposite approaches, no free turn)."""
+    """Return a group label per connector and boolean matrices for conflicts, couples, and opposites.
+
+    Conflicts cross from perpendicular approaches. Couples share an approach. Opposites cross from opposite approaches.
+    Exclude free turns from conflicts and opposites.
+    """
     n = len(lines)
     geoms = [shapely.LineString(line) for line in lines]
     tree = shapely.STRtree(geoms)
@@ -171,7 +174,7 @@ def _vehicle_evidence(
     length: int,
     dt: float,
 ) -> np.ndarray:
-    """Per connector and frame: GO evidence where vehicles enter it, STOP evidence where they wait at its stop line."""
+    """Compute GO evidence from vehicle entries and STOP evidence from stop-line waits, per connector and frame."""
     llr = np.zeros((len(lines), length))
     entry, depart, path = round(_ENTRY_S / dt), round(_DEPART_S / dt), round(_PATH_S / dt)
     line_lengths = np.array([np.linalg.norm(np.diff(line, axis=0), axis=1).sum() for line in lines])
@@ -225,8 +228,11 @@ def _path_fit(path: np.ndarray, line: np.ndarray, line_length: float) -> float:
 def _group_posterior(
     llr: np.ndarray, conflict: np.ndarray, couple: np.ndarray, oppose: np.ndarray, switch: float
 ) -> np.ndarray:
-    """GO posterior per group and frame. Groups linked by conflicts, couples or opposites are decoded jointly;
-    components with too many joint states fall back to conflict links only, then to single groups."""
+    """Compute GO probabilities per group and frame.
+
+    Decode groups linked by conflicts, couples, or opposites together. If there are too many joint states,
+    use conflict links only, then individual groups.
+    """
     posterior = np.full_like(llr, np.nan)
     for links in (conflict | couple | oppose, conflict, np.zeros_like(conflict)):
         component = _components(len(llr), np.nonzero(links))

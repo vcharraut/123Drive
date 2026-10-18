@@ -4,10 +4,10 @@ Keep shoulder geometry in the map. The added edges make PufferDrive treat those 
 off-road. Skip probes inside intersections or junction shoulders to keep junctions drivable.
 Block probes inside other lanes so edges do not cross overlapping ramp connectors.
 
-Close a shoulder band with a transverse cap when the band continues without a following edge,
-including into a junction, or ends at a lane end on road surface no kerb closes (filled corner
-pockets). On one-way, single-lane ramps with shoulders on both sides, edges may sit outside the
-lane boundary so long and wide vehicles fit through tight curves.
+Close a shoulder band with a transverse cap if it continues without a following edge, including
+into a junction. Also cap bands that end at a lane end on road surface without a closing kerb.
+On one-way, single-lane ramps with shoulders on both sides, edges may sit outside the lane
+boundary so long and wide vehicles fit through tight curves.
 """
 
 import dataclasses
@@ -151,8 +151,11 @@ def _lane_sides(
 
 
 def _is_ramp(lane: schema.MapElement, sides: list[_Side]) -> bool:
-    """A one-way single-lane carriageway outside junctions: no lateral neighbours, shoulders along both boundaries
-    (a two-way street with one lane per direction has the oncoming lane on one side instead)."""
+    """Check for a one-way, single-lane carriageway outside junctions.
+
+    It must have no lateral neighbours and shoulders along both boundaries.
+    A two-way street with one lane per direction has an oncoming lane on one side instead.
+    """
     if lane.in_junction or lane.left_neighbor or lane.right_neighbor or len(sides) != 2:
         return False
     return all(side.coverage >= RAMP_MIN_BAND_COVERAGE for side in sides)
@@ -161,7 +164,10 @@ def _is_ramp(lane: schema.MapElement, sides: list[_Side]) -> bool:
 def _run_end(
     lanes: dict, ramps: set, surroundings: _Surroundings, side: _Side, idx: int, sign: float, next_lanes: list
 ) -> _RunEnd:
-    """What happens to the band beyond the run end at sample `idx` (sign +1: run end, -1: run start)."""
+    """Determine whether to cap the band and keep its widening at sample `idx`.
+
+    A `sign` of +1 checks the run end, and -1 checks the run start.
+    """
     samples, tangents, normals, widths = side.samples, side.tangents, side.normals, side.widths
     band_ahead = _band_ahead(surroundings.shoulders, samples, tangents, normals, idx, sign)
     if band_ahead < KEEP_BAND_WIDTH_M:
@@ -193,7 +199,7 @@ def _kerb_ahead(surroundings: _Surroundings, side: _Side, idx: int, sign: float,
 
 
 def _run_end_width(widths: np.ndarray, idx: int, sign: float) -> float:
-    """Band width of the last run sample before `idx` that measured a band (the end sample sits on a corner sliver)."""
+    """Return the last measured band width before `idx`. The end sample may lie on a corner sliver."""
     step = -1 if sign > 0 else 1
     for i in range(idx + step, -1 if step < 0 else len(widths), step):
         if widths[i] >= KEEP_BAND_WIDTH_M:
@@ -202,7 +208,7 @@ def _run_end_width(widths: np.ndarray, idx: int, sign: float) -> float:
 
 
 def _through_stubs(lanes: dict, ids: list, forward: bool) -> list:
-    """Lane ids with stub lanes replaced by their exits (forward) or entries (backward), a few hops deep."""
+    """Replace stub lane IDs with their exits or entries, up to MAX_STUB_HOPS forward or backward."""
     result: list = []
     pending = list(ids)
     for _ in range(MAX_STUB_HOPS):
@@ -236,8 +242,10 @@ def _lane_surfaces(lanes: dict) -> "_Surfaces":
 def _boundary_bands(
     boundary: np.ndarray, lane_id: int, lane: schema.MapElement, surroundings: _Surroundings
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """(samples, tangents, outward normals, band width per sample) along a lane boundary; the width is 0 where the
-    probe lies inside a junction surface of the same level and BLOCKED_WIDTH_M where it lies inside another lane."""
+    """Return samples, tangents, outward normals, and band widths along a lane boundary.
+
+    Set width to 0 inside junction surfaces at the same elevation, or BLOCKED_WIDTH_M inside another lane.
+    """
     samples = _resample(np.asarray(boundary, dtype=np.float64), SAMPLE_SPACING_M)
     tangents = _tangents(samples[:, :2])
     normals = _outward_normals(tangents, samples[:, :2], np.asarray(lane.polyline)[:, :2])
@@ -276,8 +284,10 @@ def _lane_has_run(lane_id: int, lane: schema.MapElement | None, surroundings: _S
 def _run_points(
     surroundings: _Surroundings, lane_id: int, side: _Side, start: int, end: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """(points, outward normals, band widths) of a run: its samples, extended to where the band actually begins and
-    ends when the run stops inside the lane; band-limit points get a NaN width."""
+    """Return a run's points, outward normals, and band widths.
+
+    Extend runs that stop inside a lane to the band's limits. Assign NaN widths to those limit points.
+    """
     samples, normals, widths = side.samples, side.normals, side.widths
     points = [samples[i] for i in range(start, end)]
     point_normals = [normals[i] for i in range(start, end)]
@@ -294,9 +304,11 @@ def _run_points(
 
 
 def _widening_targets(point_widths: np.ndarray, widening_m: float, hold_start: bool, hold_end: bool) -> np.ndarray:
-    """Outward offset of every run point: up to widening_m but RAMP_BAND_CLEARANCE_M short of the band's far
-    side, 0 where another lane blocks the band and at run ends where the band closes. Points that measured no band
-    (corner slivers, junction probes, band limits) take the nearest measured value."""
+    """Return outward offsets up to widening_m, keeping RAMP_BAND_CLEARANCE_M from the band's far side.
+
+    Set offsets to 0 where another lane blocks the band and at run ends where the band closes.
+    Use the nearest measured offset for corner slivers, junction probes, and band limits with no measurement.
+    """
     offsets = np.zeros(len(point_widths))
     if widening_m <= 0.0:
         return offsets
@@ -319,7 +331,7 @@ def _widening_targets(point_widths: np.ndarray, widening_m: float, hold_start: b
 def _clear_of_other_lanes(
     surroundings: _Surroundings, lane_id: int, points: np.ndarray, point_normals: np.ndarray, offsets: np.ndarray
 ) -> np.ndarray:
-    """Offsets dropped to 0 where the widened point would lie inside another lane of the same level."""
+    """Set offsets to 0 where widening would put a point inside another lane at the same elevation."""
     cleared = offsets.copy()
     for i in np.flatnonzero(offsets > 0.0):
         target = points[i].copy()
@@ -330,7 +342,7 @@ def _clear_of_other_lanes(
 
 
 def _tapered(points: np.ndarray, offsets: np.ndarray) -> np.ndarray:
-    """Offsets limited to change by WIDENING_TAPER_SLOPE per metre along the run, lowering the larger side."""
+    """Limit offset changes to WIDENING_TAPER_SLOPE per metre by lowering the larger offset."""
     if not (offsets > 0.0).any():
         return offsets
     steps = WIDENING_TAPER_SLOPE * np.linalg.norm(np.diff(points[:, :2], axis=0), axis=1)
@@ -360,7 +372,7 @@ def _distinct_points(polyline: np.ndarray) -> np.ndarray:
 def _band_limit(
     surroundings: _Surroundings, lane_id: int, samples: np.ndarray, normals: np.ndarray, outside: int, inside: int
 ) -> np.ndarray:
-    """Point between an out-of-band sample and its in-band neighbour where the band begins, by bisection."""
+    """Bisect the interval between an out-of-band sample and its in-band neighbour to find the band's start."""
     low, high = 0.0, 1.0
     for _ in range(BISECTION_STEPS):
         mid = 0.5 * (low + high)
@@ -431,8 +443,10 @@ class _Surfaces:
 
 
 def _band(shoulders: _Surfaces, point_xyz: np.ndarray, normal: np.ndarray) -> tuple[float, np.ndarray | None]:
-    """(band width along the outward normal from the lane boundary point, far-side point); (0, None) when no band
-    of the same level starts there."""
+    """Return the band width along the outward normal and the far-side point.
+
+    Return (0, None) if no band at the same elevation starts at this boundary point.
+    """
     if shoulders.tree is None:
         return 0.0, None
     point_xy = point_xyz[:2]
@@ -455,8 +469,10 @@ def _band(shoulders: _Surfaces, point_xyz: np.ndarray, normal: np.ndarray) -> tu
 
 
 def _cap(sample: np.ndarray, normal: np.ndarray, inner_m: float, outer_m: float, tangent_out: np.ndarray) -> np.ndarray:
-    """Transverse edge across the band at a run end, from inner_m to outer_m out of the boundary, with the continuing
-    side (tangent_out) on its right."""
+    """Return an edge across the band at a run end, from inner_m to outer_m outside the boundary.
+
+    Orient the edge so the continuing side, tangent_out, lies on its right.
+    """
     inner = sample.copy()
     outer = sample.copy()
     inner[:2] = sample[:2] + inner_m * normal
@@ -466,8 +482,10 @@ def _cap(sample: np.ndarray, normal: np.ndarray, inner_m: float, outer_m: float,
 
 
 def _resample(polyline: np.ndarray, spacing: float) -> np.ndarray:
-    """Points every `spacing` metres along the polyline, first and last vertex included; a boundary shorter than one
-    spacing gets its midpoint too, since its end points often sit on shoulder-polygon corners."""
+    """Sample the polyline at intervals of at most `spacing` metres, including both endpoints.
+
+    Include the midpoint when the boundary is no longer than `spacing`, since endpoints often lie on polygon corners.
+    """
     steps = np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1)
     station = np.concatenate([[0.0], np.cumsum(steps)])
     count = max(2, int(np.ceil(station[-1] / spacing)) + 1) if station[-1] > spacing else 3
@@ -493,15 +511,17 @@ def _outward_normals(tangents: np.ndarray, samples_xy: np.ndarray, centerline_xy
 
 
 def _band_mask(widths: np.ndarray) -> np.ndarray:
-    """Samples along a band: hysteresis on the width, dips bridged; a short boundary (3 samples) follows its midpoint,
-    because its end samples sit on shoulder-polygon corners and measure unreliably."""
+    """Mark band samples using width hysteresis, bridging short gaps.
+
+    For a three-sample boundary, use its midpoint width. Endpoints on shoulder-polygon corners give unreliable widths.
+    """
     if len(widths) == 3:
         return np.full(3, widths[1] >= MIN_BAND_WIDTH_M)
     return _bridge_dips(_hysteresis(widths, MIN_BAND_WIDTH_M, KEEP_BAND_WIDTH_M), MAX_DIP_SAMPLES, widths < 0.0)
 
 
 def _hysteresis(widths: np.ndarray, start_m: float, keep_m: float) -> np.ndarray:
-    """Samples at least `start_m` wide seed runs that extend over neighbours at least `keep_m` wide."""
+    """Start runs at widths of at least `start_m` and extend through neighbours at least `keep_m` wide."""
     seeds = widths >= start_m
     keep = widths >= keep_m
     mask = seeds.copy()
@@ -515,7 +535,7 @@ def _hysteresis(widths: np.ndarray, start_m: float, keep_m: float) -> np.ndarray
 
 
 def _bridge_dips(mask: np.ndarray, max_dip: int, blocked: np.ndarray) -> np.ndarray:
-    """True runs separated by at most `max_dip` False samples are joined, unless a blocked sample lies between."""
+    """Join True runs separated by at most `max_dip` False samples, unless a blocked sample lies between."""
     bridged = mask.copy()
     start = None
     for i, value in enumerate(mask):
@@ -527,8 +547,10 @@ def _bridge_dips(mask: np.ndarray, max_dip: int, blocked: np.ndarray) -> np.ndar
 
 
 def _snap_to_lane_ends(mask: np.ndarray, widths: np.ndarray, beyond: list[float]) -> np.ndarray:
-    """A run reaching the second sample from a lane end covers the end too when a band is there or goes on past it
-    (the end sample often sits on a shoulder polygon corner and measures nothing)."""
+    """Extend a run from the second sample to the lane end if a band exists there or continues beyond it.
+
+    The end sample often lies on a shoulder polygon corner and measures no width.
+    """
     snapped = mask.copy()
     if len(mask) < 2:
         return snapped
@@ -540,7 +562,7 @@ def _snap_to_lane_ends(mask: np.ndarray, widths: np.ndarray, beyond: list[float]
 
 
 def _runs(mask: np.ndarray, min_samples: int) -> list[tuple[int, int]]:
-    """(start, end) index pairs of the True runs of `mask` with at least `min_samples` entries."""
+    """Return (start, end) index pairs for True runs in `mask` with at least `min_samples` entries."""
     runs: list[tuple[int, int]] = []
     start = None
     for i, value in enumerate(mask):

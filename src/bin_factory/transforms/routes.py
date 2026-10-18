@@ -127,7 +127,7 @@ def _clear_conflicting_routes(agents: dict[int, schema.Track], start: int) -> No
 
 
 def _route_remaining(position: np.ndarray, route: list[int], route_cache: _RouteCache) -> float:
-    """Route length (m) ahead of ``position``: the rest of the nearest route lane plus every later lane."""
+    """Return metres ahead of ``position``, adding the rest of the nearest route lane and all later lanes."""
     idx = np.array([route_cache["lane_id_to_idx"][lane_id] for lane_id in route])
     distances, closest, closest_t = _points_to_polylines_distance(
         position[:2].reshape(1, 2), route_cache["lane_polylines"][idx], route_cache["lane_lengths"][idx]
@@ -316,8 +316,8 @@ def _select_candidate_path(
     total_points: int,
     route_cache: _RouteCache,
 ) -> list[_Candidate]:
-    # Full-history backward scan: O(T^2 * C^2) over observations x candidates. Kept exact
-    # because SKIPPED_POINT_COST dominates long gaps; windowing would need real-data parity checks.
+    # Scan all earlier observations in O(T^2 * C^2), with T observations and C candidates.
+    # SKIPPED_POINT_COST dominates long gaps, so limiting history would need real-data parity checks.
     costs: list[list[float]] = []
     backrefs: list[list[tuple[int, int] | None]] = []
 

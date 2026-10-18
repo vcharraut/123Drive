@@ -1,8 +1,7 @@
-"""Tests for the ``mapforge`` package (static-binary IO + affine augmentation).
+"""Test static binary reading, writing, and affine map transforms.
 
-Data source is the two committed opendrive maps under ``tests/py123d_data/maps/opendrive``.
-Each is run once through the real map-only conversion path to produce a static ``.bin``
-payload, which is the input mapforge actually consumes in production.
+Convert the two committed OpenDRIVE maps in ``tests/py123d_data/maps/opendrive`` once
+to produce the static ``.bin`` files that mapforge reads.
 """
 
 import copy
@@ -74,7 +73,7 @@ def _box_corners(x, y, heading, length, width):
     return np.array([[x, y] + sl * length / 2 * d + sw * width / 2 * n for sl in (-1, 1) for sw in (-1, 1)])
 
 
-# ── static_binary: read ───────────────────────
+# Read static binaries
 
 
 @pytest.mark.parametrize("location", MAP_LOCATIONS)
@@ -134,7 +133,7 @@ def test_read_rejects_truncated_payload(opendrive_bins):
         static_binary.static_binary_to_scenario(opendrive_bins["Town02"][:-8])
 
 
-# ── static_binary: write ───────────────────────
+# Write static binaries
 
 
 def test_write_round_trips_and_requires_explicit_overwrite(opendrive_bins, tmp_path):
@@ -154,7 +153,7 @@ def test_write_rejects_non_static(opendrive_bins, tmp_path):
         static_binary.write_static_scenario(scenario, tmp_path / "bad.bin")
 
 
-# ── affine: transform selection ───────────────────────
+# Select transforms
 
 
 def test_select_transforms_default_is_all_groups():
@@ -175,7 +174,7 @@ def test_select_transforms_unknown_raises():
         affine.select_transforms(["warp"])
 
 
-# ── affine: apply_affine_transform ───────────────────────
+# Apply affine transforms
 
 
 def test_apply_affine_rejects_bad_matrix_shape(opendrive_bins):
@@ -277,7 +276,7 @@ def test_apply_affine_rebuilds_lane_graph(opendrive_bins):
     assert scenario.lane_graph["distances"].shape == (len(lane_ids), len(lane_ids))
 
 
-# ── affine: augment_maps ───────────────────────
+# Augment maps
 
 
 def test_augment_maps_writes_original_plus_variants(opendrive_bins, tmp_path):
@@ -319,7 +318,7 @@ def test_augment_maps_requires_explicit_overwrite(opendrive_bins, tmp_path):
     assert len(affine.augment_maps(input_dir, output_dir, catalog, overwrite=True)) == 2
 
 
-# ── affine: CLI ───────────────────────
+# CLI
 
 
 def test_main_cli_generates_binaries(opendrive_bins, tmp_path, monkeypatch):

@@ -1,8 +1,7 @@
-"""End-to-end pipeline tests on real (committed) 123D scenarios.
+"""End-to-end conversion tests using committed 123D scenarios.
 
-Fixtures live in ``tests/py123d_data`` — two self-contained WOD-motion logs with per-log
-maps. Each test drives the real conversion path (discover -> extract -> validate -> transform
--> serialize) and walks the resulting binary to assert layout + invariants survive on real data.
+``tests/py123d_data`` contains two WOD-motion logs with per-log maps. Tests run discovery,
+extraction, validation, transforms, and serialization, then check the binary layout and data.
 """
 
 import pathlib
@@ -53,7 +52,7 @@ def _process_map(location, **cfg_overrides):
     return prepare_scenario(_discover_map(location), _config(map_only=True, **cfg_overrides))
 
 
-# ── Discovery ───────────────────────
+# Discovery
 
 
 def test_discovers_both_fixtures():
@@ -62,7 +61,7 @@ def test_discovers_both_fixtures():
     assert all(s.dataset == "wod-motion" for s in scenes)
 
 
-# ── Full pipeline: buffer layout integrity ───────────────────────
+# Binary layout
 
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
@@ -84,7 +83,7 @@ def test_binary_layout_and_counts_match_processed_scenario(log_name, interpolate
     )
 
 
-# ── Reindex invariants on real data ───────────────────────
+# Reindexing
 
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
@@ -141,7 +140,7 @@ def test_source_data_restores_coordinates_and_preserves_identities_and_timestamp
     )
 
 
-# ── Cross-reference integrity on real data ───────────────────────
+# Cross-references
 
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
@@ -180,7 +179,7 @@ def test_map_types_and_geometry_are_supported(log_name):
         assert len(geometry) >= elem.min_points
 
 
-# ── Metadata round-trip ───────────────────────
+# Metadata round-trip
 
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
@@ -198,7 +197,7 @@ def test_metadata_round_trips(log_name):
     assert set(parsed["ttp"]) <= set(scenario.agents)
 
 
-# ── Traffic lights ───────────────────────
+# Traffic lights
 
 
 def test_traffic_lights_present_and_imputed():
@@ -212,7 +211,7 @@ def test_traffic_lights_present_and_imputed():
     assert parsed_interp["counts"][2] >= parsed["counts"][2]
 
 
-# ── Determinism + real entry point (writes a .bin to disk) ───────────────────────
+# Determinism and CLI output
 
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
@@ -237,7 +236,7 @@ def test_convert_one_writes_parseable_bin(tmp_path, log_name):
     assert all(count >= 0 for count in _parse(data)["counts"])
 
 
-# ── Map-only pipeline (opendrive, no logs) ───────────────────────
+# OpenDRIVE map-only conversion
 
 
 def test_discovers_opendrive_maps():

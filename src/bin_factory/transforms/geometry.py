@@ -5,7 +5,7 @@ from bin_factory import schema
 
 
 def arc_length(polyline: np.ndarray) -> np.ndarray:
-    """Cumulative arc-length per point. cum[0]=0, cum[-1]=total length. Norms over all columns."""
+    """Return cumulative arc length per point, from 0 to total length, using all coordinate columns."""
     polyline = np.asarray(polyline)
     if len(polyline) < 2:
         return np.zeros(len(polyline), dtype=np.float64)

@@ -24,9 +24,9 @@ It centers coordinates, processes geometry and traffic controls, computes vehicl
 routes and lane distances, validates the result, and writes one binary per scene.
 Map-only conversion writes static maps without agents.
 
-Metadata retains the coordinate origin as float64 `origin_xyz`, source scene UUID,
-log name, split, and log/map extraction versions. Adding the origin restores source
-coordinates; when `map_has_z` is false, elevation stays flattened.
+Metadata stores the coordinate origin in float64 `origin_xyz`. It also stores the source
+scene UUID, log name, split, and extraction versions for logs and maps.
+Add the origin to restore source coordinates. When `map_has_z` is false, elevation stays flat.
 `timestamps_us` preserves the exact per-frame source timestamps as int64 microseconds.
 `timestamps_are_relative` distinguishes WOD's relative clock from absolute timestamps.
 
@@ -34,9 +34,9 @@ Each track retains its original tracking token or static map-object ID as `sourc
 independent of local numeric IDs. Map-only binaries have no scene UUID or timestamps.
 
 Binary format v2 uses a versioned header, a section directory, and indexed records.
-Validity uses one byte per frame; constant dimensions and zero elevation are stored
-implicitly. Curvature and all other sections remain available. Existing unversioned
-bins must be regenerated, and simulator readers must support v2.
+Validity uses one byte per frame. The writer omits repeated constant dimensions and zero
+elevation, and readers restore them. Curvature and all other sections remain available.
+Regenerate existing unversioned bins and update simulator readers to support v2.
 
 The code defines the details: [pipeline], [loader], [schema], and [binary writer].
 
@@ -67,8 +67,8 @@ There is no separate control-state or route-prefix-length field. See [route code
 By default, missing light observations remain unknown. `--interpolate_tl` combines
 observed signals, lane topology, vehicle crossings, and stopped vehicles to infer
 missing or inconsistent states. It groups intersection movements and uses conflicts
-between them to constrain inference. Confident
-estimates become red or green, with yellow transitions; uncertain frames stay unknown.
+between them to constrain inference. Confident estimates become red or green, with yellow
+transitions. Uncertain frames stay unknown.
 Yellow-only detections stay unchanged. See [interpolation code].
 
 - [Dataset differences](presets.md)

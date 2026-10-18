@@ -157,9 +157,11 @@ def _mark_junction_lanes(map_api: py123d_api.MapAPI, lanes: dict[int, schema.Map
 def _extract_shoulder_context(
     map_api: py123d_api.MapAPI, centroid: np.ndarray
 ) -> tuple[list[np.ndarray], list[np.ndarray]]:
-    """Centred outlines of (shoulders outside intersections, intersections + shoulders inside them), read by the
-    non-drivable-shoulder transform. A shoulder counts as inside when at least JUNCTION_SHOULDER_MIN_OVERLAP of its
-    area lies in intersection polygons."""
+    """Return centred outlines for the shoulder-edge transform.
+
+    The first list contains shoulders outside intersections. The second contains intersections and their shoulders.
+    A shoulder is inside when intersection polygons cover at least JUNCTION_SHOULDER_MIN_OVERLAP of its area.
+    """
     layers = map_api.available_map_layers
     if map_objects.MapLayer.SHOULDER not in layers:
         return [], []
@@ -255,7 +257,7 @@ def _extract_prediction_targets(
     agents: dict[int, schema.Track],
     metadata: schema.ScenarioMetadata,
 ) -> None:
-    """Populate metadata objects_of_interest / tracks_to_predict from the WOD-Motion aux modality."""
+    """Populate metadata objects_of_interest and tracks_to_predict from WOD-Motion aux data."""
     aux = scene_api.get_all_custom_modality_metadatas().get("aux")
     if aux is None:
         return
@@ -449,7 +451,7 @@ def _write_map_object(
             type=puffer_type,
             polygon=_centered_array(map_object.outline_3d.array, centroid),
             controlled_lanes=map_object.lane_ids,
-            # NOTE: py123d releases before the light phases have no such attributes.
+            # Older py123d releases have no light-phase attributes.
             # 123D id, mapped to element id later
             intersection_id=-1 if (iid := getattr(map_object, "intersection_id", None)) is None else iid,
             phase_idx=-1 if (phase := getattr(map_object, "phase_idx", None)) is None else int(phase),
@@ -467,8 +469,10 @@ def _extract_static_objects(
     first_id: int,
     onroad_only: bool = False,
 ) -> dict[int, schema.Track]:
-    """Static map objects (barriers, poles, parked cars, ...) as objects that stand still over the whole episode.
-    With ``onroad_only`` only the objects touching the road surface (generic drivables) on their own level."""
+    """Extract static map objects as tracks that stay still throughout the episode.
+
+    With ``onroad_only``, keep only objects touching a generic drivable surface at their elevation.
+    """
     if map_objects.MapLayer.STATIC_OBJECT not in map_api.available_map_layers:
         return {}
     static_objects: list[Any]
@@ -481,7 +485,7 @@ def _extract_static_objects(
         found = map_api.query(path.buffer(SCENE_MAP_MARGIN), [layer], predicate="intersects")
         static_objects = cast("list[Any]", found.get(layer, []))
     if onroad_only and static_objects and map_objects.MapLayer.GENERIC_DRIVABLE in map_api.available_map_layers:
-        # NOTE: An off-road object stands behind a road edge: an agent crossing it is off-road before any collision.
+        # An agent must cross a road edge before colliding with an off-road object.
         surfaces: list[Any] = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.GENERIC_DRIVABLE))
         outlines = [surface.outline_3d.array for surface in surfaces]
         tree = shapely.STRtree([shapely.Polygon(outline[:, :2]).buffer(0) for outline in outlines])
@@ -622,10 +626,10 @@ def _fix_lane_topology(
     undefined_lane_ids: list[int],
     valid_lane_ids: set[int],
 ) -> None:
-    """Infer undefined lane types from connected lanes + drop refs to lanes outside the extracted map.
+    """Infer undefined lane types from connected lanes and drop references outside the extracted map.
 
-    Entry/exit refs are trusted as-is: py123d already orients nuPlan connections, and the old
-    endpoint-distance reversal only misfired on broken WOMD links (creating cycles).
+    Keep entry and exit directions from py123d, which already orients nuPlan connections.
+    The previous endpoint-distance reversal created cycles on broken WOMD links.
     """
     # PY123D-REPORT[nuplan]: most nuPlan lanes (lane connectors) come out of py123d as LaneType.UNDEFINED.
     # PY123D-REPORT[wod-motion]: some WOMD entry/exit refs point at lanes up to ~100 m away; kept as-is.
@@ -700,8 +704,11 @@ def _fill_missing_speed_limits(lanes: dict[int, schema.MapElement]) -> None:
 
 
 def _trim_end_hooks(line: np.ndarray) -> np.ndarray:
-    """Drop the inner points of a centerline's first and last ``HOOK_MAX_LENGTH`` when a segment there turns over
-    ``HOOK_MIN_TURN`` off the lane's direction (chord to the first point 1 m+ away). Both endpoints stay put."""
+    """Remove points near a centerline's ends when a segment turns more than ``HOOK_MIN_TURN``.
+
+    Check the first and last ``HOOK_MAX_LENGTH`` against the chord to the first point at least 1 m away.
+    Keep both endpoints.
+    """
     # PY123D-REPORT[opendrive]: ~2% of Town12/13 junction lane centerlines start or end with a 0.25 m zig-zag
     # (sideways 0.125 m, or 90 degrees out and 178 back), turning the lane's end heading and spiking its curvature.
     for _ in range(2):
@@ -736,15 +743,17 @@ def _drop_duplicate_lines(elements: dict[int, schema.MapElement]) -> None:
 
 
 def _lane_speed_limit(lane: Any, source: str) -> float:
-    """Speed limit of a 123D lane in m/s (-1 if unknown): with ``signs`` the limit of the last speed sign passed, as
-    CARLA applies it; lanes without sign data keep the road's limit."""
+    """Return a lane's speed limit in m/s, or -1 if unknown.
+
+    With ``signs``, use the last speed sign passed, matching CARLA. Without sign data, use the road's limit.
+    """
     speed = getattr(lane, "sign_speed_limit_mps", None) if source == "signs" else None
     speed = lane.speed_limit_mps if speed is None else speed
     return float(speed) if speed and not np.isnan(speed) else -1.0
 
 
 def _map_speed_limits(map_api: py123d_api.MapAPI, speed_limit_source: str = "road") -> dict[int, float]:
-    """Speed limit of every lane in the whole map, unknown ones filled by ``_fill_missing_speed_limits``."""
+    """Return speed limits for all map lanes, filling unknown limits with ``_fill_missing_speed_limits``."""
     objs: list[Any] = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE))
     ids = {obj.object_id for obj in objs}
     lanes = {
