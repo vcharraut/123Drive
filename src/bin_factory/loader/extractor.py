@@ -8,6 +8,8 @@ import numpy as np
 import shapely
 from py123d import api as py123d_api
 from py123d.datatypes import detections, map_objects
+from py123d.geometry import EulerAnglesIndex, PoseSE3Index
+from py123d.geometry.utils.rotation_utils import get_euler_array_from_quaternion_array
 
 from bin_factory import puffer_types, schema
 from bin_factory.loader import mapping
@@ -169,15 +171,17 @@ def _extract_shoulder_context(
     intersections: list[Any] = []
     if map_objects.MapLayer.INTERSECTION in layers:
         intersections = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.INTERSECTION))
-    intersection_polygons = [shapely.Polygon(obj.outline_2d.array[:, :2]).buffer(0) for obj in intersections]
+    raw_intersections = [obj.outline_3d.array for obj in intersections]
+    intersection_polygons = [shapely.Polygon(arr[:, :2]).buffer(0) for arr in raw_intersections]
     intersection_tree = shapely.STRtree(intersection_polygons) if intersection_polygons else None
     non_junction: list[np.ndarray] = []
-    junction: list[np.ndarray] = [_centered_array(obj.outline_3d.array, centroid) for obj in intersections]
+    junction: list[np.ndarray] = [_centered_array(arr, centroid) for arr in raw_intersections]
     for shoulder in shoulders:
-        polygon = shapely.Polygon(shoulder.outline_2d.array[:, :2]).buffer(0)
+        arr = shoulder.outline_3d.array
+        polygon = shapely.Polygon(arr[:, :2]).buffer(0)
         if polygon.is_empty:
             continue
-        outline = _centered_array(shoulder.outline_3d.array, centroid)
+        outline = _centered_array(arr, centroid)
         overlap = 0.0
         if intersection_tree is not None:
             overlap = sum(polygon.intersection(intersection_polygons[i]).area for i in intersection_tree.query(polygon))
@@ -204,20 +208,20 @@ def _extract_objects(
     # Ego agent is always object ID 0, built from cached ego states
     ego = objects[0]
     ego.source_id = ego_states[0].box_detection_se3.attributes.track_token
+    is_nuplan = scene_api.dataset.startswith("nuplan")
 
     for frame_idx, ego_state in enumerate(ego_states):
         if ego_state is None:
             raise ValueError(f"Missing ego state at frame {frame_idx}")
 
-        _write_detection_frame(ego, frame_idx, ego_state.center_se3, ego_state.bounding_box_se3, centroid)
+        bbox = ego_state.bounding_box_se3
+        _write_detection_frame(ego, frame_idx, bbox, centroid, bbox.center_se3.yaw)
         # PY123D-REPORT[nuplan]: raw ego_pose velocity has a lateral bias (body vy ~ -2% of vx) and reads ~1.4%
         # fast against the logged poses. Leave it NaN so _fill_missing_velocities derives it from positions.
-        if scene_api.dataset.startswith("nuplan"):
+        if is_nuplan:
             continue
-        ego.velocity[frame_idx] = [
-            float(ego_state.box_detection_se3.velocity_3d.x),
-            float(ego_state.box_detection_se3.velocity_3d.y),
-        ]
+        velocity = ego_state.box_detection_se3.velocity_3d
+        ego.velocity[frame_idx] = [float(velocity.x), float(velocity.y)]
 
     # Detections for all other agents
     next_object_id = 0
@@ -225,7 +229,9 @@ def _extract_objects(
         detections_list = scene_api.get_box_detections_se3_at_iteration(frame_idx)
         if not detections_list:
             continue
-        for detection in detections_list:
+        quaternions = np.array([d.bounding_box_se3.array[PoseSE3Index.QUATERNION] for d in detections_list])
+        headings = get_euler_array_from_quaternion_array(quaternions)[:, EulerAnglesIndex.YAW]
+        for detection, heading in zip(detections_list, headings):
             track_token = detection.attributes.track_token
             object_id = tokens_to_object_id.get(track_token)
             if object_id is None:
@@ -240,13 +246,15 @@ def _extract_objects(
             _write_detection_frame(
                 obj,
                 frame_idx,
-                detection.bounding_box_se3.center_se3,
                 detection.bounding_box_se3,
                 centroid,
+                float(heading),
             )
 
             if detection.velocity_3d is not None:
-                obj.velocity[frame_idx] = [float(detection.velocity_3d.x), float(detection.velocity_3d.y)]
+                vel = detection.velocity_3d.array
+                obj.velocity[frame_idx, 0] = vel[0]
+                obj.velocity[frame_idx, 1] = vel[1]
 
     return objects, labels, tokens_to_object_id
 
@@ -375,6 +383,7 @@ def _extract_map(
             isinstance(element, schema.MapElement)
             and element.is_line
             and element.polyline is not None
+            and ((element.polyline[-1, :2] - element.polyline[0, :2]) ** 2).sum() < MIN_LINE_LENGTH**2
             and np.linalg.norm(np.diff(element.polyline[:, :2], axis=0), axis=1).sum() < MIN_LINE_LENGTH
         ):
             continue
@@ -484,26 +493,42 @@ def _extract_static_objects(
         layer = map_objects.MapLayer.STATIC_OBJECT
         found = map_api.query(path.buffer(SCENE_MAP_MARGIN), [layer], predicate="intersects")
         static_objects = cast("list[Any]", found.get(layer, []))
-    if onroad_only and static_objects and map_objects.MapLayer.GENERIC_DRIVABLE in map_api.available_map_layers:
+    if not static_objects:
+        return {}
+    boxes = [obj.outline.array[:4] for obj in static_objects]
+    if onroad_only and map_objects.MapLayer.GENERIC_DRIVABLE in map_api.available_map_layers:
         # An agent must cross a road edge before colliding with an off-road object.
         surfaces: list[Any] = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.GENERIC_DRIVABLE))
         outlines = [surface.outline_3d.array for surface in surfaces]
         tree = shapely.STRtree([shapely.Polygon(outline[:, :2]).buffer(0) for outline in outlines])
-        kept = []
-        for obj in static_objects:
-            box = obj.outline.array[:4]
+        box_polys = [shapely.Polygon(box[:, :2]) for box in boxes]
+        q_idx, s_idx = tree.query(box_polys, predicate="intersects")
+        hits_by_obj: dict[int, list[int]] = collections.defaultdict(list)
+        for qi, si in zip(q_idx.tolist(), s_idx.tolist()):
+            hits_by_obj[qi].append(si)
+        kept_objs = []
+        kept_boxes = []
+        for idx, (obj, box) in enumerate(zip(static_objects, boxes)):
+            hits = hits_by_obj.get(idx)
+            if not hits:
+                continue
             centre = box.mean(axis=0)
-            hits = tree.query(shapely.Polygon(box[:, :2]), predicate="intersects")
-            nearest = [outlines[i][np.argmin(np.linalg.norm(outlines[i][:, :2] - centre[:2], axis=1))] for i in hits]
-            if any(abs(point[2] - centre[2]) <= STATIC_OBJECT_LEVEL_TOL for point in nearest):
-                kept.append(obj)
-        static_objects = kept
+            if any(
+                abs(outlines[i][int(np.argmin(((outlines[i][:, :2] - centre[:2]) ** 2).sum(axis=1))), 2] - centre[2])
+                <= STATIC_OBJECT_LEVEL_TOL
+                for i in hits
+            ):
+                kept_objs.append(obj)
+                kept_boxes.append(box)
+        static_objects = kept_objs
+        boxes = kept_boxes
     tracks: dict[int, schema.Track] = {}
-    for n, obj in enumerate(static_objects):
-        corners = obj.outline.array[:4]  # footprint box at ground level
+    num_frames = max(episode_length, 1)
+    for n, (obj, corners) in enumerate(zip(static_objects, boxes)):
         sides = np.diff(corners[:3, :2], axis=0)
-        long_side = sides[int(np.argmax(np.linalg.norm(sides, axis=1)))]
-        track = _make_empty_track(max(episode_length, 1))  # one frame in map-only scenarios (no frames)
+        side_norms = np.linalg.norm(sides, axis=1)
+        long_side = sides[int(np.argmax(side_norms))]
+        track = _make_empty_track(num_frames)  # one frame in map-only scenarios (no frames)
         track.source_id = str(obj.object_id)
         track.type = int(
             puffer_types.ObjectType.BARRIER
@@ -514,8 +539,8 @@ def _extract_static_objects(
         track.heading[:] = np.arctan2(long_side[1], long_side[0])
         track.velocity[:] = 0.0
         track.valid[:] = 1
-        track.length[:] = np.linalg.norm(sides, axis=1).max()
-        track.width[:] = np.linalg.norm(sides, axis=1).min()
+        track.length[:] = side_norms.max()
+        track.width[:] = side_norms.min()
         track.height[:] = obj.height
         tracks[first_id + n] = track
     return tracks
@@ -524,20 +549,19 @@ def _extract_static_objects(
 def _write_detection_frame(
     obj: schema.Track,
     frame_idx: int,
-    center_se3: Any,
     bbox: Any,
     centroid: np.ndarray,
+    heading: float,
 ) -> None:
-    obj.position[frame_idx] = [
-        float(center_se3.x) - float(centroid[0]),
-        float(center_se3.y) - float(centroid[1]),
-        float(center_se3.z) - float(centroid[2]) - float(bbox.height) / 2.0,
-    ]
-    obj.heading[frame_idx] = center_se3.pose_se2.yaw
+    arr = bbox.array
+    obj.position[frame_idx, 0] = arr[0] - centroid[0]
+    obj.position[frame_idx, 1] = arr[1] - centroid[1]
+    obj.position[frame_idx, 2] = arr[2] - centroid[2] - arr[9] / 2.0
+    obj.heading[frame_idx] = heading
     obj.valid[frame_idx] = 1
-    obj.length[frame_idx] = float(bbox.length)
-    obj.width[frame_idx] = float(bbox.width)
-    obj.height[frame_idx] = float(bbox.height)
+    obj.length[frame_idx] = arr[7]
+    obj.width[frame_idx] = arr[8]
+    obj.height[frame_idx] = arr[9]
 
 
 def _make_empty_track(episode_length: int) -> schema.Track:
@@ -558,31 +582,24 @@ def _fill_missing_velocities(track: schema.Track, dt: float) -> None:
     observed = np.all(np.isfinite(track.velocity), axis=1)
     track.velocity[~track.valid.astype(bool)] = 0.0
 
-    for index in valid_indices[~observed[valid_indices]]:
-        neighbors = valid_indices[valid_indices != index]
-        previous = neighbors[neighbors < index]
-        following = neighbors[neighbors > index]
-        if len(previous) and len(following):
-            left, right = previous[-1], following[0]
-        elif len(previous):
-            left, right = previous[-1], index
-        elif len(following):
-            left, right = index, following[0]
-        else:
-            track.velocity[index] = 0.0
-            continue
-        track.velocity[index] = (track.position[right, :2] - track.position[left, :2]) / ((right - left) * dt)
+    missing = np.flatnonzero(~observed[valid_indices])
+    if not len(missing):
+        return
+    if len(valid_indices) < 2:
+        track.velocity[valid_indices[missing]] = 0.0
+        return
+    left = valid_indices[np.maximum(missing - 1, 0)]
+    right = valid_indices[np.minimum(missing + 1, len(valid_indices) - 1)]
+    track.velocity[valid_indices[missing]] = (
+        (track.position[right, :2] - track.position[left, :2]) / ((right - left)[:, None] * dt)
+    )
 
 
 def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) -> np.ndarray:
     """Compute 3D scene centroid from ego trajectory, falling back to road geometry mean."""
     if ego_states is not None:
         positions = np.array(
-            [
-                [float(s.center_se3.x), float(s.center_se3.y), float(s.center_se3.z)]
-                for s in ego_states
-                if s is not None
-            ],
+            [s.bounding_box_se3.array[:3] for s in ego_states if s is not None],
             dtype=np.float64,
         )
         if len(positions) > 0:
@@ -667,22 +684,29 @@ def _alongside(line: np.ndarray, other: np.ndarray, side: float) -> bool:
     """Whether ``other`` runs parallel to ``line`` on ``side`` (+1 left, -1 right) long enough, sampled per metre."""
     line, other = line[:, :2], other[:, :2]
     steps = np.diff(line, axis=0)
-    cum = np.r_[0.0, np.cumsum(np.linalg.norm(steps, axis=1))]
+    step_norms = np.linalg.norm(steps, axis=1)
+    cum = np.r_[0.0, np.cumsum(step_norms)]
     other_steps = np.diff(other, axis=0)
-    other_length = float(np.linalg.norm(other_steps, axis=1).sum())
+    other_norms = np.linalg.norm(other_steps, axis=1)
+    other_length = float(other_norms.sum())
     if cum[-1] <= 0 or other_length <= 0:
         return False
     samples = np.arange(0.0, cum[-1], 1.0)
     points = np.column_stack([np.interp(samples, cum, line[:, 0]), np.interp(samples, cum, line[:, 1])])
-    direction = steps[np.clip(np.searchsorted(cum, samples, side="right") - 1, 0, len(steps) - 1)]
-    direction /= np.maximum(np.linalg.norm(direction, axis=1, keepdims=True), 1e-9)
+    seg_idx = np.clip(np.searchsorted(cum, samples, side="right") - 1, 0, len(steps) - 1)
+    direction = steps[seg_idx] / np.maximum(step_norms[seg_idx, None], 1e-9)
 
     sq = np.maximum((other_steps**2).sum(1), 1e-9)
-    t = np.clip(((points[:, None] - other[:-1]) * other_steps).sum(-1) / sq, 0.0, 1.0)
-    proj = other[:-1] + t[..., None] * other_steps
-    nearest = np.linalg.norm(proj - points[:, None], axis=-1).argmin(1)
-    rel = proj[np.arange(len(points)), nearest] - points
-    lateral = side * (direction[:, 0] * rel[:, 1] - direction[:, 1] * rel[:, 0])
+    dx = points[:, None, 0] - other[:-1, 0]
+    dy = points[:, None, 1] - other[:-1, 1]
+    t = np.clip((dx * other_steps[:, 0] + dy * other_steps[:, 1]) / sq, 0.0, 1.0)
+    rx = t * other_steps[:, 0] - dx
+    ry = t * other_steps[:, 1] - dy
+    nearest = (rx * rx + ry * ry).argmin(1)
+    p_idx = np.arange(len(points))
+    rel_x = rx[p_idx, nearest]
+    rel_y = ry[p_idx, nearest]
+    lateral = side * (direction[:, 0] * rel_y - direction[:, 1] * rel_x)
     other_dir = other_steps[nearest] / np.sqrt(sq[nearest])[:, None]
     parallel = (direction * other_dir).sum(1) > np.cos(NEIGHBOR_MAX_ANGLE)
     adjacent = (lateral > NEIGHBOR_GAP[0]) & (lateral < NEIGHBOR_GAP[1]) & parallel
@@ -711,15 +735,20 @@ def _trim_end_hooks(line: np.ndarray) -> np.ndarray:
     """
     # PY123D-REPORT[opendrive]: ~2% of Town12/13 junction lane centerlines start or end with a 0.25 m zig-zag
     # (sideways 0.125 m, or 90 degrees out and 178 back), turning the lane's end heading and spiking its curvature.
+    if len(line) < 3:
+        return line
+    hook_sq = HOOK_MAX_LENGTH**2
+    cos_min = np.cos(HOOK_MIN_TURN)
     for _ in range(2):
-        dist = np.linalg.norm(line[:, :2] - line[0, :2], axis=1)
-        if (dist >= 1.0).any() and (dist >= HOOK_MAX_LENGTH).any():
-            chord = line[np.argmax(dist >= 1.0), :2] - line[0, :2]
-            end = int(np.argmax(dist >= HOOK_MAX_LENGTH))  # first point past the end stretch
-            steps = np.diff(line[: end + 1, :2], axis=0)
-            cos_turn = steps @ chord / np.maximum(np.linalg.norm(steps, axis=1) * np.linalg.norm(chord), 1e-12)
-            if (cos_turn < np.cos(HOOK_MIN_TURN)).any():
-                line = np.delete(line, np.arange(1, end), axis=0)
+        if len(line) >= 3 and ((line[1, :2] - line[0, :2]) ** 2).sum() < hook_sq:
+            dist_sq = ((line[:, :2] - line[0, :2]) ** 2).sum(axis=1)
+            if (dist_sq >= 1.0).any() and (dist_sq >= hook_sq).any():
+                chord = line[np.argmax(dist_sq >= 1.0), :2] - line[0, :2]
+                end = int(np.argmax(dist_sq >= hook_sq))  # first point past the end stretch
+                steps = np.diff(line[: end + 1, :2], axis=0)
+                cos_turn = steps @ chord / np.maximum(np.linalg.norm(steps, axis=1) * np.linalg.norm(chord), 1e-12)
+                if (cos_turn < cos_min).any():
+                    line = np.delete(line, np.arange(1, end), axis=0)
         line = line[::-1]
     return line
 
@@ -729,16 +758,25 @@ def _drop_duplicate_lines(elements: dict[int, schema.MapElement]) -> None:
     # PY123D-REPORT[nuplan,opendrive]: ~40% of road lines come twice, once per adjacent lane, often reversed and
     # sometimes sampled differently.
     ids = [eid for eid, element in elements.items() if element.is_line]
+    if len(ids) < 2:
+        return
     polylines = [cast("np.ndarray", elements[eid].polyline) for eid in ids]  # road lines always carry one
-    geoms = np.array([shapely.LineString(polyline[:, :2]) for polyline in polylines], dtype=object)
     types = np.array([elements[eid].type for eid in ids], dtype=int)
     ends = np.array([polyline[[0, -1], :2] for polyline in polylines]).reshape(-1, 2, 2)
-    i, j = shapely.STRtree(geoms).query(geoms, predicate="dwithin", distance=LINE_DUPLICATE_DISTANCE)
+    pts = shapely.points(ends.min(axis=1))
+    i, j = shapely.STRtree(pts).query(pts, predicate="dwithin", distance=LINE_DUPLICATE_DISTANCE * np.sqrt(2.0))
+    mask = (i < j) & (types[i] == types[j])
+    i, j = i[mask], j[mask]
     same = np.linalg.norm(ends[i] - ends[j], axis=-1).max(-1) < LINE_DUPLICATE_DISTANCE
     flipped = np.linalg.norm(ends[i] - ends[j, ::-1], axis=-1).max(-1) < LINE_DUPLICATE_DISTANCE
-    pairs = (i < j) & (types[i] == types[j]) & (same | flipped)
-    pairs[pairs] = shapely.hausdorff_distance(geoms[i[pairs]], geoms[j[pairs]]) < LINE_DUPLICATE_DISTANCE
-    for k in np.unique(j[pairs]):
+    cand = same | flipped
+    i, j = i[cand], j[cand]
+    if len(i) == 0:
+        return
+    geoms_i = [shapely.LineString(polylines[idx][:, :2]) for idx in i]
+    geoms_j = [shapely.LineString(polylines[idx][:, :2]) for idx in j]
+    dup = shapely.hausdorff_distance(geoms_i, geoms_j) < LINE_DUPLICATE_DISTANCE
+    for k in np.unique(j[dup]):
         del elements[ids[k]]
 
 

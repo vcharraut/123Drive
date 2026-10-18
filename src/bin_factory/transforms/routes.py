@@ -102,20 +102,50 @@ def _clear_conflicting_routes(agents: dict[int, schema.Track], start: int) -> No
     and validity for log replay and WOSAC. An ego overlap at the start frame raises an error.
     """
     tracks = list(agents.values())
-    corners = _box_corners(tracks) if tracks else np.zeros((0, 0, 4, 2))
-    hits = []  # (agent, other, frame) index triples of intersecting boxes
-    for t in range(start, corners.shape[1]):
-        live = np.flatnonzero([track.valid[t] for track in tracks])
-        if len(live) < 2:
-            continue
-        boxes = shapely.polygons(corners[live, t])
-        i, j = shapely.STRtree(boxes).query(boxes, predicate="intersects")
-        hits.append(np.stack([live[i[i != j]], live[j[i != j]], np.full((i != j).sum(), t)], 1))
-    if not hits:
+    was_controllable = np.array([bool(track.route) for track in tracks], dtype=bool)
+    ctrl_idx = np.flatnonzero(was_controllable)
+    if len(ctrl_idx) == 0 or not tracks or start >= tracks[0].position.shape[0]:
         return
-    agent, other, frame = np.concatenate(hits).T
-    was_controllable = np.array([bool(track.route) for track in tracks])
-    is_ego = np.array([aid == 0 for aid in agents])
+
+    is_ego = np.array([aid == 0 for aid in agents], dtype=bool)
+    pos = np.stack([track.position[start:, :2] for track in tracks])
+    valid = np.stack([track.valid[start:] > 0 for track in tracks])
+    lengths = np.stack([track.length[start:] for track in tracks])
+    widths = np.stack([track.width[start:] for track in tracks])
+    radii = 0.5 * np.hypot(lengths, widths)
+
+    both_valid = valid[ctrl_idx, None, :] & valid[None, :, :]
+    both_valid[np.arange(len(ctrl_idx)), ctrl_idx, :] = False
+    for c_i, a_i in enumerate(ctrl_idx):
+        if is_ego[a_i]:
+            both_valid[c_i, :, 1:] = False
+
+    diff = pos[ctrl_idx, None, :, :] - pos[None, :, :, :]
+    dist_sq = diff[..., 0] ** 2 + diff[..., 1] ** 2
+    r_sum = radii[ctrl_idx, None, :] + radii[None, :, :] + 1e-6
+    c_idx, other_idx, f_offset = np.nonzero(both_valid & (dist_sq <= r_sum * r_sum))
+    if len(c_idx) == 0:
+        return
+
+    agent_idx = ctrl_idx[c_idx]
+    headings = np.stack([track.heading[start:] for track in tracks])
+    corners_a = _pair_box_corners(
+        pos[agent_idx, f_offset],
+        headings[agent_idx, f_offset],
+        lengths[agent_idx, f_offset],
+        widths[agent_idx, f_offset],
+    )
+    corners_b = _pair_box_corners(
+        pos[other_idx, f_offset],
+        headings[other_idx, f_offset],
+        lengths[other_idx, f_offset],
+        widths[other_idx, f_offset],
+    )
+    keep = shapely.intersects(shapely.polygons(corners_a), shapely.polygons(corners_b))
+    if not np.any(keep):
+        return
+
+    agent, other, frame = agent_idx[keep], other_idx[keep], start + f_offset[keep]
     if (is_ego[agent] & was_controllable[agent] & (frame == start)).any():
         raise ValueError("Ego vehicle (agent 0) overlaps another agent at the start frame")
     controlled = was_controllable.copy()
@@ -142,15 +172,15 @@ def _route_remaining(position: np.ndarray, route: list[int], route_cache: _Route
     return float(lengths[nearest] - progress + lengths[nearest + 1 :].sum())
 
 
-def _box_corners(tracks: list[schema.Track]) -> np.ndarray:
-    """Oriented box corners (N, T, 4, 2) of every track at every frame."""
-    position = np.stack([track.position[:, :2] for track in tracks])
-    heading = np.stack([track.heading for track in tracks])
-    half = np.stack([np.stack([track.length, track.width], -1) / 2 for track in tracks])
-    local = half[:, :, None] * np.array([[1, 1], [1, -1], [-1, -1], [-1, 1]])
-    cos, sin = np.cos(heading)[..., None], np.sin(heading)[..., None]
+def _pair_box_corners(
+    position: np.ndarray, heading: np.ndarray, length: np.ndarray, width: np.ndarray
+) -> np.ndarray:
+    """Oriented box corners (K, 4, 2) for K agent-frame pairs."""
+    half = np.stack([length, width], -1) / 2
+    local = half[:, None] * np.array([[1, 1], [1, -1], [-1, -1], [-1, 1]])
+    cos, sin = np.cos(heading)[:, None], np.sin(heading)[:, None]
     rotated = np.stack([cos * local[..., 0] - sin * local[..., 1], sin * local[..., 0] + cos * local[..., 1]], -1)
-    return rotated + position[:, :, None]
+    return rotated + position[:, None]
 
 
 def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _RouteCache:
@@ -189,6 +219,15 @@ def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _Rou
         lane_cum_lengths[idx, :n_points] = np.concatenate(([0.0], np.cumsum(seg_lengths)))
 
     lane_id_to_idx = {lane_id: idx for idx, lane_id in enumerate(lane_ids)}
+    lane_graph = {
+        lane_id: tuple(exit_id for exit_id in lanes[lane_id].exit_lanes if exit_id in lane_id_to_idx)
+        for lane_id in lane_ids
+    }
+    lane_rev_graph: dict[int, list[int]] = {lane_id: [] for lane_id in lane_ids}
+    for lane_id, exits in lane_graph.items():
+        for exit_id in exits:
+            lane_rev_graph[exit_id].append(lane_id)
+
     edge_polylines = [
         element.polyline[:, :3]
         for element in static_map_elements.values()
@@ -201,10 +240,8 @@ def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _Rou
         "lane_polylines_xyz": lane_polylines_xyz,
         "lane_lengths": lane_lengths,
         "lane_id_to_idx": lane_id_to_idx,
-        "lane_graph": {
-            lane_id: tuple(exit_id for exit_id in lanes[lane_id].exit_lanes if exit_id in lane_id_to_idx)
-            for lane_id in lane_ids
-        },
+        "lane_graph": lane_graph,
+        "lane_rev_graph": lane_rev_graph,
         "lane_bbox_mins": lane_bbox_mins,
         "lane_bbox_maxs": lane_bbox_maxs,
         "lane_head_dirs": lane_head_dirs,
@@ -212,6 +249,7 @@ def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _Rou
         "lane_segment_lengths": lane_segment_lengths,
         "lane_cum_lengths": lane_cum_lengths,
         "path_cache": {},
+        "in_cost_cache": {},
         "road_edges": tuple((p, p[:, :2].min(axis=0), p[:, :2].max(axis=0)) for p in edge_polylines),
     }
 
@@ -316,10 +354,13 @@ def _select_candidate_path(
     total_points: int,
     route_cache: _RouteCache,
 ) -> list[_Candidate]:
-    # Scan all earlier observations in O(T^2 * C^2), with T observations and C candidates.
-    # SKIPPED_POINT_COST dominates long gaps, so limiting history would need real-data parity checks.
+    # Scan recent history first. Nonnegative costs and prefix-min bounds let us stop
+    # once no earlier observation can beat the best cost, without a fixed history limit.
     costs: list[list[float]] = []
     backrefs: list[list[tuple[int, int] | None]] = []
+    adj_costs: list[float] = []
+    prefix_min_adj: list[float] = []
+    lane_last_obs: dict[int, int] = {}
 
     for obs_idx, candidates in enumerate(observations):
         obs_costs: list[float] = []
@@ -328,23 +369,31 @@ def _select_candidate_path(
         for point_idx, lane_id, distance, s in candidates:
             best_cost = point_idx * SKIPPED_POINT_COST + distance
             best_backref: tuple[int, int] | None = None
+            in_costs = _get_incoming_transition_costs(lane_id, route_cache)
+            start_prev = max((lane_last_obs.get(pid, -1) for pid in in_costs), default=-1)
+            base_skip = (point_idx - 1) * SKIPPED_POINT_COST + distance
 
-            for prev_idx in range(obs_idx):
+            for prev_idx in range(start_prev, -1, -1):
+                if prefix_min_adj[prev_idx] + base_skip - 1e-9 > best_cost:
+                    break
+                if adj_costs[prev_idx] + base_skip - 1e-9 > best_cost:
+                    continue
                 skipped_cost = (point_idx - observations[prev_idx][0][0] - 1) * SKIPPED_POINT_COST
 
                 for prev_cand_idx, (_, prev_lane_id, _, prev_s) in enumerate(observations[prev_idx]):
-                    if prev_lane_id == lane_id:
-                        if s + BACKWARD_PROGRESS_TOLERANCE < prev_s:
-                            continue
-                        transition = skipped_cost
-                    else:
-                        path = _find_shortest_lane_path(prev_lane_id, lane_id, route_cache)
-                        if not path:
-                            continue
-                        transition = skipped_cost + (len(path) - 1) * HOP_COST + LANE_CHANGE_COST
+                    hop_cost = in_costs.get(prev_lane_id)
+                    if hop_cost is None:
+                        continue
+                    if prev_lane_id == lane_id and s + BACKWARD_PROGRESS_TOLERANCE < prev_s:
+                        continue
 
-                    total_cost = costs[prev_idx][prev_cand_idx] + transition + distance
-                    if total_cost < best_cost:
+                    total_cost = costs[prev_idx][prev_cand_idx] + skipped_cost + hop_cost + distance
+                    # Preserve the forward scan's earliest predecessor on ties.
+                    if total_cost < best_cost or (
+                        total_cost == best_cost
+                        and best_backref is not None
+                        and (prev_idx, prev_cand_idx) < best_backref
+                    ):
                         best_cost = total_cost
                         best_backref = (prev_idx, prev_cand_idx)
 
@@ -353,6 +402,11 @@ def _select_candidate_path(
 
         costs.append(obs_costs)
         backrefs.append(obs_backrefs)
+        for _, lane_id, _, _ in candidates:
+            lane_last_obs[lane_id] = obs_idx
+        adj = min(obs_costs) - candidates[0][0] * SKIPPED_POINT_COST
+        adj_costs.append(adj)
+        prefix_min_adj.append(adj if not prefix_min_adj or adj < prefix_min_adj[-1] else prefix_min_adj[-1])
 
     obs_idx, cand_idx = min(
         ((obs_idx, cand_idx) for obs_idx, candidates in enumerate(observations) for cand_idx in range(len(candidates))),
@@ -365,6 +419,28 @@ def _select_candidate_path(
         obs_idx, cand_idx = backref
         path.append(observations[obs_idx][cand_idx])
     return path[::-1]
+
+
+def _get_incoming_transition_costs(end_lane_id: int, route_cache: _RouteCache) -> dict[int, float]:
+    cached = route_cache["in_cost_cache"].get(end_lane_id)
+    if cached is not None:
+        return cached
+    rev_graph = route_cache["lane_rev_graph"]
+    costs: dict[int, float] = {end_lane_id: 0.0}
+    frontier = [end_lane_id]
+    for hops in range(1, MAX_TRANSITION_HOPS + 1):
+        penalty = hops * HOP_COST + LANE_CHANGE_COST
+        next_frontier = []
+        for curr in frontier:
+            for prev_id in rev_graph.get(curr, ()):
+                if prev_id not in costs:
+                    costs[prev_id] = penalty
+                    next_frontier.append(prev_id)
+        if not next_frontier:
+            break
+        frontier = next_frontier
+    route_cache["in_cost_cache"][end_lane_id] = costs
+    return costs
 
 
 def _find_shortest_lane_path(start_lane_id: int, end_lane_id: int, route_cache: _RouteCache) -> tuple[int, ...]:
@@ -437,14 +513,22 @@ def _get_lane_endpoint_direction(polyline: np.ndarray, from_start: bool) -> np.n
 def _is_offroad(position: np.ndarray, heading: float, length: float, width: float, route_cache: _RouteCache) -> bool:
     """True if no elevation-matched lane is within reach, or the agent box touches a same-level road edge."""
     xy, z = position[:2], position[2]
+    near_lanes = np.flatnonzero(
+        (route_cache["lane_bbox_maxs"][:, 0] >= xy[0] - OFFROAD_DISTANCE_THRESHOLD)
+        & (route_cache["lane_bbox_mins"][:, 0] <= xy[0] + OFFROAD_DISTANCE_THRESHOLD)
+        & (route_cache["lane_bbox_maxs"][:, 1] >= xy[1] - OFFROAD_DISTANCE_THRESHOLD)
+        & (route_cache["lane_bbox_mins"][:, 1] <= xy[1] + OFFROAD_DISTANCE_THRESHOLD)
+    )
+    if len(near_lanes) == 0:
+        return True
     min_distances, closest_indices, closest_t = _points_to_polylines_distance(
         xy.reshape(1, 2),
-        route_cache["lane_polylines"],
-        route_cache["lane_lengths"],
+        route_cache["lane_polylines"][near_lanes],
+        route_cache["lane_lengths"][near_lanes],
     )
     elevation_ok = _elevation_ok(
         route_cache["lane_polylines_xyz"],
-        np.arange(len(route_cache["lane_id_array"])),
+        near_lanes,
         closest_indices,
         closest_t,
         z,
@@ -537,7 +621,9 @@ def _points_to_polylines_distance(
     """Returns (min_distances, closest_indices, closest_t), each shaped (n_points, n_lanes)."""
     n_points = len(points)
     n_lanes = len(polylines)
-    max_segments = polylines.shape[1] - 1 if n_lanes > 0 else 0
+    polyline_lengths = np.asarray(polyline_lengths, dtype=np.int64)
+    max_pts = min(polylines.shape[1], int(polyline_lengths.max(initial=0))) if n_lanes > 0 else 0
+    max_segments = max_pts - 1
 
     if n_points == 0 or n_lanes == 0 or max_segments <= 0:
         return (
@@ -546,10 +632,10 @@ def _points_to_polylines_distance(
             np.zeros((n_points, n_lanes), dtype=np.float64),
         )
 
+    polylines = polylines[:, :max_pts, :]
     seg_starts = polylines[:, :-1, :]
     seg_ends = polylines[:, 1:, :]
 
-    polyline_lengths = np.asarray(polyline_lengths, dtype=np.int64)
     seg_counts = np.clip(polyline_lengths - 1, 0, max_segments)
     valid_segs = np.arange(max_segments)[np.newaxis, :] < seg_counts[:, np.newaxis]
 

@@ -76,9 +76,9 @@ def process_polylines(
 
 def _remove_duplicate_points(polyline: np.ndarray, tol: float = 1e-9) -> np.ndarray:
     diffs = np.diff(polyline, axis=0)
-    distances = np.linalg.norm(diffs, axis=1)
-    keep_mask = np.concatenate([[True], distances >= tol])
-
+    keep_mask = np.concatenate([[True], (diffs * diffs).sum(axis=1) >= tol * tol])
+    if keep_mask.all():
+        return polyline
     return polyline[keep_mask]
 
 
@@ -91,16 +91,16 @@ def resample_polyline(polyline: np.ndarray, max_segment_length: float) -> np.nda
     subdivisions = np.maximum(np.ceil(seg_lengths / max_segment_length).astype(int), 1)
 
     # Pre-allocate: each segment contributes `subdivisions[i]` points, plus the final endpoint
-    total_points = subdivisions.sum() + 1
+    total_points = int(subdivisions.sum()) + 1
+    if total_points == len(polyline):
+        return polyline.copy()
     result = np.empty((total_points, polyline.shape[1]), dtype=polyline.dtype)
 
-    idx = 0
-    for i, diff in enumerate(diffs):
-        n = subdivisions[i]
-        t = np.arange(n).reshape(-1, 1) / n
-        result[idx : idx + n] = polyline[i] + t * diff
-        idx += n
-    result[idx] = polyline[-1]
+    segments = np.repeat(np.arange(len(diffs)), subdivisions)
+    starts = np.cumsum(subdivisions) - subdivisions
+    t = (np.arange(total_points - 1) - starts[segments]) / subdivisions[segments]
+    result[:-1] = polyline[segments] + t[:, None] * diffs[segments]
+    result[-1] = polyline[-1]
 
     return result
 
