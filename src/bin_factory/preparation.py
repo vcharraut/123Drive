@@ -7,7 +7,7 @@ from bin_factory.conversion.traffic_controls import process_traffic_controls
 from bin_factory.generators.graph import build_lane_distance_matrix, compute_lane_lengths
 from bin_factory.generators.routes import process_agent_routes
 from bin_factory.generators.shoulder_edges import add_shoulder_edges
-from bin_factory.generators.traffic_light_interpolation import interpolate_traffic_lights
+from bin_factory.generators.traffic_light_inference import infer_traffic_lights
 from bin_factory.log_context import log
 
 
@@ -22,8 +22,8 @@ def prepare_scenario(py123d_data: Any, config: Any) -> schema.PufferScenario:
         scenario.metadata.dt = config.dt
 
     _validate(scenario, config.validate_level, "Validation failed", extras)
-    if config.interpolate_tl:
-        interpolate_traffic_lights(scenario, extras)
+    if config.infer_traffic_lights:
+        infer_traffic_lights(scenario, extras)
     if config.shoulders == "offroad":
         added = add_shoulder_edges(
             scenario, extras.non_junction_shoulders, extras.junction_drivables, config.ramp_widening_m

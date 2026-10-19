@@ -61,14 +61,14 @@ PufferDinde chooses the controller and whether to replay, freeze, or omit backgr
 entities. Conversion keeps their recorded trajectories and validity masks.
 There is no separate control-state or route-prefix-length field. See [route code].
 
-## Traffic-light interpolation
+## Traffic-light inference
 
-By default, missing light observations remain unknown. `--interpolate_tl` combines
+By default, missing light observations remain unknown. `--infer_traffic_lights` combines
 observed signals, lane topology, vehicle crossings, and stopped vehicles to infer
 missing or inconsistent states. It groups intersection movements and uses conflicts
 between them to constrain inference. Confident estimates become red or green, with yellow
 transitions. Uncertain frames stay unknown.
-Yellow-only detections stay unchanged. See [interpolation code].
+Yellow-only detections stay unchanged. See [inference code].
 
 - [Dataset differences](presets.md)
 - [Command options](cli-reference.md)
@@ -78,4 +78,4 @@ Yellow-only detections stay unchanged. See [interpolation code].
 [schema]: https://github.com/vcharraut/123Drive/blob/main/src/bin_factory/schema.py
 [binary writer]: https://github.com/vcharraut/123Drive/blob/main/src/bin_factory/serialize.py
 [route code]: https://github.com/vcharraut/123Drive/blob/main/src/bin_factory/generators/routes.py
-[interpolation code]: https://github.com/vcharraut/123Drive/blob/main/src/bin_factory/generators/traffic_light_interpolation.py
+[inference code]: https://github.com/vcharraut/123Drive/blob/main/src/bin_factory/generators/traffic_light_inference.py

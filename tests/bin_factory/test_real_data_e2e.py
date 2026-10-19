@@ -65,9 +65,9 @@ def test_discovers_both_fixtures():
 
 
 @pytest.mark.parametrize("log_name", LOG_NAMES)
-@pytest.mark.parametrize("interpolate_tl", [False, True])
-def test_binary_layout_and_counts_match_processed_scenario(log_name, interpolate_tl):
-    scenario = _process(log_name, interpolate_tl=interpolate_tl)
+@pytest.mark.parametrize("infer_traffic_lights", [False, True])
+def test_binary_layout_and_counts_match_processed_scenario(log_name, infer_traffic_lights):
+    scenario = _process(log_name, infer_traffic_lights=infer_traffic_lights)
     data = serialize.scenario_to_binary(scenario)
     parsed = _parse(data)
     # Walking every field and landing exactly on the buffer end proves layout consistency
@@ -178,15 +178,14 @@ def test_metadata_round_trips(log_name):
 # Traffic lights
 
 
-def test_traffic_lights_present_and_imputed():
+def test_traffic_lights_present_and_inferred():
     scenario = _process(TL_LOG)
     parsed = _parse(serialize.scenario_to_binary(scenario))
     assert parsed["counts"][2] > 0, "expected traffic controls in the TL fixture"
 
-    interp = _process(TL_LOG, interpolate_tl=True)
-    parsed_interp = _parse(serialize.scenario_to_binary(interp))
-    # Imputation fills gaps from neighbour trajectories, never dropping controls.
-    assert parsed_interp["counts"][2] >= parsed["counts"][2]
+    inferred = _process(TL_LOG, infer_traffic_lights=True)
+    parsed_inferred = _parse(serialize.scenario_to_binary(inferred))
+    assert parsed_inferred["counts"][2] >= parsed["counts"][2]
 
 
 # Determinism and CLI output

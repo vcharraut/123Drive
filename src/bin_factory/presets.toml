@@ -25,7 +25,7 @@ scenario_id_field = "scene_uuid"
 datasets = ["nuplan-mini"]
 reverse_road_edges = true
 duration_s = 20
-interpolate_tl = true
+infer_traffic_lights = true
 scenario_id_field = "scene_uuid"
 
 [nuscenes]
@@ -44,5 +44,5 @@ scenario_id_field = "location"
 
 [wod-motion]
 datasets = ["wod-motion"]
-interpolate_tl = true
+infer_traffic_lights = true
 scenario_id_field = "log_name"

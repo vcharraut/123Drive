@@ -9,10 +9,10 @@ values. Boolean flags enabled by a preset cannot currently be disabled from the 
 | `av2` | `av2-sensor` | `log_name` | 15 s duration |
 | `carla` | `carla` | `log_name` | Reverse road edges; speed limits from signs |
 | `nuplan` | `nuplan` | `scene_uuid` | 20 s duration; reverse road edges |
-| `nuplan-mini` | `nuplan-mini` | `scene_uuid` | 20 s duration; reverse road edges; interpolate traffic lights |
+| `nuplan-mini` | `nuplan-mini` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
 | `nuscenes` | `nuscenes` | `scene_uuid` | Reverse road edges |
 | `opendrive` | `opendrive` | `location` | Map-only; reverse road edges; off-road shoulders; 1 m ramp widening |
-| `wod-motion` | `wod-motion` | `log_name` | Interpolate traffic lights |
+| `wod-motion` | `wod-motion` | `log_name` | Infer traffic lights |
 
 Road-edge reversal adapts the source direction convention. CARLA uses the last
 speed sign and defaults to 30 km/h before the first sign. OpenDRIVE uses road

@@ -50,7 +50,7 @@ _MAX_JOINT_STATES = 1024
 _GREEN, _YELLOW, _RED = (int(puffer_types.TLState[name]) for name in ("GREEN", "YELLOW", "RED"))
 
 
-def interpolate_traffic_lights(scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
+def infer_traffic_lights(scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
     length, dt = scenario.metadata.scenario_length, float(scenario.metadata.dt)
     polys = {
         lid: np.asarray(e.polyline, dtype=np.float64)[:, :2]

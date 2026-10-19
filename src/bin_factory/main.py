@@ -71,10 +71,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Tolerance for polyline simplification (0=disabled)",
     )
     parser.add_argument(
-        "--interpolate_tl",
-        "--impute_tl",
+        "--infer_traffic_lights",
         action="store_true",
-        help="Interpolate/correct traffic light states from vehicle trajectories (Yan et al. 2025)",
+        help="Infer traffic-light states from observations, topology, and vehicle motion",
     )
     parser.add_argument(
         "--speed_limit_source",

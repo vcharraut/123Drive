@@ -13,7 +13,7 @@
 
 - `src/bin_factory/loader/` extracts and validates source data. `preparation.py` owns transform order and configuration gates.
 - `src/bin_factory/schema.py` defines the scenario model; `serialize.py` defines binary encoding and static decoding.
-- `src/bin_factory/conversion/` owns geometry, sanitization, and traffic controls; `src/bin_factory/generators/` owns routes, lane distances, shoulder edges, and traffic-light interpolation. Use the existing map-element predicates instead of repeating type-range checks.
+- `src/bin_factory/conversion/` owns geometry, sanitization, and traffic controls; `src/bin_factory/generators/` owns routes, lane distances, shoulder edges, and traffic-light inference. Use the existing map-element predicates instead of repeating type-range checks.
 - `src/mapforge/` augments static maps; `src/viz/` serves the scenario viewer; `docker_tools/` builds extractor and converter images.
 - `tests/` contains unit and integration tests, with committed Arrow fixtures in `tests/py123d_data/`.
 - `docs/index.md`, `docs/presets.md`, and `docs/cli-reference.md` are the user documentation. Keep them brief and update them when behavior or options change. Code is the source for implementation details. Documentation is plain Markdown without a website build.
