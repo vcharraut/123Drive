@@ -9,7 +9,7 @@ MAP_REF_KEYS = ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor")
 
 
 def remap_element_refs(element: "MapElement", id_map: dict[int, int]) -> "MapElement":
-    """Copy a MapElement with every MAP_REF_KEYS id passed through ``id_map`` (unknown ids dropped)."""
+    """Copy a MapElement with every MAP_REF_KEYS id remapped through ``id_map`` and unknown ids dropped."""
     return dataclasses.replace(
         element,
         **{key: [id_map[ref] for ref in getattr(element, key) if ref in id_map] for key in MAP_REF_KEYS},
@@ -108,7 +108,7 @@ class StopZone:
     polygon: np.ndarray
     controlled_lanes: list = dataclasses.field(default_factory=list)
     intersection_id: int = -1  # map element id of the intersection, -1 if unknown
-    phase_idx: int = -1  # slot in the intersection's light cycle (same slot: same light state), -1 if not in a cycle
+    phase_idx: int = -1  # slot in the intersection's light cycle, -1 if not in a cycle
 
 
 @dataclasses.dataclass

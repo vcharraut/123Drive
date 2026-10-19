@@ -14,7 +14,7 @@ def arc_length(polyline: np.ndarray) -> np.ndarray:
 
 
 def polyline_length(polyline: np.ndarray) -> float:
-    """Total arc-length of a polyline (sum of segment norms over all columns)."""
+    """Return total arc length of a polyline across all coordinate columns."""
     cum = arc_length(polyline)
     return float(cum[-1]) if len(cum) else 0.0
 
@@ -65,8 +65,8 @@ def process_polylines(
         if area_threshold > 0 and len(polyline) >= 3:
             polyline = _simplify_polyline(polyline, area_threshold)
 
-        # Road edges can get shorter segments: PufferDrive culls and grids each segment by its midpoint,
-        # so long edge segments drop corners near the observation window border.
+        # PufferDrive culls and grids each segment by its midpoint, so long edge segments drop
+        # corners near the observation window border. Give road edges shorter segments.
         segment_length = edge_max_segment_length if element.is_edge else max_segment_length
         if segment_length > 0:
             polyline = resample_polyline(polyline, segment_length)
@@ -90,7 +90,7 @@ def resample_polyline(polyline: np.ndarray, max_segment_length: float) -> np.nda
     seg_lengths = np.linalg.norm(diffs, axis=1)
     subdivisions = np.maximum(np.ceil(seg_lengths / max_segment_length).astype(int), 1)
 
-    # Pre-allocate: each segment contributes `subdivisions[i]` points, plus the final endpoint
+    # Pre-allocate space for each segment's subdivisions plus the final endpoint.
     total_points = int(subdivisions.sum()) + 1
     if total_points == len(polyline):
         return polyline.copy()

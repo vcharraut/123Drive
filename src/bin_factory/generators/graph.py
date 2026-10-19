@@ -7,7 +7,7 @@ from bin_factory.conversion.geometry import arc_length
 
 
 GRAPH_LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}
-LANE_CHANGE_COST = 25.0  # metres, about the distance a lane change takes; keeps the right lane ahead of a split
+LANE_CHANGE_COST = 25.0  # metres, about the distance a lane change takes, keeping the right lane ahead of a split
 
 
 def build_lane_distance_matrix(map_elements: dict[int, schema.MapElement]) -> dict | None:

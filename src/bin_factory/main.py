@@ -19,28 +19,25 @@ from bin_factory.preparation import prepare_scenario
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Convert 123D datasets to PufferDrive binary format")
 
-    parser.add_argument("--py123d_path", type=str, help="Path to py123d dataset (logs/ and maps/)")
+    parser.add_argument("--py123d_path", type=str, help="Path to py123d dataset containing logs/ and maps/")
     parser.add_argument("--output", default="./output", help="Directory to save binary files")
     parser.add_argument(
         "--workers",
         type=int,
         default=0,
-        help=(
-            "Number of parallel workers - "
-            "0: 80%% of CPU cores (default), 1: no parallelism, -1: all CPU cores, 2-n: use n CPU cores"
-        ),
+        help="Parallel worker count. 0 uses 80%% of CPU cores, 1 disables parallelism, -1 uses all cores.",
     )
     parser.add_argument("--num_scenes", type=int, default=None, help="Maximum number of scenes to process")
     parser.add_argument(
         "--preset",
         type=str,
-        help="Apply a dataset preset from presets.toml (e.g. nuplan, wod-motion). CLI flags override preset values.",
+        help="Apply a dataset preset from presets.toml such as nuplan or wod-motion. CLI flags override preset values.",
     )
-    parser.add_argument("--datasets", nargs="+", help="Dataset names to include (e.g. nuplan, wod-motion)")
-    parser.add_argument("--split_types", nargs="+", help="Split types to include (e.g. train, val, test)")
-    parser.add_argument("--split_names", nargs="+", help="Split names to include (e.g. nuplan-mini_val)")
+    parser.add_argument("--datasets", nargs="+", help="Dataset names to include such as nuplan or wod-motion")
+    parser.add_argument("--split_types", nargs="+", help="Split types to include such as train, val, or test")
+    parser.add_argument("--split_names", nargs="+", help="Split names to include such as nuplan-mini_val")
     parser.add_argument("--log_names", nargs="+", help="Log names to include")
-    parser.add_argument("--scene_uuids", nargs="+", help="Scene UUIDs to include (for debugging specific scenarios)")
+    parser.add_argument("--scene_uuids", nargs="+", help="Scene UUIDs to include when debugging specific scenarios")
     parser.add_argument(
         "--scenario_id_field",
         choices=["scene_uuid", "log_name", "location"],
@@ -48,8 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="py123d attribute used as metadata.id and the readable filename component. Map-only uses 'location'.",
     )
     parser.add_argument("--duration_s", type=float, default=0.0, help="Duration of scenario in seconds")
-    parser.add_argument("--dt", type=float, default=0.1, help="Iteration timestep in seconds (e.g. 0.1 = 10 Hz)")
-    parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios (no logs)")
+    parser.add_argument("--dt", type=float, default=0.1, help="Iteration timestep in seconds")
+    parser.add_argument("--map_only", action="store_true", help="Load map-only scenarios without logs")
     parser.add_argument(
         "--chunk_target_scenes",
         type=int,
@@ -62,13 +59,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--edge_max_segment_length",
         type=float,
         default=1.0,
-        help="Max segment length for road-edge interpolation (0=disabled)",
+        help="Max segment length for road-edge interpolation. 0 disables interpolation.",
     )
     parser.add_argument(
         "--area_threshold",
         type=float,
         default=0.1,
-        help="Tolerance for polyline simplification (0=disabled)",
+        help="Tolerance for polyline simplification. 0 disables simplification.",
     )
     parser.add_argument(
         "--infer_traffic_lights",
@@ -79,46 +76,44 @@ def build_parser() -> argparse.ArgumentParser:
         "--speed_limit_source",
         choices=["road", "signs"],
         default="road",
-        help="Lane speed limit: the road's own (road) or the last speed sign's as CARLA applies it (signs)",
+        help="Select the road's speed limit or the last speed sign's limit as CARLA applies it",
     )
     parser.add_argument(
         "--static_objects",
         choices=["all", "onroad"],
         default="onroad",
-        help="Static map objects: all, or only those on the road surface (onroad); the others stand behind a road "
-        "edge and are unreachable when off-road stops the agent",
+        help="Keep all static map objects or only those on the road surface",
     )
     parser.add_argument(
         "--shoulders",
         choices=["drivable", "offroad"],
         default="drivable",
-        help="Shoulders outside junctions: drivable, or offroad (road edges along the lane boundaries next to them)",
+        help="Treat shoulders outside junctions as drivable or place road edges along adjacent lane boundaries",
     )
     parser.add_argument(
         "--ramp_widening_m",
         type=float,
         default=0.0,
-        help="With --shoulders offroad: on ramps (one-way single-lane roads with shoulders on both sides) the "
-        "shoulder edges sit up to this far outside the lane boundary, keeping 1.5 m to the shoulder's far side, "
-        "so long vehicles fit through tight ramp curves",
+        help="When --shoulders is offroad, shift shoulder edges outward by up to this distance on single-lane ramps "
+        "while keeping 1.5 m to the far side of the shoulder",
     )
     parser.add_argument(
         "--reverse_road_edges",
         action="store_true",
-        help="Reverse road-edge polyline order (Waymo convention) for nuplan/carla/opendrive",
+        help="Reverse road-edge polyline order to match the Waymo convention",
     )
     parser.add_argument(
         "--log_level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        help="Root logging level (default: INFO)",
+        help="Root logging level",
     )
     return parser
 
 
 def _apply_preset(parser: argparse.ArgumentParser, argv: list[str]) -> None:
     # Make preset values argparse defaults so explicit CLI flags still override them.
-    # Note: store_true flags set by a preset cannot be turned back off from the CLI.
+    # Store_true flags set by a preset cannot be turned back off from the CLI.
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--preset")
     name = pre.parse_known_args(argv)[0].preset
@@ -321,7 +316,7 @@ def main() -> int:
                 pbar.update(1)
 
     log.info("Conversion complete. %d/%d succeeded, %d failed.", succeeded, succeeded + failed, failed)
-    return 0 if succeeded else 1  # tolerate partial failures; fail only if nothing converted
+    return 0 if succeeded else 1  # tolerate partial failures and fail only if nothing converted
 
 
 if __name__ == "__main__":

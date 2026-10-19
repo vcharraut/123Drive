@@ -31,7 +31,7 @@ from bin_factory import puffer_types, schema
 _SWITCH_S = 30.0  # mean time between two switches of one group
 _DETECTION_LLR = 4.0  # log-likelihood ratio GO/STOP of one detection frame
 _ENTRY_LLR = 12.0  # vehicle crossing the stop line
-_FREE_ENTRY_LLR = 1.0  # same on a free turn (right turn on red is legal)
+_FREE_ENTRY_LLR = 1.0  # vehicle crossing on a free turn where turn on red is legal
 _WAIT_LLR = -0.2  # per frame a vehicle stands at the stop line
 _MAX_GROUP_LLR = 16.0
 _COUPLING = 0.05  # per-frame log bonus for each pair of same-approach groups showing the same state
@@ -82,7 +82,7 @@ def infer_traffic_lights(scenario: schema.PufferScenario, extras: schema.Extract
     end_dir = np.array([-_first_dir(line[::-1]) for line in lines])
     turn = np.arctan2(_cross(start_dir, end_dir), (start_dir * end_dir).sum(1))
     turn_class = np.where(np.abs(turn) < np.radians(30), 0, np.sign(turn)).astype(int)
-    # free turn: right turn on red allowed, left turn in left-hand traffic
+    # Free turns allow right turns on red, or left turns in left-hand traffic.
     free = turn_class == (1 if scenario.metadata.location.startswith("sg-") else -1)
 
     group, conflict, couple, oppose = _movement_groups(lines, start_dir, turn_class, free, obs)
@@ -98,12 +98,22 @@ def infer_traffic_lights(scenario: schema.PufferScenario, extras: schema.Extract
     inferred = np.select([go > _CONFIDENCE, go < 1 - _CONFIDENCE], [_GREEN, _RED], 0)
     kept = (observed != 0) & ~(lag & (inferred != 0)) | caution[:, None]
     states = np.where(kept, observed, _yellow_tails(inferred, kept, round(_YELLOW_S / dt)))
+    _write_inferred_states(ids, states, tracks, scenario.map, extras.traffic_lights)
+
+
+def _write_inferred_states(
+    ids: list[int],
+    states: np.ndarray,
+    tracks: dict[int, schema.TrafficLightTrack],
+    map_elements: dict[int, schema.MapElement],
+    traffic_lights: dict[int, schema.TrafficLightTrack],
+) -> None:
     for lid, row in zip(ids, states, strict=True):
         if lid in tracks:
             tracks[lid].states = [puffer_types.TLState(int(s)) for s in row]
         elif row.any():
-            extras.traffic_lights[lid] = schema.TrafficLightTrack(
-                position=np.asarray(scenario.map[lid].polyline, dtype=np.float64)[0].copy(),
+            traffic_lights[lid] = schema.TrafficLightTrack(
+                position=np.asarray(map_elements[lid].polyline, dtype=np.float64)[0].copy(),
                 states=[puffer_types.TLState(int(s)) for s in row],
                 controlled_lane=lid,
             )
@@ -116,7 +126,7 @@ def _first_dir(line: np.ndarray) -> np.ndarray:
 
 
 def _lag_frames(obs: np.ndarray, frames: int) -> np.ndarray:
-    """The last `frames` frames of each detected RED run followed by a gap."""
+    """Return the last `frames` frames of each detected RED run followed by a gap."""
     lag = np.zeros(obs.shape, dtype=bool)
     lag[:, :-1] = (obs[:, :-1] == -1) & (obs[:, 1:] == 0)
     for _ in range(frames - 1):
@@ -217,7 +227,7 @@ def _vehicle_evidence(
 
 
 def _path_fit(path: np.ndarray, line: np.ndarray, line_length: float) -> float:
-    """Mean distance from the vehicle path (cut to the connector length) to the connector."""
+    """Return mean distance from the vehicle path, cut to the connector length, to the connector."""
     traveled = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(path, axis=0), axis=1))]
     points = path[traveled <= max(line_length, 3.0)]
     seg_start, seg = line[:-1], np.diff(line, axis=0)

@@ -21,7 +21,7 @@ from bin_factory import puffer_types, schema
 
 SAMPLE_SPACING_M = 2.0
 PROBE_OFFSET_M = 0.3  # just outside the lane boundary
-BAND_START_TOL_M = 0.8  # a band may begin this far from the boundary (interpolated curves, lane-line gaps)
+BAND_START_TOL_M = 0.8  # a band may begin this far from the boundary on interpolated curves or lane-line gaps
 MIN_BAND_WIDTH_M = 1.0  # a run starts where the band is at least this wide
 KEEP_BAND_WIDTH_M = 0.6  # and goes on through narrowings down to this
 MAX_BAND_WIDTH_M = 8.0
@@ -30,9 +30,9 @@ MAX_DIP_SAMPLES = 2  # short narrowings inside a band do not split it
 LOOKAHEAD_M = (1.0, 2.0, 3.0)
 END_INSET_M = 0.3  # lane-end samples are probed this far inside the lane, off shoulder-polygon corners
 BISECTION_STEPS = 4  # run ends inside a lane are refined to 2 m / 2^4
-Z_TOL_M = 3.0  # surfaces on another level (bridges, underpasses) are ignored
-BLOCKED_WIDTH_M = -1.0  # band width where another lane covers the probe: never bridged, never snapped onto
-STUB_LANE_LENGTH_M = 0.5  # seam connectors shorter than this carry no run; caps look through them
+Z_TOL_M = 3.0  # ignore surfaces on another level such as bridges or underpasses
+BLOCKED_WIDTH_M = -1.0  # band width where another lane covers the probe, never bridged or snapped onto
+STUB_LANE_LENGTH_M = 0.5  # seam connectors shorter than this carry no run and caps look through them
 MIN_POINT_SPACING_M = 0.05  # run points closer than this are one point
 MAX_STUB_HOPS = 4
 RAMP_BAND_CLEARANCE_M = 1.5  # a widened edge stays this far inside the band's far side, where posts and rails stand
@@ -57,8 +57,8 @@ class _Side:
 
 @dataclasses.dataclass(frozen=True)
 class _RunEnd:
-    cap_width_m: float | None  # band width a cap closes at this end; None when no cap is needed
-    hold: bool  # a widened edge keeps its offset up to this end (the band goes on into a junction or a widened lane)
+    cap_width_m: float | None  # band width a cap closes at this end, or None when no cap is needed
+    hold: bool  # keep a widened edge's offset up to this end when the band continues into a junction or widened lane
 
 
 @dataclasses.dataclass(frozen=True)
@@ -99,7 +99,6 @@ def add_shoulder_edges(
     for lane_id, element in lanes.items():
         widening_m = ramp_widening_m if lane_id in ramps else 0.0
         for side in sides[lane_id]:
-            samples, tangents, normals = side.samples, side.tangents, side.normals
             for start, end in side.runs:
                 run_ends = [
                     _run_end(lanes, ramps, surroundings, side, idx, sign, next_lanes, lanes_with_runs)
@@ -116,20 +115,35 @@ def add_shoulder_edges(
                     continue  # the run collapsed onto one point at the band limits
                 scenario.map[next_id] = _edge(polyline if side.lane_on_right else polyline[::-1])
                 next_id += 1
-                added += 1
-                run_end_sides = ((end - 1, 1.0, run_ends[1], offsets[-1]), (start, -1.0, run_ends[0], offsets[0]))
-                for idx, sign, run_end, offset_m in run_end_sides:
-                    if run_end.cap_width_m is None or run_end.cap_width_m - offset_m < MIN_POINT_SPACING_M:
-                        continue
-                    cap = _cap(samples[idx], normals[idx], offset_m, run_end.cap_width_m, sign * tangents[idx])
-                    cap_key = frozenset(tuple(np.round(point[:2] / MIN_POINT_SPACING_M)) for point in cap)
-                    if cap_key in caps:
-                        continue
-                    caps.add(cap_key)
-                    scenario.map[next_id] = _edge(cap)
-                    next_id += 1
-                    added += 1
+                next_id, cap_count = _append_run_caps(scenario.map, next_id, caps, side, start, end, run_ends, offsets)
+                added += 1 + cap_count
     return added
+
+
+def _append_run_caps(
+    map_elements: dict[int, schema.MapElement],
+    next_id: int,
+    caps: set,
+    side: _Side,
+    start: int,
+    end: int,
+    run_ends: list[_RunEnd],
+    offsets: np.ndarray,
+) -> tuple[int, int]:
+    added = 0
+    run_end_sides = ((end - 1, 1.0, run_ends[1], offsets[-1]), (start, -1.0, run_ends[0], offsets[0]))
+    for idx, sign, run_end, offset_m in run_end_sides:
+        if run_end.cap_width_m is None or run_end.cap_width_m - offset_m < MIN_POINT_SPACING_M:
+            continue
+        cap = _cap(side.samples[idx], side.normals[idx], offset_m, run_end.cap_width_m, sign * side.tangents[idx])
+        cap_key = frozenset(tuple(np.round(point[:2] / MIN_POINT_SPACING_M)) for point in cap)
+        if cap_key in caps:
+            continue
+        caps.add(cap_key)
+        map_elements[next_id] = _edge(cap)
+        next_id += 1
+        added += 1
+    return next_id, added
 
 
 def _lane_sides(
@@ -192,8 +206,8 @@ def _run_end(
     width = widths[idx] if widths[idx] >= KEEP_BAND_WIDTH_M else _run_end_width(widths, idx, sign)
     if band_ahead < KEEP_BAND_WIDTH_M:
         if at_lane_end and not _kerb_ahead(surroundings, side, idx, sign, width):
-            return _RunEnd(float(width), False)  # the band ends on other road surface (filled corner pocket)
-        return _RunEnd(None, False)  # the band ends or thins out: the kerb edge closes it
+            return _RunEnd(float(width), False)  # the band ends on other road surface such as a filled corner pocket
+        return _RunEnd(None, False)  # the band ends or thins out and the kerb edge closes it
     if not at_lane_end:  # a run broken inside the lane continues after a gap in the same lane
         outside = idx + int(sign)
         probe = samples[outside].copy()

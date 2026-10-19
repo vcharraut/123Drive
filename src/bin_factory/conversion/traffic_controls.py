@@ -7,16 +7,27 @@ from bin_factory.log_context import log
 
 
 def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
-    map_data = scenario.map
-    scenario_length = scenario.metadata.scenario_length
+    lanes_by_id = {eid: edata for eid, edata in scenario.map.items() if edata.is_lane}
+    light_controls, covered_lanes = _build_traffic_light_controls(extras.traffic_lights, lanes_by_id)
+    next_id = max((tc.id for tc in light_controls), default=-1) + 1
+    zone_controls = _build_stop_zone_controls(
+        extras.stop_zones,
+        lanes_by_id,
+        covered_lanes,
+        scenario.metadata.scenario_length,
+        next_id,
+    )
+    scenario.traffic_controls = _renumber_intersection_phases(light_controls + zone_controls)
 
-    lanes_by_id = {eid: edata for eid, edata in map_data.items() if edata.is_lane}
 
-    elements: list[schema.TrafficControl] = []
+def _build_traffic_light_controls(
+    traffic_lights: dict[int, schema.TrafficLightTrack],
+    lanes_by_id: dict[int, schema.MapElement],
+) -> tuple[list[schema.TrafficControl], set[int]]:
+    controls: list[schema.TrafficControl] = []
     covered_lanes: set[int] = set()
-    used_ids: set[int] = set()
 
-    for element_id, traffic_light in extras.traffic_lights.items():
+    for element_id, traffic_light in traffic_lights.items():
         controlled_lane_id = traffic_light.controlled_lane
         if (controlled_lane := lanes_by_id.get(controlled_lane_id)) is None:
             log.debug(
@@ -38,30 +49,38 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
         except ValueError as exc:
             log.warning("lane=%s tl=%s: malformed traffic light, skipping: %s", controlled_lane_id, element_id, exc)
             continue
-        control_id = int(element_id)
 
-        elements.append(
+        controls.append(
             schema.TrafficControl(
-                id=control_id,
+                id=int(element_id),
                 type=puffer_types.TCType.TRAFFIC_LIGHT,
-                controlled_lanes=[traffic_light.controlled_lane],
+                controlled_lanes=[controlled_lane_id],
                 stop_line=stop_line,
                 heading=heading,
                 states=traffic_light.states,
             ),
         )
-        used_ids.add(control_id)
-        covered_lanes.add(traffic_light.controlled_lane)
+        covered_lanes.add(controlled_lane_id)
 
-    next_id = max(used_ids, default=-1) + 1
+    return controls, covered_lanes
+
+
+def _build_stop_zone_controls(
+    stop_zones: list[schema.StopZone],
+    lanes_by_id: dict[int, schema.MapElement],
+    covered_lanes: set[int],
+    scenario_length: int,
+    next_id: int,
+) -> list[schema.TrafficControl]:
+    controls: list[schema.TrafficControl] = []
     light_lanes = set(covered_lanes)
 
-    for element_data in extras.stop_zones:
+    for element_data in stop_zones:
         stop_zone_type = element_data.type
         # PY123D-REPORT[nuplan]: TL stop polygons reference the approach lanes while TL detections reference the
-        # connectors after them, so each signalized approach came out twice (the polygon copy stuck at UNKNOWN).
-        # Drop approach lanes whose successor already carries a light. Lanes already controlled are skipped too, so
-        # overlapping zones (nuPlan TL polygons, WOMD stop signs listing the same lanes) don't duplicate controls.
+        # connectors after them, so each signalized approach came out twice with the polygon copy stuck at UNKNOWN.
+        # Drop approach lanes whose successor already carries a light. Skip lanes that already have a control so
+        # overlapping nuPlan TL polygons and WOMD stop signs do not duplicate controls.
         controlled_lanes = [
             lid
             for lid in element_data.controlled_lanes
@@ -75,7 +94,7 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
             continue
 
         controlled_lane_id = controlled_lanes[0]
-        if (controlled_lane := lanes_by_id.get(controlled_lane_id)) is None:
+        if lanes_by_id.get(controlled_lane_id) is None:
             log.debug(
                 "lane=%s: controlled lane for stop zone (type=%s) not in map, skipping",
                 controlled_lane_id,
@@ -83,7 +102,7 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
             )
             continue
         try:
-            # The zone may lie on the controlled lanes or just before them, on the lanes entering them
+            # The zone may lie on the controlled lanes or on the lanes entering them.
             near_lanes = controlled_lanes + [e for lid in controlled_lanes for e in lanes_by_id[lid].entry_lanes]
             heading = _heading_near(np.asarray(element_data.polygon)[:, :2].mean(axis=0), near_lanes, lanes_by_id)
             stop_line = _stop_line_from_polygon(element_data.polygon, heading)
@@ -91,12 +110,12 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
             log.warning("lane=%s: malformed stop zone, skipping: %s", controlled_lane_id, exc)
             continue
 
-        if stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT:
-            states = [puffer_types.TLState.UNKNOWN] * scenario_length
-        else:
-            states = []
-
-        elements.append(
+        states = (
+            [puffer_types.TLState.UNKNOWN] * scenario_length
+            if stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT
+            else []
+        )
+        controls.append(
             schema.TrafficControl(
                 id=next_id,
                 type=stop_zone_type,
@@ -111,15 +130,19 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
         covered_lanes.update(controlled_lanes)
         next_id += 1
 
-    # Phases renumbered per intersection to 0..N-1 in cycle order, so the simulator cycles N slots
-    phases = {}
-    for tc in elements:
+    return controls
+
+
+def _renumber_intersection_phases(controls: list[schema.TrafficControl]) -> list[schema.TrafficControl]:
+    """Renumber phases per intersection to 0..N-1 in cycle order so the simulator cycles N slots."""
+    phases: dict[int, set[int]] = {}
+    for tc in controls:
         if tc.phase_idx >= 0:
             phases.setdefault(tc.intersection_id, set()).add(tc.phase_idx)
     rank = {iid: {p: i for i, p in enumerate(sorted(ps))} for iid, ps in phases.items()}
-    scenario.traffic_controls = [
+    return [
         dataclasses.replace(tc, phase_idx=rank[tc.intersection_id][tc.phase_idx]) if tc.phase_idx >= 0 else tc
-        for tc in elements
+        for tc in controls
     ]
 
 

@@ -24,8 +24,8 @@ MAX_CANDIDATES_PER_POINT = 7
 MAX_TRANSITION_HOPS = 3
 BACKWARD_PROGRESS_TOLERANCE = 2.0  # meters, allowed backward projection on one lane
 OFFROAD_DISTANCE_THRESHOLD = 5.0  # meters, maximum lane distance at an eligible start timestep
-MIN_ROUTE_REMAINING = 15.0  # meters of route ahead at an eligible start timestep; above largest goal radius
-MAX_INIT_TIMESTEP = 10  # latest timestep checked for route eligibility (covers t=0 through WOD's t=10 init step)
+MIN_ROUTE_REMAINING = 15.0  # meters of route ahead at an eligible start timestep, above largest goal radius
+MAX_INIT_TIMESTEP = 10  # latest timestep checked for route eligibility, covering t=0 through WOD's t=10 init step
 ELEVATION_THRESHOLD = 2.0  # meters, maximum elevation difference for lane matches
 SMOOTH_WINDOW = 7  # frames, odd median-filter window for perception spikes
 PARKED_MOTION_THRESHOLD = 1.5
@@ -40,13 +40,13 @@ _Candidate = tuple[int, int, float, float]  # (point_idx, lane_id, distance, s)
 
 
 def process_agent_routes(scenario: schema.PufferScenario) -> None:
-    """Set each agent's ``route``; a nonempty route determines control eligibility.
+    """Set each agent's ``route``. A nonempty route marks the agent as eligible for control.
 
     Project vehicle trajectories onto lane centerlines, choose a connected sequence with
     dynamic programming, then extend it to a dead end. Non-ego vehicles must be valid,
-    on-road, and have at least ``MIN_ROUTE_REMAINING`` ahead at some timestep in
-    ``0..MAX_INIT_TIMESTEP`` (stopping at the first eligible timestep). Ego bypasses the
-    parked filter and must be valid, on-road, and have enough route ahead at timestep 0.
+    on-road, and have at least ``MIN_ROUTE_REMAINING`` ahead at their first eligible
+    timestep in ``0..MAX_INIT_TIMESTEP``. Ego bypasses the parked filter and must be valid,
+    on-road, and have enough route ahead at timestep 0.
     """
     scenario_length = scenario.metadata.scenario_length
     max_check = min(MAX_INIT_TIMESTEP + 1, scenario_length)
@@ -62,24 +62,13 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
             continue
 
         if is_ego:
-            route = compute_agent_route(
-                agent_id=agent_id,
-                positions=agent_data.position,
-                headings=agent_data.heading,
-                valid=agent_data.valid,
-                lengths=agent_data.length,
-                widths=agent_data.width,
-                is_ego=True,
-                route_cache=route_cache,
-            )
+            route = _compute_track_route(agent_id, agent_data, route_cache)
             has_road_ahead = (
                 bool(route)
-                and bool(agent_data.valid[0])
-                and (_route_remaining(agent_data.position[0], route, route_cache) >= MIN_ROUTE_REMAINING)
+                and _is_onroad_at(agent_data, 0, route_cache)
+                and _route_remaining(agent_data.position[0], route, route_cache) >= MIN_ROUTE_REMAINING
             )
-            if not has_road_ahead or _is_offroad(
-                agent_data.position[0], agent_data.heading[0], agent_data.length[0], agent_data.width[0], route_cache
-            ):
+            if not has_road_ahead:
                 raise ValueError(
                     f"Ego vehicle (agent 0) has no route, under {MIN_ROUTE_REMAINING:g} m of route ahead or an "
                     f"off-road start in scenario {scenario.metadata.id}"
@@ -87,51 +76,18 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
             agent_data.route = route
             continue
 
-        onroad_t = next(
-            (
-                t
-                for t in range(max_check)
-                if agent_data.valid[t]
-                and not _is_offroad(
-                    agent_data.position[t],
-                    agent_data.heading[t],
-                    agent_data.length[t],
-                    agent_data.width[t],
-                    route_cache,
-                )
-            ),
-            None,
-        )
+        onroad_t = next((t for t in range(max_check) if _is_onroad_at(agent_data, t, route_cache)), None)
         if onroad_t is None:
             agent_data.route = []
             continue
 
-        route = compute_agent_route(
-            agent_id=agent_id,
-            positions=agent_data.position,
-            headings=agent_data.heading,
-            valid=agent_data.valid,
-            lengths=agent_data.length,
-            widths=agent_data.width,
-            is_ego=True,
-            route_cache=route_cache,
-        )
+        route = _compute_track_route(agent_id, agent_data, route_cache)
         init_t = (
             next(
                 (
                     t
                     for t in range(onroad_t, max_check)
-                    if agent_data.valid[t]
-                    and (
-                        t == onroad_t
-                        or not _is_offroad(
-                            agent_data.position[t],
-                            agent_data.heading[t],
-                            agent_data.length[t],
-                            agent_data.width[t],
-                            route_cache,
-                        )
-                    )
+                    if (t == onroad_t or _is_onroad_at(agent_data, t, route_cache))
                     and _route_remaining(agent_data.position[t], route, route_cache) >= MIN_ROUTE_REMAINING
                 ),
                 None,
@@ -146,6 +102,25 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
             agent_data.route = []
 
     _clear_conflicting_routes(scenario.agents, start_frames)
+
+
+def _is_onroad_at(agent: schema.Track, t: int, route_cache: _RouteCache) -> bool:
+    return bool(agent.valid[t]) and not _is_offroad(
+        agent.position[t], agent.heading[t], agent.length[t], agent.width[t], route_cache
+    )
+
+
+def _compute_track_route(agent_id: int, agent: schema.Track, route_cache: _RouteCache) -> list[int]:
+    return compute_agent_route(
+        agent_id=agent_id,
+        positions=agent.position,
+        headings=agent.heading,
+        valid=agent.valid,
+        lengths=agent.length,
+        widths=agent.width,
+        is_ego=True,
+        route_cache=route_cache,
+    )
 
 
 def _clear_conflicting_routes(agents: dict[int, schema.Track], start_frames: np.ndarray) -> None:
@@ -226,7 +201,7 @@ def _route_remaining(position: np.ndarray, route: list[int], route_cache: _Route
 
 
 def _pair_box_corners(position: np.ndarray, heading: np.ndarray, length: np.ndarray, width: np.ndarray) -> np.ndarray:
-    """Oriented box corners (K, 4, 2) for K agent-frame pairs."""
+    """Return oriented box corners with shape (K, 4, 2) for K agent-frame pairs."""
     half = np.stack([length, width], -1) / 2
     local = half[:, None] * np.array([[1, 1], [1, -1], [-1, -1], [-1, 1]])
     cos, sin = np.cos(heading)[:, None], np.sin(heading)[:, None]
@@ -317,7 +292,7 @@ def compute_agent_route(
 ) -> list[int]:
     """Return the lane route for one agent, or ``[]``.
 
-    Ego bypasses the on-road gate; a non-ego agent must be valid and on-road at some
+    Ego bypasses the on-road gate. Non-ego agents must be valid and on-road at some
     timestep in ``0..MAX_INIT_TIMESTEP``.
     """
     valid = np.asarray(valid, dtype=bool)
@@ -567,7 +542,7 @@ def _get_lane_endpoint_direction(polyline: np.ndarray, from_start: bool) -> np.n
 
 
 def _is_offroad(position: np.ndarray, heading: float, length: float, width: float, route_cache: _RouteCache) -> bool:
-    """True if no elevation-matched lane is within reach, or the agent box touches a same-level road edge."""
+    """Return True when no elevation-matched lane is within reach or the agent box touches a same-level road edge."""
     xy, z = position[:2], position[2]
     near_lanes = np.flatnonzero(
         (route_cache["lane_bbox_maxs"][:, 0] >= xy[0] - OFFROAD_DISTANCE_THRESHOLD)
@@ -634,8 +609,8 @@ def _elevation_ok(
 def _is_static(agent_data: schema.Track, dt: float) -> bool:
     valid = np.asarray(agent_data.valid, dtype=bool)
     trajectory = agent_data.position[:, :2][valid]
-    # Static agents are frozen in self-play. A track shorter than the motion window can't show 1.5 m of travel even
-    # at speed (a car passing by for 1 s would freeze mid-lane), so judge it by its velocity at the same 1 m/s rate.
+    # Static agents are frozen in self-play. Tracks shorter than the motion window cannot show 1.5 m of travel even
+    # at speed, so judge them by median speed at the same 1 m/s rate.
     if len(trajectory) * dt < PARKED_MOTION_WINDOW_SECONDS:
         speed = np.linalg.norm(agent_data.velocity[valid], axis=1)
         return len(speed) == 0 or float(np.median(speed)) <= PARKED_MOTION_THRESHOLD / PARKED_MOTION_WINDOW_SECONDS
@@ -674,7 +649,7 @@ def _points_to_polylines_distance(
     polylines: np.ndarray,
     polyline_lengths: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Returns (min_distances, closest_indices, closest_t), each shaped (n_points, n_lanes)."""
+    """Return min_distances, closest_indices, and closest_t, each shaped (n_points, n_lanes)."""
     n_points = len(points)
     n_lanes = len(polylines)
     polyline_lengths = np.asarray(polyline_lengths, dtype=np.int64)

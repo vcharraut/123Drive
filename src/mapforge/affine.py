@@ -8,7 +8,7 @@ import numpy as np
 
 from bin_factory.conversion.geometry import resample_polyline
 from bin_factory.generators import build_lane_distance_matrix, compute_lane_lengths
-from bin_factory.schema import PufferScenario
+from bin_factory.schema import MapElement, PufferScenario, Track, TrafficControl
 from mapforge import static_binary
 
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 SINGULAR_VALUE_TOLERANCE = 1e-9
 MAX_AUGMENTED_SEGMENT_LENGTH = 10.0
 
-# Affine transform catalog, grouped by family. Select families with --groups.
+# Affine transform catalog grouped by family. Select families with --groups.
 TRANSFORM_GROUPS: dict[str, dict[str, list[list[float]]]] = {
     "scale": {
         "Sc10": [[1.10, 0.0], [0.0, 1.10]],  # uniform 10% scale
@@ -49,7 +49,7 @@ def select_transforms(groups: list[str] | None) -> dict[str, np.ndarray]:
     }
     if "flip" not in chosen:
         return base
-    # FlipX composes with every base transform: 7 base + 1 flip + 7 composed = 15 transforms.
+    # FlipX composes with every base transform to produce 7 base, 1 flip, and 7 composed transforms.
     flips = {name: np.asarray(matrix, dtype=np.float64) for name, matrix in TRANSFORM_GROUPS["flip"].items()}
     composed = {
         f"{flip_name}_{base_name}": flip @ base_matrix
@@ -122,46 +122,66 @@ def apply_affine_transform(
         raise ValueError(f"Centroid must have shape (2,), got {centroid.shape}")
 
     resample_points = float(np.max(np.linalg.svd(matrix, compute_uv=False))) > 1.0 + SINGULAR_VALUE_TOLERANCE
-    mirrored = np.linalg.det(matrix) < 0
+    mirrored = bool(np.linalg.det(matrix) < 0)
     for element in scenario.map.values():
-        if mirrored:  # a reflection turns every lane's left neighbour into its right one
-            element.left_neighbor, element.right_neighbor = element.right_neighbor, element.left_neighbor
-        key = "polyline" if element.uses_polyline else "polygon"
-        xyz = np.asarray(getattr(element, key), dtype=np.float64)
-        transformed = _transform_xyz(xyz, matrix, centroid)
-        if resample_points:
-            # Road edges keep their converted spacing (convert's --edge_max_segment_length can be below 10 m)
-            max_length = MAX_AUGMENTED_SEGMENT_LENGTH
-            if element.is_edge:
-                max_length = min(max_length, float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).max()))
-            transformed = resample_polyline(transformed, max_length)
-        setattr(element, key, transformed)
-
+        _transform_map_element(element, matrix, centroid, mirrored, resample_points)
     for traffic_control in scenario.traffic_controls:
-        traffic_control.stop_line = _transform_xyz(
-            np.asarray(traffic_control.stop_line, dtype=np.float64),
-            matrix,
-            centroid,
-        )
-        heading = float(traffic_control.heading)
-        rotated = matrix @ np.array([np.cos(heading), np.sin(heading)], dtype=np.float64)
-        traffic_control.heading = float(np.arctan2(rotated[1], rotated[0]))
-
+        _transform_traffic_control(traffic_control, matrix, centroid)
     for track in scenario.objects.values():
-        # The mapped box is a parallelogram: keep the rectangle along the mapped heading that encloses it
-        heading = np.asarray(track.heading, dtype=np.float64)
-        along = np.stack([np.cos(heading), np.sin(heading)], axis=1) @ matrix.T
-        across = np.stack([-np.sin(heading), np.cos(heading)], axis=1) @ matrix.T
-        along_norm = np.linalg.norm(along, axis=1)
-        overhang = np.abs(np.sum(across * along, axis=1)) / along_norm
-        track.position = _transform_xyz(np.asarray(track.position, dtype=np.float64), matrix, centroid)
-        track.velocity = np.asarray(track.velocity, dtype=np.float64) @ matrix.T
-        track.heading = np.arctan2(along[:, 1], along[:, 0])
-        track.length = along_norm * track.length + overhang * track.width
-        track.width = abs(np.linalg.det(matrix)) / along_norm * track.width
+        _transform_object_track(track, matrix, centroid)
 
     compute_lane_lengths(scenario)
     scenario.lane_graph = build_lane_distance_matrix(scenario.map)
+
+
+def _transform_map_element(
+    element: MapElement,
+    matrix: np.ndarray,
+    centroid: np.ndarray,
+    mirrored: bool,
+    resample_points: bool,
+) -> None:
+    if mirrored:  # a reflection turns every lane's left neighbour into its right one
+        element.left_neighbor, element.right_neighbor = element.right_neighbor, element.left_neighbor
+    key = "polyline" if element.uses_polyline else "polygon"
+    xyz = np.asarray(getattr(element, key), dtype=np.float64)
+    transformed = _transform_xyz(xyz, matrix, centroid)
+    if resample_points:
+        # Road edges keep their converted spacing when --edge_max_segment_length is below 10 m
+        max_length = MAX_AUGMENTED_SEGMENT_LENGTH
+        if element.is_edge:
+            max_length = min(max_length, float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).max()))
+        transformed = resample_polyline(transformed, max_length)
+    setattr(element, key, transformed)
+
+
+def _transform_traffic_control(
+    traffic_control: TrafficControl,
+    matrix: np.ndarray,
+    centroid: np.ndarray,
+) -> None:
+    traffic_control.stop_line = _transform_xyz(
+        np.asarray(traffic_control.stop_line, dtype=np.float64),
+        matrix,
+        centroid,
+    )
+    heading = float(traffic_control.heading)
+    rotated = matrix @ np.array([np.cos(heading), np.sin(heading)], dtype=np.float64)
+    traffic_control.heading = float(np.arctan2(rotated[1], rotated[0]))
+
+
+def _transform_object_track(track: Track, matrix: np.ndarray, centroid: np.ndarray) -> None:
+    # The mapped box is a parallelogram, so keep the rectangle along the mapped heading that encloses it
+    heading = np.asarray(track.heading, dtype=np.float64)
+    along = np.stack([np.cos(heading), np.sin(heading)], axis=1) @ matrix.T
+    across = np.stack([-np.sin(heading), np.cos(heading)], axis=1) @ matrix.T
+    along_norm = np.linalg.norm(along, axis=1)
+    overhang = np.abs(np.sum(across * along, axis=1)) / along_norm
+    track.position = _transform_xyz(np.asarray(track.position, dtype=np.float64), matrix, centroid)
+    track.velocity = np.asarray(track.velocity, dtype=np.float64) @ matrix.T
+    track.heading = np.arctan2(along[:, 1], along[:, 0])
+    track.length = along_norm * track.length + overhang * track.width
+    track.width = abs(np.linalg.det(matrix)) / along_norm * track.width
 
 
 def _transform_xyz(xyz: np.ndarray, matrix: np.ndarray, centroid: np.ndarray) -> np.ndarray:
