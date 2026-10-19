@@ -30,6 +30,7 @@ NEIGHBOR_GAP = (1.5, 6.0)  # m lateral distance range of a neighbour's centerlin
 NEIGHBOR_MAX_ANGLE = np.radians(25.0)
 JUNCTION_SHOULDER_MIN_OVERLAP = 0.5  # Area fraction inside intersections that makes a shoulder a junction shoulder
 STATIC_OBJECT_LEVEL_TOL = 2.0  # m; an object on the road surface stands at most this far above or below it
+MAX_LANE_GAP = 3.0  # m; drop entry/exit links whose endpoints sit farther apart
 
 
 def extract_scenario(
@@ -84,7 +85,7 @@ def extract_scenario(
     if not map_only and (ego_states is None or any(state is None for state in ego_states)):
         raise ValueError("Ego states are required at every frame to convert scenario with SceneAPI")
 
-    centroid = _compute_centroid(ego_states, map_api)
+    centroid = _compute_centroid(ego_states)
     metadata.origin_xyz = tuple(float(value) for value in centroid)
     map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, ego_states, map_only, speed_limit_source)
 
@@ -595,8 +596,7 @@ def _fill_missing_velocities(track: schema.Track, dt: float) -> None:
     )
 
 
-def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) -> np.ndarray:
-    """Compute 3D scene centroid from ego trajectory, falling back to road geometry mean."""
+def _compute_centroid(ego_states: list[Any] | None) -> np.ndarray:
     if ego_states is not None:
         positions = np.array(
             [s.bounding_box_se3.array[:3] for s in ego_states if s is not None],
@@ -604,15 +604,6 @@ def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) 
         )
         if len(positions) > 0:
             return positions.mean(axis=0)
-
-    # Fallback: road geometry centroid
-    points = [
-        coords
-        for obj in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE)
-        if (coords := obj.centerline_3d.array) is not None and len(coords) > 0  # ty: ignore[unresolved-attribute]
-    ]
-    if points:
-        return np.vstack(points).mean(axis=0)
     return np.zeros(3, dtype=np.float64)
 
 
@@ -643,26 +634,36 @@ def _fix_lane_topology(
     undefined_lane_ids: list[int],
     valid_lane_ids: set[int],
 ) -> None:
-    """Infer undefined lane types from connected lanes and drop references outside the extracted map.
+    """Infer undefined lane types from connected lanes and drop missing or disconnected references.
 
     Keep entry and exit directions from py123d, which already orients nuPlan connections.
     The previous endpoint-distance reversal created cycles on broken WOMD links.
     """
     # PY123D-REPORT[nuplan]: most nuPlan lanes (lane connectors) come out of py123d as LaneType.UNDEFINED.
-    # PY123D-REPORT[wod-motion]: some WOMD entry/exit refs point at lanes up to ~100 m away; kept as-is.
-    for lane_id in undefined_lane_ids:
-        lane = lanes[lane_id]
-        connected_types = {
-            lanes[nid].type for key in ("entry_lanes", "exit_lanes") for nid in getattr(lane, key) if nid in lanes
-        }
-        if len(connected_types) == 1:
-            lane.type = connected_types.pop()
-
+    # PY123D-REPORT[wod-motion]: some WOMD entry/exit refs point at lanes up to ~100 m away.
+    gap_sq = MAX_LANE_GAP**2
     for element in lanes.values():
-        element.entry_lanes = [lid for lid in element.entry_lanes if lid in valid_lane_ids]
-        element.exit_lanes = [lid for lid in element.exit_lanes if lid in valid_lane_ids]
+        line = cast("np.ndarray", element.polyline)
+        element.entry_lanes = [
+            lid
+            for lid in element.entry_lanes
+            if lid in valid_lane_ids
+            and ((cast("np.ndarray", lanes[lid].polyline)[-1, :2] - line[0, :2]) ** 2).sum() <= gap_sq
+        ]
+        element.exit_lanes = [
+            lid
+            for lid in element.exit_lanes
+            if lid in valid_lane_ids
+            and ((line[-1, :2] - cast("np.ndarray", lanes[lid].polyline)[0, :2]) ** 2).sum() <= gap_sq
+        ]
         element.left_neighbor = [lid for lid in element.left_neighbor if lid in valid_lane_ids]
         element.right_neighbor = [lid for lid in element.right_neighbor if lid in valid_lane_ids]
+
+    for lane_id in undefined_lane_ids:
+        lane = lanes[lane_id]
+        connected_types = {lanes[nid].type for nid in [*lane.entry_lanes, *lane.exit_lanes]}
+        if len(connected_types) == 1:
+            lane.type = connected_types.pop()
 
 
 def _drop_partial_neighbors(lanes: dict[int, schema.MapElement]) -> None:
