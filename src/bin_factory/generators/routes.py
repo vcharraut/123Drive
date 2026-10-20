@@ -31,6 +31,7 @@ SMOOTH_WINDOW = 7  # frames, odd median-filter window for perception spikes
 PARKED_MOTION_THRESHOLD = 1.5
 PARKED_MOTION_WINDOW_SECONDS = 1.5
 PARKED_DIRECTIONAL_CONSISTENCY = 0.8
+MAX_JUMP_SPEED = 50.0  # m/s between consecutive valid frames; faster log jumps shift goals
 SKIPPED_POINT_COST = 50.0
 HOP_COST = 1.0
 LANE_CHANGE_COST = 6.0
@@ -45,7 +46,8 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
     Project vehicle trajectories onto lane centerlines, choose a connected sequence with
     dynamic programming, then extend it to a dead end. Non-ego vehicles must be valid,
     on-road, and have at least ``MIN_ROUTE_REMAINING`` ahead at their first eligible
-    timestep in ``0..MAX_INIT_TIMESTEP``. Ego bypasses the parked filter and must be valid,
+    timestep in ``0..MAX_INIT_TIMESTEP``, with no log jump above ``MAX_JUMP_SPEED``. Ego bypasses
+    the parked and jump filters and must be valid,
     on-road, and have enough route ahead at timestep 0.
     """
     scenario_length = scenario.metadata.scenario_length
@@ -57,7 +59,7 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
     for agent_idx, (agent_id, agent_data) in enumerate(scenario.agents.items()):
         is_vehicle = agent_data.type == puffer_types.AgentType.VEHICLE
         is_ego = is_vehicle and agent_id == 0
-        if not is_vehicle or (not is_ego and _is_static(agent_data, dt)):
+        if not is_vehicle or (not is_ego and (_is_static(agent_data, dt) or _has_jump(agent_data, dt))):
             agent_data.route = []
             continue
 
@@ -625,6 +627,12 @@ def _is_static(agent_data: schema.Track, dt: float) -> bool:
         return True
     net_displacement = float(np.linalg.norm(smoothed[-1] - smoothed[0]))
     return net_displacement / path_length < PARKED_DIRECTIONAL_CONSISTENCY
+
+
+def _has_jump(agent_data: schema.Track, dt: float) -> bool:
+    valid = np.asarray(agent_data.valid, dtype=bool)
+    step = np.linalg.norm(np.diff(agent_data.position[:, :2], axis=0), axis=1)[valid[1:] & valid[:-1]]
+    return bool((step > MAX_JUMP_SPEED * dt).any())
 
 
 def _median_smooth(trajectory: np.ndarray, window: int) -> np.ndarray:

@@ -49,6 +49,7 @@ the route toward a dead end, choosing the straightest continuation at branches.
 A non-ego vehicle keeps its route only if it:
 
 * passes the parked-vehicle filter;
+* never moves faster than 50 m/s between consecutive valid frames in the log;
 * is valid, on-road, and has at least 15 metres of route ahead at some timestep in `0..10`;
 * has no logged overlap at its first eligible frame or later overlap with an agent without a route.
 
