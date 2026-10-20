@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 SCENE_MAP_MARGIN = 250.0  # Lateral buffer in metres around the ego path for scene scenarios
 MIN_LINE_LENGTH = 0.1  # Minimum road line length in metres
-LINE_DUPLICATE_DISTANCE = 0.05  # Hausdorff distance in metres that marks a road line as a duplicate
+LINE_DUPLICATE_DISTANCE = 0.1  # Hausdorff distance in metres that marks a road line as a duplicate
 HOOK_MAX_LENGTH = 0.5  # Maximum end-segment length in metres that counts as a sharp hook
 HOOK_MIN_TURN = np.radians(30.0)
 NEIGHBOR_MIN_OVERLAP = 10.0  # Metres a neighbour must run alongside a lane, capped at half the shorter lane
