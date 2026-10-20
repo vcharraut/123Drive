@@ -34,7 +34,7 @@ uv sync --extra viz
 uv run web --dir ./output
 ```
 
-Python 3.11 to 3.13. MIT licensed.
+Python 3.12 to 3.13. MIT licensed.
 
 ## Agent control and format changes
 

@@ -26,7 +26,7 @@
 
 ## Development and verification
 
-Use `uv` with Python 3.11 to 3.13:
+Use `uv` with Python 3.12 to 3.13:
 
 ```bash
 uv sync --extra all

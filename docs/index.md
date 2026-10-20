@@ -1,7 +1,7 @@
 # 123Drive
 
 123Drive converts [123D](https://github.com/autonomousvision/py123d) Arrow
-datasets into `.bin` scenarios for PufferDinde. Python 3.11 to 3.13 is required.
+datasets into `.bin` scenarios for PufferDinde. Python 3.12 to 3.13 is required.
 
 ## Convert and view
 

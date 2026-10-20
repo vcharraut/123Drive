@@ -7,7 +7,7 @@ name = "123Drive"
 version = "0.3.2"
 description = "123D arrow files -> PufferDrive binaries"
 readme = "README.md"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.12,<3.14"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [
@@ -15,7 +15,6 @@ authors = [
 ]
 keywords = ["autonomous-driving", "dataset-conversion", "pufferdrive", "123d"]
 classifiers = [
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Operating System :: OS Independent",
@@ -29,6 +28,10 @@ dependencies = [
   "shapely",
   "py123d==0.7.0",
 ]
+
+# Temporary: local py123d checkout (feat/opendrive-v2) until its stop-zone signal fields are released
+[tool.uv.sources]
+py123d = { path = "../py123d", editable = true }
 
 [project.optional-dependencies]
 viz = [
@@ -67,7 +70,7 @@ Issues = "https://github.com/vcharraut/123Drive/issues"
 
 [tool.ruff]
 line-length = 120
-target-version = "py313"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -123,5 +126,5 @@ quote-style = "double"
 indent-style = "space"
 
 [tool.ty.environment]
-python-version = "3.13"
+python-version = "3.12"
 extra-paths = ["src"]
