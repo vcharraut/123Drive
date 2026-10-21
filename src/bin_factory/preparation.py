@@ -32,6 +32,8 @@ def prepare_scenario(py123d_data: Any, config: Any) -> schema.PufferScenario:
     if config.reverse_road_edges:
         reverse_road_edges(scenario)
     process_polylines(scenario, config.max_segment_length, config.area_threshold, config.edge_max_segment_length)
+    # Simplification straightens small kinks, so road lines that differed by more than the duplicate distance can match
+    loader.drop_duplicate_lines(scenario.map)
     interpolate_all_polygons(scenario)
     prune_invalid_map_elements(scenario, extras)
     process_traffic_controls(scenario, extras)

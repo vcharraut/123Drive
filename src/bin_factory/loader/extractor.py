@@ -386,7 +386,7 @@ def _extract_map(
                 intersection_element_ids[obj.object_id] = next_id
             result[next_id] = element
             next_id += 1
-    _drop_duplicate_lines(result)
+    drop_duplicate_lines(result)
 
     _mark_junction_lanes(map_api, result)
     # Stop zones reference intersections by their 123D id, map elements use sequential ids
@@ -764,7 +764,7 @@ def _trim_end_hooks(line: np.ndarray) -> np.ndarray:
     return line
 
 
-def _drop_duplicate_lines(elements: dict[int, schema.MapElement]) -> None:
+def drop_duplicate_lines(elements: dict[int, schema.MapElement]) -> None:
     """Remove road lines that repeat an earlier line of the same type, in either direction or resampled."""
     # PY123D-REPORT[nuplan,opendrive]: ~40% of road lines come twice, once per adjacent lane, often reversed and
     # sometimes sampled differently.
