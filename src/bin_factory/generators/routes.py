@@ -363,16 +363,7 @@ def compute_agent_route(
             continue
         path = _find_shortest_lane_path(prev_candidate[1], next_candidate[1], route_cache)
         if path:
-            # A lane changed into at its end drops out, so the lane change leads straight to its successor
-            drop = (
-                len(route) > 1
-                and entry_s[-1] >= lane_end_s[path[0]]
-                and path[0] not in route_cache["lane_graph"][route[-2]]
-            )
-            if drop:
-                route.pop()
-                entry_s.pop()
-            exit_s.extend(lane_end_s[lane_id] for lane_id in path[1 if drop else 0 : -1])
+            exit_s.extend(lane_end_s[lane_id] for lane_id in path[:-1])
             entry_s.extend([0.0] * (len(path) - 1))
             route.extend(path[1:])
             continue
@@ -464,8 +455,9 @@ def _select_candidate_path(
     adj_costs: list[float] = []
     prefix_min_adj: list[float] = []
     lane_last_obs: dict[int, int] = {}
-    lane_sets = [{candidate[1] for candidate in candidates} for candidates in observations]
+    lane_s = [{candidate[1]: candidate[3] for candidate in candidates} for candidates in observations]
     junction_lanes = route_cache["junction_lanes"]
+    lane_end_s = route_cache["lane_end_s"]
 
     for obs_idx, candidates in enumerate(observations):
         obs_costs: list[float] = []
@@ -488,7 +480,14 @@ def _select_candidate_path(
                 for prev_cand_idx, (_, prev_lane_id, _, prev_s) in enumerate(observations[prev_idx]):
                     hop_cost = in_costs.get(prev_lane_id)
                     if hop_cost is None:
-                        if lane_id not in lane_sets[prev_idx] or {prev_lane_id, lane_id} & junction_lanes:
+                        # A lane change leaves a nonzero span on both lanes: never from a lane's start or into its end
+                        entry_s = lane_s[prev_idx].get(lane_id)
+                        if (
+                            entry_s is None
+                            or entry_s >= lane_end_s[lane_id]
+                            or prev_s <= 0.0
+                            or {prev_lane_id, lane_id} & junction_lanes
+                        ):
                             continue
                         hop_cost = LANE_CHANGE_COST
                     if prev_lane_id == lane_id and s + BACKWARD_PROGRESS_TOLERANCE < prev_s:
