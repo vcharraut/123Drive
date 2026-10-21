@@ -10,10 +10,26 @@ git history of this file (`1ed26ef`).
 | # | Action | Where | Notes |
 |---|---|---|---|
 | 18 | Speed signs for Town13 | py123d `carla_maps/speed_signs.json` | Loading Town13 exceeds the 62 GB RAM and the server is OOM-killed, also with a 300 m `tile_stream_distance`. Its `.xodr` has no speed signals, so the signs need CARLA: add swap or use a larger machine. Until then Town13 keeps its road limits (up to 120 km/h) |
+
+### PufferDinde fixtures
+
+| # | Action | Where | Notes |
+|---|---|---|---|
+| 33 | Regenerate the two nuPlan fixture bins | PufferDinde `resources/drive/binaries/nuplan/`, `sdc_replay_test/` | `nuplan__00018a38-0063-54d1-a3c1-1ab931a4a1e5` and `nuplan__c2a99be0-5b3e-5e67-88e6-6fd0f22e5419` predate the 123Drive format and do not load with the v3 or v4 reader. Their scenes are not in nuPlan-mini; convert them from the full nuPlan split or pick nuPlan-mini replacements for `drive_fixture.h` and the e2e replay tests |
+
 ## Changes
 
 ### 2026-10-21
 
+- Binary v4 splits roads into `ROADPOLY` (lanes, road lines, road edges) and `ROADSURF` (crosswalks, walkways,
+  carparks, drivable areas, speed bumps, shoulders, intersections, lane groups), with py123d `MapLayer` values and
+  the py123d `LaneType`, `RoadLineType` (all 15), and `RoadEdgeType` values unchanged. The 123Drive schema has
+  `RoadPolyline` and `RoadSurface`; PufferDinde has `RoadPolyline` (`road_polylines`) and `RoadSurface`
+  (`road_surfaces`, loaded and validated, not used by the simulator yet). On all five datasets every v3 element
+  keeps its id, geometry, and lane data, every non-road section is byte-identical, and the replay audit gives the
+  same results (1183 nuPlan and 286 WOD routes cleared, same ego rows). CARLA gains 8926 shoulder surfaces and 7
+  road lines: `DASH_SOLID_YELLOW` and `SOLID_DASH_YELLOW` used to share one type, so the duplicate check removed
+  one side of the same double line. PufferDinde's 8 CARLA bins are regenerated as v4.
 - Final review at `2e43b89`, on the local datasets and on held-out data from
   `gs://valeo-cp2879-driving-policy/datasets/public`: 12 random nuPlan test logs (113 scenes, converted with
   `--preset nuplan --infer_traffic_lights`) and WOD validation shard 00000 (286 scenes). All scenes converted
