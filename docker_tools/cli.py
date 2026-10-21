@@ -8,6 +8,7 @@ import sys
 
 DOCKERFILES = pathlib.Path(__file__).parent / "dockerfiles"
 REPO_ROOT = DOCKERFILES.parent.parent
+PY123D_ROOT = REPO_ROOT.parent / "py123d"  # same checkout as [tool.uv.sources] in pyproject.toml
 DEFAULT_PY_VERSION = "3.13"
 
 DATASETS = {
@@ -15,6 +16,8 @@ DATASETS = {
     "nuplan-mini": "nuplan",
     "wod-motion": "waymo",
     "av2-sensor": "av2",
+    "nurec-2604": "nurec",
+    "opendrive": "",
 }
 
 
@@ -46,6 +49,10 @@ def cmd_py123d(args: argparse.Namespace) -> None:
         f"EXTRAS={DATASETS[args.dataset]}",
         "--build-arg",
         f"DATASET={args.dataset}",
+        "--build-context",
+        f"py123d={PY123D_ROOT}",
+        "--build-context",
+        f"123drive={REPO_ROOT}",
         "-f",
         str(DOCKERFILES / "py123d.Dockerfile"),
         "-t",
@@ -66,6 +73,8 @@ def cmd_123drive(args: argparse.Namespace) -> None:
         *(["--no-cache"] if args.no_cache else []),
         "--build-arg",
         f"PYTHON_VERSION={DEFAULT_PY_VERSION}",
+        "--build-context",
+        f"py123d={PY123D_ROOT}",
         "-f",
         str(DOCKERFILES / "123drive.Dockerfile"),
         "-t",

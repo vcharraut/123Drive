@@ -12,6 +12,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
+# uv.lock installs py123d editable from ../py123d
+COPY --from=py123d pyproject.toml README.md LICENSE /app/py123d/
+COPY --from=py123d src /app/py123d/src
+
 WORKDIR /app/123Drive
 
 COPY pyproject.toml uv.lock README.md LICENSE ./

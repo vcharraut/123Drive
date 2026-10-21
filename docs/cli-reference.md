@@ -74,10 +74,11 @@ Generate affine variations of static map binaries.
 
 `uv run build py123d --dataset NAME` builds an extractor image.
 `uv run build 123drive` builds the converter image.
+Both images install py123d from the sibling checkout `../py123d`, the one `uv.lock` uses.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--dataset NAME` | required for py123d | nuplan, nuplan-mini, wod-motion, or av2-sensor |
+| `--dataset NAME` | required for py123d | nuplan, nuplan-mini, wod-motion, av2-sensor, nurec-2604, or opendrive |
 | `--no_cache` | off | Disable Docker build cache |
 | `--dry_run` | off | Print commands without running them |
 | `--push REGISTRY` | none | Tag and push the built image to this registry |
@@ -86,7 +87,8 @@ Generate affine variations of static map binaries.
 
 The py123d image converts raw datasets into Arrow inputs. Mount the raw dataset at
 `/input` and the Arrow output directory at `/output`. For nuPlan, the input
-must contain both `maps/` and `nuplan-v1.1/`.
+must contain both `maps/` and `nuplan-v1.1/`. For NuRec, it must contain
+`sample_set/26.04_release/`. OpenDRIVE reads the CARLA towns bundled with py123d and needs no input.
 
 | Runtime option | Default | Meaning |
 | --- | --- | --- |

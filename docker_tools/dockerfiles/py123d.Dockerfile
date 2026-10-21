@@ -15,13 +15,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-ARG PY123D_VERSION=v0.7.0
+# py123d build context: the local checkout that 123Drive is locked to (see docker_tools/cli.py)
+COPY --from=py123d pyproject.toml README.md LICENSE /tmp/py123d/
+COPY --from=py123d src /tmp/py123d/src
+
+# Pin shared dependencies to 123Drive's uv.lock: newer numpy/shapely change the large CARLA maps.
+# wrapt stays free: the nuplan extra's aiobotocore needs wrapt<2, and the lock pins 2.x only for ray.
+COPY --from=ghcr.io/astral-sh/uv:0.8.21 /uv /bin/
+COPY --from=123drive pyproject.toml uv.lock /tmp/123Drive/
+RUN cd /tmp/123Drive && \
+    uv export --frozen --no-hashes --no-emit-project --no-emit-package py123d --no-emit-package wrapt \
+    -o /tmp/constraints.txt
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    git clone --depth 1 --branch ${PY123D_VERSION} https://github.com/autonomousvision/py123d.git /tmp/py123d && \
-    pip install --no-cache-dir "/tmp/py123d[${EXTRAS}]" && \
-    if [ "${EXTRAS}" = "nuplan" ]; then pip install --no-cache-dir "nuplan-devkit @ git+https://github.com/motional/nuplan-devkit/@nuplan-devkit-v1.2"; fi && \
-    rm -rf /tmp/py123d
+    pip install --no-cache-dir -c /tmp/constraints.txt "/tmp/py123d${EXTRAS:+[${EXTRAS}]}" && \
+    if [ "${EXTRAS}" = "nuplan" ]; then pip install --no-cache-dir -c /tmp/constraints.txt "nuplan-devkit @ git+https://github.com/motional/nuplan-devkit/@nuplan-devkit-v1.2"; fi && \
+    rm -rf /tmp/py123d /tmp/123Drive
 
 COPY py123d_entrypoint.py /app/
 

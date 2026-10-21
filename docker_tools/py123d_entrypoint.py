@@ -11,6 +11,8 @@ DATASETS: dict[str, dict[str, Any]] = {
     "nuplan-mini": {"data_root_key": "nuplan_data_root", "input_subpaths": {"nuplan_maps_root": "maps"}},
     "wod-motion": {"data_root_key": "wod_motion_data_root"},
     "av2-sensor": {"data_root_key": "av2_data_root"},
+    "nurec-2604": {"data_root_key": "nurec_data_root"},
+    "opendrive": {},  # bundled CARLA .xodr files, no input
 }
 
 HYDRA_OVERRIDES = [
@@ -24,11 +26,9 @@ HYDRA_OVERRIDES = [
 
 def build_hydra_args(dataset: str, args: argparse.Namespace) -> list[str]:
     config = DATASETS[dataset]
-    hydra_args = [
-        f"dataset={dataset}",
-        f"dataset_paths.py123d_data_root={args.output}",
-        f"dataset_paths.{config['data_root_key']}={args.input}",
-    ]
+    hydra_args = [f"dataset={dataset}", f"dataset_paths.py123d_data_root={args.output}"]
+    if "data_root_key" in config:
+        hydra_args.append(f"dataset_paths.{config['data_root_key']}={args.input}")
 
     hydra_args.extend(f"dataset_paths.{k}={args.input}/{v}" for k, v in config.get("input_subpaths", {}).items())
     hydra_args.extend(HYDRA_OVERRIDES)
