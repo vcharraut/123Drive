@@ -11,12 +11,6 @@ git history of this file (`1ed26ef`).
 |---|---|---|---|
 | 18 | Speed signs for Town13 | py123d `carla_maps/speed_signs.json` | Loading Town13 exceeds the 62 GB RAM and the server is OOM-killed, also with a 300 m `tile_stream_distance`. Its `.xodr` has no speed signals, so the signs need CARLA: add swap or use a larger machine. Until then Town13 keeps its road limits (up to 120 km/h) |
 
-### PufferDinde fixtures
-
-| # | Action | Where | Notes |
-|---|---|---|---|
-| 33 | Regenerate the two nuPlan fixture bins | PufferDinde `resources/drive/binaries/nuplan/`, `sdc_replay_test/` | `nuplan__00018a38-0063-54d1-a3c1-1ab931a4a1e5` and `nuplan__c2a99be0-5b3e-5e67-88e6-6fd0f22e5419` predate the 123Drive format and do not load with the v3 or v4 reader. Their scenes are not in nuPlan-mini; convert them from the full nuPlan split or pick nuPlan-mini replacements for `drive_fixture.h` and the e2e replay tests |
-
 ## Changes
 
 ### 2026-10-21
@@ -98,6 +92,12 @@ In commit order.
   one double line this way, and v4's lossless types had kept 7 such copies in Town03. They are removed again, so
   Town03's elements match v3 apart from the new shoulder surfaces; no other bin changes. PufferDinde's Town03 bin is
   regenerated.
+- PufferDinde's two nuPlan fixture bins are nuPlan-mini scenes in v4 (former task 33, PufferDinde `d431090f4`). The
+  old `00018a38` and `c2a99be0` bins predated the 123Drive format and their scenes are not in nuPlan-mini.
+  `nuplan/` now holds `b46291dd` (used by `drive_fixture.h`) and `sdc_replay_test/` holds `ccd2111a`: Las Vegas
+  scenes with 72 m and 152 m ego paths, 55 and 53 routed vehicles, and 32 and 38 traffic controls, cleaned with
+  one `--fix` pass and free of ego infractions. Both match the loader dump. Their logs are 201 frames, and the e2e
+  replay test runs 400 steps, past the end of the log.
 
 ### 2026-10-20
 
