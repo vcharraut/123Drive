@@ -975,9 +975,9 @@ function getStaticLayers(scenario, layerFlags) {
     ...onClick(obj => selectElement('road', obj)),
   });
 
-  // Draw one dot per polyline vertex, plus heading arrows.
+  // Draw one dot per vertex, plus heading arrows for polylines (surfaces store no heading).
   const scatterRoads = (id, data, color, radius = 2) => {
-    const pts = data.flatMap(road => road.xyz.map((p, i) => ({pos: p, heading: road.heading[i], road})));
+    const pts = data.flatMap(road => road.xyz.map((p, i) => ({pos: p, heading: road.heading?.[i], road})));
 
     const scatterLayer = new ScatterplotLayer({
       id, data: pts,
