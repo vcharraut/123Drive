@@ -5,6 +5,13 @@ git history of this file (`1ed26ef`).
 
 ## Left to do
 
+### Conversion
+
+| # | Action | Where | Notes |
+|---|---|---|---|
+| 31 | Road lines that become duplicates after simplification | `extractor.py` `_drop_duplicate_lines`, `geometry.py` `process_polylines` | 935 nuPlan-mini pairs (362 identical) among 775k lines, and 139 in the 113 held-out nuPlan-test scenes; none in WOD or CARLA. The dedup leaves none, but it runs before simplification: lines with the same ends and a kink of at least 0.1 m become straight and match afterwards. Dedup the simplified geometry |
+| 32 | The `nuplan` preset does not infer traffic lights | `presets.toml` | `nuplan-mini` sets `infer_traffic_lights = true`; full nuPlan conversions keep raw detections only. Confirm whether this is intended |
+
 ### CARLA fidelity
 
 | # | Action | Where | Notes |
@@ -14,6 +21,15 @@ git history of this file (`1ed26ef`).
 
 ### 2026-10-21
 
+- Final review at `2e43b89`, on the local datasets and on held-out data from
+  `gs://valeo-cp2879-driving-policy/datasets/public`: 12 random nuPlan test logs (113 scenes, converted with
+  `--preset nuplan --infer_traffic_lights`) and WOD validation shard 00000 (286 scenes). All scenes converted
+  (local: 1247 nuPlan, 494 WOD, 12 CARLA, 20 rejections). Every format, reference, route-span, junction-ban,
+  zero-span, and jump-rule check passes on all five sets. After `--fix`, nuPlan and WOD bins are byte-identical to
+  the audited `b58a1f4` bins. The replay audit needs one pass everywhere and leaves only ego rows, none at step 0;
+  held-out data clears 92 of 847 nuPlan and 159 of 3240 WOD frame-0 controllable vehicles (6.6% and 5.1% locally).
+  Unknown speed limits are Singapore only (plus 1.8 km in Boston), as decided. Findings: tasks 31 and 32.
+  Traffic-light inference was not re-scored; its code did not change.
 - Won't fix: traffic-light phases stay `-1` for nuPlan and WOD (former task 7). PufferDinde uses `junction_id` and
   `phase_idx` only to generate light cycles for map-only data; logged scenes replay their per-frame states. CARLA
   has phases on 3039 of 4951 controls.
