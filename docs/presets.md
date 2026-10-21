@@ -11,6 +11,7 @@ values. Boolean flags enabled by a preset cannot currently be disabled from the 
 | `nuplan` | `nuplan` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
 | `nuplan-map` | `nuplan` | `location` | Map-only city maps; reverse road edges |
 | `nuplan-mini` | `nuplan-mini` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
+| `nurec` | `nurec-2604` | `log_name` | Infer traffic lights |
 | `nuscenes` | `nuscenes` | `scene_uuid` | Reverse road edges |
 | `opendrive` | `opendrive` | `location` | Map-only; reverse road edges; speed limits from signs |
 | `wod-motion` | `wod-motion` | `log_name` | Infer traffic lights |
@@ -20,6 +21,9 @@ the last speed sign and default to 30 km/h before the first sign. OpenDRIVE town
 without exported signs (Town13) keep road speed limits. OpenDRIVE keeps on-road
 static objects. Off-road shoulder edges follow
 lane boundaries; ramp widening gives vehicles more room on tight curves.
+
+NuRec scenes start at their second frame, since py123d places the first one before the first
+recorded pose.
 
 Waymo Motion also preserves `objects_of_interest` and `tracks_to_predict`
 when the source provides them. Every dataset uses the same route eligibility rules.

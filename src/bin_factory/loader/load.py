@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import dataclasses
 import pathlib
 
 from py123d import api as py123d_api
 from py123d.api.map.arrow import arrow_map_api
+from py123d.api.scene.arrow.modalities import sync_utils
 from py123d.common import execution
+from py123d.common.utils import uuid_utils
 
 
 def discover_scenes(
@@ -37,7 +40,25 @@ def discover_scenes(
         required_scene_modalities=["box_detections_se3:any"],
     )
     executor = execution.ProcessPoolExecutor(max_workers=workers) if workers > 1 else execution.SequentialExecutor()
-    return py123d_api.get_filtered_scenes(scene_filter=scene_filter, data_root=data_root, executor=executor)
+    scenes = py123d_api.get_filtered_scenes(scene_filter=scene_filter, data_root=data_root, executor=executor)
+    return [_skip_first_frame(s) if s.dataset == "nurec" and s.scene_metadata.initial_idx == 0 else s for s in scenes]
+
+
+def _skip_first_frame(scene: py123d_api.SceneAPI) -> py123d_api.SceneAPI:
+    # PY123D-REPORT[nurec]: the 10 Hz grid starts one step before the second rig pose, so log frame 0 precedes the
+    # first pose: the ego is extrapolated there and almost no track has started yet.
+    # Start the scene at frame 1, keeping its end.
+    scene_class, (log_dir, _, maps_root) = scene.__reduce__()
+    metadata = scene.scene_metadata
+    start = metadata.initial_idx + metadata.target_iteration_stride
+    metadata = dataclasses.replace(
+        metadata,
+        initial_uuid=uuid_utils.convert_to_str_uuid(sync_utils.get_sync_table(log_dir)["sync.uuid"][start].as_py()),
+        initial_idx=start,
+        num_future_iterations=metadata.num_future_iterations - 1,
+        future_duration_s=metadata.future_duration_s - metadata.iteration_duration_s,
+    )
+    return scene_class(log_dir, metadata, maps_root)
 
 
 def _discover_maps(maps_root: pathlib.Path, datasets: list[str] | None, num_scenes: int | None) -> list:

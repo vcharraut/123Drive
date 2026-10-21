@@ -102,6 +102,17 @@ In commit order.
   changes: the bins (4.5 to 87 MB, 962 to 4583 lanes) load in PufferDinde, and in Las Vegas 678 of 688 lanes
   controlled in the logged scenes get the same control type. They have no light phases, Singapore has no speed
   limits, and Boston has 25 mph on every lane, as in the source.
+- `--preset nurec` converts NVIDIA NuRec release 26.04 (`gs://alpasim/PAI_data/sample_set/26.04_release`), read by
+  py123d `dataset=nurec-2604`. Only the USDZ members py123d reads were fetched (7.1 GB of 2.55 TB). 1572 of 1607
+  scenes convert (990 MB); the 35 others have no ego route. Scenes start at log frame 1: py123d puts frame 0 before
+  the first rig pose, where the ego is extrapolated and only 107 of 12209 sampled agents were valid (now 5232 of
+  11980; routed agents valid at frame 0 go from 56 of 1903 to 1883 of 1999). Every format, reference and route check
+  passes and the PufferDinde loader stores every value. The replay audit needs two `--fix` passes (1560 routes,
+  then 1) and leaves 14207 frame-0 controllable vehicles; the last pass shows only ego rows, none at step 0
+  (collision / off-road / red light / stop sign: 7 / 62 / 10 / 92). Edges already have the drivable side on the left.
+  Source gaps: 845 scenes have no light boxes, so their signal stop lines stay UNKNOWN and are dropped; 20% of
+  lane-km have no speed limit; 68% of route lane changes are between lanes without a neighbour link. Light states
+  are inferred from vehicle motion and not scored; `traffic_lights.json` is not read yet.
 
 ### 2026-10-20
 

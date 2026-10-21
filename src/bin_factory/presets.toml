@@ -35,6 +35,11 @@ duration_s = 20
 infer_traffic_lights = true
 scenario_id_field = "scene_uuid"
 
+[nurec]
+datasets = ["nurec-2604"]
+infer_traffic_lights = true
+scenario_id_field = "log_name"
+
 [nuscenes]
 datasets = ["nuscenes"]
 reverse_road_edges = true
