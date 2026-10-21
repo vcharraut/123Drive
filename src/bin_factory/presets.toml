@@ -19,6 +19,7 @@ scenario_id_field = "log_name"
 datasets = ["nuplan"]
 reverse_road_edges = true
 duration_s = 20
+infer_traffic_lights = true
 scenario_id_field = "scene_uuid"
 
 [nuplan-mini]
