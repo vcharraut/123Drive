@@ -10,8 +10,6 @@ git history of this file (`1ed26ef`).
 | # | Action | Where | Notes |
 |---|---|---|---|
 | 18 | Speed signs for Town13 | py123d `carla_maps/speed_signs.json` | Loading Town13 exceeds the 62 GB RAM and the server is OOM-killed, also with a 300 m `tile_stream_distance`. Its `.xodr` has no speed signals, so the signs need CARLA: add swap or use a larger machine. Until then Town13 keeps its road limits (up to 120 km/h) |
-| 30 | Town12 loses 1 stop sign with the 2026-10-21 map | py123d `opendrive_map_parser.py` | 628 stop signs before, 627 after. The rebuild adds the speed-sign section splits and py123d `fa58134` (stop zones of lanes with no upstream); which one drops it is not known |
-
 ## Changes
 
 ### 2026-10-21
@@ -27,6 +25,10 @@ git history of this file (`1ed26ef`).
   sign limits are 30 to 90 km/h (120 km/h on Town12 highways), and Town10HD, which has no signs, is 30 km/h
   throughout. Town13 is unchanged (task 18). The sign rows split lane sections: Town11 grows from 2357 to 4536
   lanes (54 to 112 MB) and Town12 from 7810 to 10400 (270 to 451 MB), mostly from the lane distance matrix.
+- Town12 stop signs go from 628 to 627 (former task 30), still controlling all 1398 lanes. Two `.xodr` stop zones on
+  overlapping lanes at (-1460, -4065) become one zone covering both lanes, 0.5 m upstream; 2 other stop lines move
+  0.15 m and no traffic light or yield sign moves. The speed-sign section splits cause it: a Town12 map built at
+  py123d `fa58134`, without the new sign rows, keeps 628.
 - Lane-change routes and binary v3 (`f00a4fc`). Routes follow successor links or change lanes where both lanes match
   the same logged point; each route lane carries its `route_entry_s` and `route_exit_s` span in `cum_length`. Same
   routed vehicles as v2; 1844 nuPlan and 332 WOD routes change lanes. Before `--fix`, ego routes more than 5 m off
