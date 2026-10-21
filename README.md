@@ -41,7 +41,7 @@ Python 3.12 to 3.13. MIT licensed.
 An agent with a nonempty route is eligible for control. An empty route makes it
 a background entity. PufferDinde chooses the controller and background behavior.
 
-Binary format v4 has a versioned header and indexed sections. Road polylines (lanes, lines,
+Binary format v1 has a versioned header and indexed sections. Road polylines (lanes, lines,
 edges) and road surfaces (crosswalks, walkways, shoulders, and other outlines) have separate
 sections and keep py123d's map layers and types. Routes may change lanes,
 and each route lane carries its `route_entry_s` and `route_exit_s` span. It does not store

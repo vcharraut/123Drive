@@ -1,4 +1,4 @@
-"""Little-endian 123Drive binary format, version 4.
+"""Little-endian 123Drive binary format, version 1.
 
 The header stores magic[8], version as u32, and section_count as u32. Each directory entry
 packs tag[8], offset as u64, byte_length as u64, record_count as u32, and frame_count as u32.
@@ -37,7 +37,7 @@ from bin_factory import schema
 
 
 BINARY_MAGIC = b"123DRIVE"
-BINARY_VERSION = 4
+BINARY_VERSION = 1
 DIRECTORY_ENTRY = struct.Struct("<8sQQII")
 TRAFFIC_PHASE_SECTION_TAG = b"TLPHASE1"
 SOURCE_SECTION_TAG = b"SOURCE01"

@@ -120,6 +120,9 @@ In commit order.
   logged vehicles, stacked roads are 3.05 m (WOD) and 3.5 m (NuRec) apart or more, and CARLA has no map points
   between 1 and 6 m apart. The audit then loses only overpass rows: 9 NuRec (62 to 53) and 1 WOD (3 to 2) ego
   off-road events, with every other event unchanged.
+- The binary format restarts at version 1, with the v4 layout above unchanged (no earlier `123DRIVE` file used
+  version 1; the format before v2 had no magic). PufferDinde's 10 committed bins differ from v4 only in the
+  version field.
 
 ### 2026-10-20
 

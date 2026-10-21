@@ -1,4 +1,4 @@
-/* 123Drive v4 decoder. The layout is defined in src/bin_factory/serialize.py. */
+/* 123Drive v1 decoder. The layout is defined in src/bin_factory/serialize.py. */
 'use strict';
 
 window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true} = {}) {
@@ -27,7 +27,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true}
     const magic = decoder.decode(new Uint8Array(buffer, 0, 8));
     off = 8;
     const version = i32();
-    if (magic !== '123DRIVE' || version !== 4) {
+    if (magic !== '123DRIVE' || version !== 1) {
       throw new Error('Unsupported binary format; regenerate bins with the current converter');
     }
     const sectionCount = i32();

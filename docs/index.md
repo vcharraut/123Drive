@@ -33,7 +33,7 @@ Add the origin to restore source coordinates. When `map_has_z` is false, elevati
 Each track retains its original tracking token or static map-object ID as `source_id`,
 independent of local numeric IDs. Map-only binaries have no scene UUID or timestamps.
 
-Binary format v4 uses a versioned header, a section directory, and indexed records.
+Binary format v1 uses a versioned header, a section directory, and indexed records.
 Validity uses one byte per frame. The writer omits repeated constant dimensions and zero
 elevation, and readers restore them. Curvature and all other sections remain available.
 Agent records carry per-lane route spans.
@@ -43,7 +43,6 @@ edges; `ROADSURF` holds surface outlines: crosswalks, walkways, carparks, drivab
 speed bumps, shoulders, intersections, and lane groups. Each element stores its py123d
 `MapLayer` value, and polylines also store the layer's py123d type (`LaneType`,
 `RoadLineType`, or `RoadEdgeType`) unchanged. Polylines and surfaces share one id space.
-v4 replaces v3's single `ROADS` section; regenerate v3 bins and update simulator readers.
 
 The code defines the details: [pipeline], [loader], [schema], and [binary writer].
 
