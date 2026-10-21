@@ -5,18 +5,12 @@ git history of this file (`1ed26ef`).
 
 ## Left to do
 
-### py123d release
-
-| # | Action | Where | Notes |
-|---|---|---|---|
-| 28 | Publish py123d and commit the pin | py123d `feat/opendrive-v2` at `fa58134`; 123Drive `pyproject.toml` | The local `[tool.uv.sources]` pin to `../py123d` is uncommitted and the branch is not pushed. CI installs `py123d==0.7.0`, which lacks the `SHOULDER` and `STATIC_OBJECT` layers |
-| 29 | Commit the CARLA speed signs and scripts, then regenerate the CARLA bins | py123d `carla_maps/speed_signs.json`, `scripts/opendrive_parity/` | Town11 (1213 rows) and Town12 (2580 rows) speed signs and `export_speed_signs.py`, `check_speed_signs.py`, `check_lane_gaps.py` are uncommitted. The bin maps do not carry the new limits yet |
-
 ### CARLA fidelity
 
 | # | Action | Where | Notes |
 |---|---|---|---|
-| 18 | Speed signs for Town13 | py123d `carla_maps/speed_signs.json` | Loading Town13 exceeds the 62 GB RAM and the server is OOM-killed, also with a 300 m `tile_stream_distance`. Its `.xodr` has no speed signals, so the signs need CARLA: add swap or use a larger machine |
+| 18 | Speed signs for Town13 | py123d `carla_maps/speed_signs.json` | Loading Town13 exceeds the 62 GB RAM and the server is OOM-killed, also with a 300 m `tile_stream_distance`. Its `.xodr` has no speed signals, so the signs need CARLA: add swap or use a larger machine. Until then Town13 keeps its road limits (up to 120 km/h) |
+| 30 | Town12 loses 1 stop sign with the 2026-10-21 map | py123d `opendrive_map_parser.py` | 628 stop signs before, 627 after. The rebuild adds the speed-sign section splits and py123d `fa58134` (stop zones of lanes with no upstream); which one drops it is not known |
 
 ### Blocked
 
@@ -28,6 +22,14 @@ git history of this file (`1ed26ef`).
 
 ### 2026-10-21
 
+- CARLA speed limits come from signs (former task 29). py123d `ec19306` adds the Town11 (1213 rows) and Town12
+  (2580 rows) speed signs and the CARLA scripts `export_speed_signs.py`, `check_speed_signs.py`, and
+  `check_lane_gaps.py`. The Town11 and Town12 maps in `/data/py123d/data/maps/opendrive` were rebuilt at `ec19306`;
+  the other towns keep their 2026-10-16 maps. The `opendrive` preset now uses `speed_limit_source = "signs"`, so lanes
+  take the last sign's limit and 30 km/h before the first sign, as CARLA vehicles do. Road limits went up to 105 km/h;
+  sign limits are 30 to 90 km/h (120 km/h on Town12 highways), and Town10HD, which has no signs, is 30 km/h
+  throughout. Town13 is unchanged (task 18). The sign rows split lane sections: Town11 grows from 2357 to 4536
+  lanes (54 to 112 MB) and Town12 from 7810 to 10400 (270 to 451 MB), mostly from the lane distance matrix.
 - Lane-change routes and binary v3 (`f00a4fc`). Routes follow successor links or change lanes where both lanes match
   the same logged point; each route lane carries its `route_entry_s` and `route_exit_s` span in `cum_length`. Same
   routed vehicles as v2; 1844 nuPlan and 332 WOD routes change lanes. Before `--fix`, ego routes more than 5 m off
