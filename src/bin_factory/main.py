@@ -224,7 +224,7 @@ def _validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) ->
         log.warning("Dataset 'opendrive' selected with --map_only=False. Forcing --map_only=True.")
         args.map_only = True
 
-    if "nuplan" in (args.datasets or []) and args.duration_s == 0.0:
+    if "nuplan" in (args.datasets or []) and args.duration_s == 0.0 and not args.map_only:
         log.warning(
             "Converting nuPlan without --duration_s: raw nuPlan logs span minutes and can exhaust RAM. "
             "Set --duration_s (e.g. 20) or use --preset nuplan, which pins it for you."

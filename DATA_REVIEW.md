@@ -98,6 +98,10 @@ In commit order.
   scenes with 72 m and 152 m ego paths, 55 and 53 routed vehicles, and 32 and 38 traffic controls, cleaned with
   one `--fix` pass and free of ego infractions. Both match the loader dump. Their logs are 201 frames, and the e2e
   replay test runs 400 steps, past the end of the log.
+- `--preset nuplan-map` converts the four nuPlan city maps as map-only scenes, like `opendrive`. Nothing else
+  changes: the bins (4.5 to 87 MB, 962 to 4583 lanes) load in PufferDinde, and in Las Vegas 678 of 688 lanes
+  controlled in the logged scenes get the same control type. They have no light phases, Singapore has no speed
+  limits, and Boston has 25 mph on every lane, as in the source.
 
 ### 2026-10-20
 

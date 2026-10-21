@@ -22,6 +22,12 @@ duration_s = 20
 infer_traffic_lights = true
 scenario_id_field = "scene_uuid"
 
+[nuplan-map]
+datasets = ["nuplan"]
+map_only = true
+reverse_road_edges = true
+scenario_id_field = "location"
+
 [nuplan-mini]
 datasets = ["nuplan-mini"]
 reverse_road_edges = true

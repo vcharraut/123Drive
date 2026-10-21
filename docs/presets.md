@@ -9,6 +9,7 @@ values. Boolean flags enabled by a preset cannot currently be disabled from the 
 | `av2` | `av2-sensor` | `log_name` | 15 s duration |
 | `carla` | `carla` | `log_name` | Reverse road edges; speed limits from signs |
 | `nuplan` | `nuplan` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
+| `nuplan-map` | `nuplan` | `location` | Map-only city maps; reverse road edges |
 | `nuplan-mini` | `nuplan-mini` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
 | `nuscenes` | `nuscenes` | `scene_uuid` | Reverse road edges |
 | `opendrive` | `opendrive` | `location` | Map-only; reverse road edges; speed limits from signs |
