@@ -766,18 +766,26 @@ def _trim_end_hooks(line: np.ndarray) -> np.ndarray:
 def drop_duplicate_lines(elements: dict[int, schema.RoadPolyline]) -> None:
     """Remove road lines that repeat an earlier line of the same type, in either direction or resampled."""
     # PY123D-REPORT[nuplan,opendrive]: ~40% of road lines come twice, once per adjacent lane, often reversed and
-    # sometimes sampled differently.
+    # sometimes sampled differently. CARLA types the reversed copy of a DASH_SOLID line as SOLID_DASH, so reversed
+    # lines also match across that pair.
     ids = [eid for eid, element in elements.items() if element.is_line]
     if len(ids) < 2:
         return
     polylines = [cast("np.ndarray", elements[eid].polyline) for eid in ids]  # road lines always carry one
     types = np.array([elements[eid].type for eid in ids], dtype=int)
+    mirrored = types.copy()
+    for dash_solid, solid_dash in (
+        (puffer_types.RoadLineType.DASH_SOLID_YELLOW, puffer_types.RoadLineType.SOLID_DASH_YELLOW),
+        (puffer_types.RoadLineType.DASH_SOLID_WHITE, puffer_types.RoadLineType.SOLID_DASH_WHITE),
+    ):
+        mirrored[types == dash_solid], mirrored[types == solid_dash] = solid_dash, dash_solid
     ends = np.array([polyline[[0, -1], :2] for polyline in polylines]).reshape(-1, 2, 2)
     pts = shapely.points(ends.min(axis=1))
     i, j = shapely.STRtree(pts).query(pts, predicate="dwithin", distance=LINE_DUPLICATE_DISTANCE * np.sqrt(2.0))
-    mask = (i < j) & (types[i] == types[j])
-    i, j = i[mask], j[mask]
-    same = np.linalg.norm(ends[i] - ends[j], axis=-1).max(-1) < LINE_DUPLICATE_DISTANCE
+    same_type = types[i] == types[j]
+    mask = (i < j) & (same_type | (types[i] == mirrored[j]))
+    i, j, same_type = i[mask], j[mask], same_type[mask]
+    same = same_type & (np.linalg.norm(ends[i] - ends[j], axis=-1).max(-1) < LINE_DUPLICATE_DISTANCE)
     flipped = np.linalg.norm(ends[i] - ends[j, ::-1], axis=-1).max(-1) < LINE_DUPLICATE_DISTANCE
     cand = same | flipped
     i, j = i[cand], j[cand]
