@@ -113,6 +113,13 @@ In commit order.
   Source gaps: 845 scenes have no light boxes, so their signal stop lines stay UNKNOWN and are dropped; 20% of
   lane-km have no speed limit; 68% of route lane changes are between lanes without a neighbour link. Light states
   are inferred from vehicle motion and not scored; `traffic_lights.json` is not read yet.
+- Of the 62 NuRec ego off-road rows, 49 graze a kerb, wall or barrier by under 0.3 m (6 of them only after the
+  0.1 m edge simplification), 5 cross a raw boundary jutting into the lane, and 8 cross a wall of the road below
+  an overpass. Bin poses, sizes, labels and lifetimes match the raw USDZ (ego within 18 cm, tracks within the
+  smoothing spline). PufferDinde `Z_BUFFER` goes from 4 to 3 m (`934b960aa`): same-level edges sit within 2 m of
+  logged vehicles, stacked roads are 3.05 m (WOD) and 3.5 m (NuRec) apart or more, and CARLA has no map points
+  between 1 and 6 m apart. The audit then loses only overpass rows: 9 NuRec (62 to 53) and 1 WOD (3 to 2) ego
+  off-road events, with every other event unchanged.
 
 ### 2026-10-20
 
