@@ -30,6 +30,11 @@ git history of this file (`1ed26ef`).
   same results (1183 nuPlan and 286 WOD routes cleared, same ego rows). CARLA gains 8926 shoulder surfaces and 7
   road lines: `DASH_SOLID_YELLOW` and `SOLID_DASH_YELLOW` used to share one type, so the duplicate check removed
   one side of the same double line. PufferDinde's 8 CARLA bins are regenerated as v4.
+- Surface outlines are simplified with the polyline tolerance (`--area_threshold`, 0.1 m) before densifying to 5 m;
+  until now they kept every source vertex. Surface points drop to 27.7% in nuPlan-mini, 34.1% in held-out nuPlan,
+  69.9% in CARLA, and 99.8% in WOD, and nuPlan-mini bins shrink from 2018 to 1875 MB. Outlines move at most 0.1 m
+  (100.5 mm on Town11 at 10 km, within float32 rounding), stay closed, and keep at least 4 points; area changes stay
+  within perimeter x 0.1 m (median 0.13%). Only `ROADSURF` changes.
 - Final review at `2e43b89`, on the local datasets and on held-out data from
   `gs://valeo-cp2879-driving-policy/datasets/public`: 12 random nuPlan test logs (113 scenes, converted with
   `--preset nuplan --infer_traffic_lights`) and WOD validation shard 00000 (286 scenes). All scenes converted
