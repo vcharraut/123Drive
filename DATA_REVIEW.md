@@ -12,16 +12,13 @@ git history of this file (`1ed26ef`).
 | 18 | Speed signs for Town13 | py123d `carla_maps/speed_signs.json` | Loading Town13 exceeds the 62 GB RAM and the server is OOM-killed, also with a 300 m `tile_stream_distance`. Its `.xodr` has no speed signals, so the signs need CARLA: add swap or use a larger machine. Until then Town13 keeps its road limits (up to 120 km/h) |
 | 30 | Town12 loses 1 stop sign with the 2026-10-21 map | py123d `opendrive_map_parser.py` | 628 stop signs before, 627 after. The rebuild adds the speed-sign section splits and py123d `fa58134` (stop zones of lanes with no upstream); which one drops it is not known |
 
-### Blocked
-
-| # | Action | Where | Notes |
-|---|---|---|---|
-| 7 | TL phases are `-1` for nuPlan and WOD | waits on source data | Their stop zones and detections carry no cycle; CARLA has 3039 / 4951 controls with phases |
-
 ## Changes
 
 ### 2026-10-21
 
+- Won't fix: traffic-light phases stay `-1` for nuPlan and WOD (former task 7). PufferDinde uses `junction_id` and
+  `phase_idx` only to generate light cycles for map-only data; logged scenes replay their per-frame states. CARLA
+  has phases on 3039 of 4951 controls.
 - CARLA speed limits come from signs (former task 29). py123d `ec19306` adds the Town11 (1213 rows) and Town12
   (2580 rows) speed signs and the CARLA scripts `export_speed_signs.py`, `check_speed_signs.py`, and
   `check_lane_gaps.py`. The Town11 and Town12 maps in `/data/py123d/data/maps/opendrive` were rebuilt at `ec19306`;
