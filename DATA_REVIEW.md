@@ -5,13 +5,6 @@ git history of this file (`1ed26ef`).
 
 ## Left to do
 
-### Conversion
-
-| # | Action | Where | Notes |
-|---|---|---|---|
-| 31 | Road lines that become duplicates after simplification | `extractor.py` `_drop_duplicate_lines`, `geometry.py` `process_polylines` | 935 nuPlan-mini pairs (362 identical) among 775k lines, and 139 in the 113 held-out nuPlan-test scenes; none in WOD or CARLA. The dedup leaves none, but it runs before simplification: lines with the same ends and a kink of at least 0.1 m become straight and match afterwards. Dedup the simplified geometry |
-| 32 | The `nuplan` preset does not infer traffic lights | `presets.toml` | `nuplan-mini` sets `infer_traffic_lights = true`; full nuPlan conversions keep raw detections only. Confirm whether this is intended |
-
 ### CARLA fidelity
 
 | # | Action | Where | Notes |
@@ -28,8 +21,15 @@ git history of this file (`1ed26ef`).
   zero-span, and jump-rule check passes on all five sets. After `--fix`, nuPlan and WOD bins are byte-identical to
   the audited `b58a1f4` bins. The replay audit needs one pass everywhere and leaves only ego rows, none at step 0;
   held-out data clears 92 of 847 nuPlan and 159 of 3240 WOD frame-0 controllable vehicles (6.6% and 5.1% locally).
-  Unknown speed limits are Singapore only (plus 1.8 km in Boston), as decided. Findings: tasks 31 and 32.
-  Traffic-light inference was not re-scored; its code did not change.
+  Unknown speed limits are Singapore only (plus 1.8 km in Boston), as decided. Traffic-light inference was not
+  re-scored; its code did not change.
+- Road lines are deduplicated again after simplification (former task 31). Simplification straightens kinks, so lines
+  with the same ends that differed by 0.1 m or more could match afterwards: 935 nuPlan-mini pairs (362 identical)
+  and 139 in the held-out nuPlan scenes, none in WOD or CARLA. Both passes are needed: on 150 nuPlan scenes, only
+  the second pass keeps 831 lines that the first removes. Now no pair is left; only those road lines change, and all
+  other sections are byte-identical.
+- The `nuplan` preset infers traffic lights like `nuplan-mini` (former task 32). The held-out nuPlan `TRAFFIC`
+  sections match the earlier run with `--infer_traffic_lights`.
 - Won't fix: traffic-light phases stay `-1` for nuPlan and WOD (former task 7). PufferDinde uses `junction_id` and
   `phase_idx` only to generate light cycles for map-only data; logged scenes replay their per-frame states. CARLA
   has phases on 3039 of 4951 controls.
