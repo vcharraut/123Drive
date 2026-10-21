@@ -5,12 +5,6 @@ git history of this file (`1ed26ef`).
 
 ## Left to do
 
-### Conversion
-
-| # | Action | Where | Notes |
-|---|---|---|---|
-| 34 | Keep one copy of CARLA double lines typed from each side | `extractor.py` `drop_duplicate_lines` | 7 CARLA road lines are the same double line twice, typed `DASH_SOLID_YELLOW` from one side and `SOLID_DASH_YELLOW` from the other. v3 gave both one type, so the duplicate check kept one; v4 keeps both. Treat `DASH_SOLID_*` and `SOLID_DASH_*` as equal when two lines match reversed |
-
 ### CARLA fidelity
 
 | # | Action | Where | Notes |
@@ -87,7 +81,7 @@ In commit order.
   `RoadSurface` (`road_surfaces`, loaded and validated, not used by the simulator yet). On all five datasets every v3
   element keeps its id, geometry, and lane data, every non-road section is byte-identical, and the replay audit gives
   the same results (1183 nuPlan and 286 WOD routes cleared, same ego rows). CARLA gains 8926 shoulder surfaces and 7
-  road lines (task 34). The viewer draws surfaces in the scatter road view without heading arrows (`21f7bd9`).
+  road lines (removed again below). The viewer draws surfaces in the scatter road view without heading arrows (`21f7bd9`).
 - Surface outlines are simplified with the polyline tolerance (`--area_threshold`, 0.1 m) before densifying to 5 m
   (`a9418b6`); until then they kept every source vertex. Surface points drop to 27.7% in nuPlan-mini, 34.1% in
   held-out nuPlan, 69.9% in CARLA, and 99.8% in WOD, and nuPlan-mini bins shrink from 2018 to 1875 MB. Outlines move
@@ -100,6 +94,10 @@ In commit order.
   polylines with headings, topology, speed, `cum_length` and curvature, surfaces, traffic controls and phases, and
   the lane graph. The loader rewrites lane references as indices and derives lane length, control state, and goals.
   It now also rejects a surface id that repeats a polyline or surface id (PufferDinde `95572b40f`).
+- Reversed `DASH_SOLID_*` and `SOLID_DASH_*` road lines are duplicates (former task 34). CARLA types the two sides of
+  one double line this way, and v4's lossless types had kept 7 such copies in Town03. They are removed again, so
+  Town03's elements match v3 apart from the new shoulder surfaces; no other bin changes. PufferDinde's Town03 bin is
+  regenerated.
 
 ### 2026-10-20
 
