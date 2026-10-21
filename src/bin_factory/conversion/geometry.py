@@ -19,19 +19,21 @@ def polyline_length(polyline: np.ndarray) -> float:
     return float(cum[-1]) if len(cum) else 0.0
 
 
-def interpolate_all_polygons(scenario: schema.PufferScenario, spacing: float = 5.0) -> None:
+def interpolate_all_polygons(scenario: schema.PufferScenario, spacing: float = 5.0, tolerance: float = 0.0) -> None:
     for element_data in scenario.surfaces.values():
         if element_data.polygon is not None:
-            element_data.polygon = _interpolate_polygon(element_data.polygon, spacing)
+            element_data.polygon = _interpolate_polygon(element_data.polygon, spacing, tolerance)
 
 
-def _interpolate_polygon(xyz: np.ndarray | None, spacing: float) -> np.ndarray:
+def _interpolate_polygon(xyz: np.ndarray | None, spacing: float, tolerance: float = 0.0) -> np.ndarray:
     if xyz is None or len(xyz) == 0:
         return np.zeros((0, 3), dtype=np.float64)
 
     xyz = np.asarray(xyz, dtype=np.float64)
     if not np.allclose(xyz[0], xyz[-1]):
         xyz = np.vstack([xyz, xyz[0:1]])
+    if tolerance > 0 and len(xyz) >= 4:
+        xyz = _simplify_polyline(xyz, tolerance)  # topology-preserving, so the ring stays closed
 
     densified = shapely_geom.LineString(xyz).segmentize(spacing)
     return np.asarray(densified.coords, dtype=np.float64)

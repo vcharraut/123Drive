@@ -42,7 +42,7 @@ uv run convert --preset nuplan --py123d_path /data/123d --output ./output
 | --- | --- | --- |
 | `--max_segment_length METRES` | `10.0` | Maximum processed polyline segment length |
 | `--edge_max_segment_length METRES` | `1.0` | Maximum road-edge segment length; zero disables interpolation |
-| `--area_threshold METRES` | `0.1` | Polyline simplification tolerance; zero disables simplification |
+| `--area_threshold METRES` | `0.1` | Polyline and surface-outline simplification tolerance; zero disables simplification |
 | `--infer_traffic_lights` | off | Infer traffic-light states from observations, topology, and vehicle motion |
 | `--reverse_road_edges` | off | Reverse road-edge point order |
 | `--speed_limit_source {road,signs}` | `road` | Use road speed limits or the last speed sign |
