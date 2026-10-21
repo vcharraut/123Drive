@@ -11,12 +11,13 @@ values. Boolean flags enabled by a preset cannot currently be disabled from the 
 | `nuplan` | `nuplan` | `scene_uuid` | 20 s duration; reverse road edges |
 | `nuplan-mini` | `nuplan-mini` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
 | `nuscenes` | `nuscenes` | `scene_uuid` | Reverse road edges |
-| `opendrive` | `opendrive` | `location` | Map-only; reverse road edges; off-road shoulders; 1 m ramp widening |
+| `opendrive` | `opendrive` | `location` | Map-only; reverse road edges; speed limits from signs; off-road shoulders; 1 m ramp widening |
 | `wod-motion` | `wod-motion` | `log_name` | Infer traffic lights |
 
-Road-edge reversal adapts the source direction convention. CARLA uses the last
-speed sign and defaults to 30 km/h before the first sign. OpenDRIVE uses road
-speed limits and keeps on-road static objects. Off-road shoulder edges follow
+Road-edge reversal adapts the source direction convention. CARLA and OpenDRIVE use
+the last speed sign and default to 30 km/h before the first sign. OpenDRIVE towns
+without exported signs (Town13) keep road speed limits. OpenDRIVE keeps on-road
+static objects. Off-road shoulder edges follow
 lane boundaries; ramp widening gives vehicles more room on tight curves.
 
 Waymo Motion also preserves `objects_of_interest` and `tracks_to_predict`
