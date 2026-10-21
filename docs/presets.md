@@ -11,7 +11,7 @@ values. Boolean flags enabled by a preset cannot currently be disabled from the 
 | `nuplan` | `nuplan` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
 | `nuplan-mini` | `nuplan-mini` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
 | `nuscenes` | `nuscenes` | `scene_uuid` | Reverse road edges |
-| `opendrive` | `opendrive` | `location` | Map-only; reverse road edges; speed limits from signs; off-road shoulders; 1 m ramp widening |
+| `opendrive` | `opendrive` | `location` | Map-only; reverse road edges; speed limits from signs |
 | `wod-motion` | `wod-motion` | `log_name` | Infer traffic lights |
 
 Road-edge reversal adapts the source direction convention. CARLA and OpenDRIVE use
