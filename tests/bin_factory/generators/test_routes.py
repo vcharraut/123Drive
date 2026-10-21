@@ -35,7 +35,7 @@ def test_route_matching_rejects_stacked_lane_at_wrong_elevation():
     cache = build_route_cache(road_map)
     positions = np.array([[1.0, 0.0, 5.0], [9.0, 0.0, 5.0]])
 
-    route = compute_agent_route(
+    route, _, _ = compute_agent_route(
         agent_id=0,
         positions=positions,
         headings=np.zeros(2),
@@ -59,7 +59,7 @@ def test_offroad_gate_ignores_wrong_elevation_lane():
     }
     cache = build_route_cache(road_map)
 
-    route = compute_agent_route(
+    route, _, _ = compute_agent_route(
         agent_id=1,
         positions=np.array([[1.0, 0.0, 5.0], [9.0, 0.0, 5.0]]),
         headings=np.zeros(2),
@@ -76,19 +76,16 @@ def test_offroad_gate_ignores_wrong_elevation_lane():
 def test_route_matching_handles_empty_lane_set():
     cache = build_route_cache({})
 
-    assert (
-        compute_agent_route(
-            agent_id=1,
-            positions=np.array([[0.0, 0.0, 0.0]]),
-            headings=np.zeros(1),
-            valid=np.ones(1),
-            lengths=np.ones(1),
-            widths=np.ones(1),
-            is_ego=False,
-            route_cache=cache,
-        )
-        == []
-    )
+    assert compute_agent_route(
+        agent_id=1,
+        positions=np.array([[0.0, 0.0, 0.0]]),
+        headings=np.zeros(1),
+        valid=np.ones(1),
+        lengths=np.ones(1),
+        widths=np.ones(1),
+        is_ego=False,
+        route_cache=cache,
+    ) == ([], [], [])
 
 
 def test_full_track_span_detects_slow_and_looping_motion():

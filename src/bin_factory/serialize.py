@@ -1,4 +1,4 @@
-"""Little-endian 123Drive binary format, version 2.
+"""Little-endian 123Drive binary format, version 3.
 
 The header stores magic[8], version as u32, and section_count as u32. Each directory entry
 packs tag[8], offset as u64, byte_length as u64, record_count as u32, and frame_count as u32.
@@ -7,7 +7,8 @@ with record_count + 1 relative u64 offsets, and each record ends with zero paddi
 
 AGENTS and OBJECTS store id, type, first, n, and flags as i32, followed by float32 channels
 for x, y, optional z, heading, vx, vy, length, width, and height, then valid[n] as u8 padded
-to 4 bytes. Agents append an int list route. Flags 0..2 store constant dimensions as scalars,
+to 4 bytes. Agents append an int list route, then route_entry_s[count] and route_exit_s[count] as float32: the
+cum_length span driven on each route lane. Flags 0..2 store constant dimensions as scalars,
 bit 3 omits zero z, and bit 4 adds an overriding frame count after flags.
 ROADS store id, type, n, and flags as i32, then x, y, optional z, and heading as float32[n].
 Bit 0 omits zero z. Lanes append four topology int lists, speed as f32, cum_length[n], and curvature[n].
@@ -33,7 +34,7 @@ from bin_factory import schema
 
 
 BINARY_MAGIC = b"123DRIVE"
-BINARY_VERSION = 2
+BINARY_VERSION = 3
 DIRECTORY_ENTRY = struct.Struct("<8sQQII")
 TRAFFIC_PHASE_SECTION_TAG = b"TLPHASE1"
 SOURCE_SECTION_TAG = b"SOURCE01"
@@ -90,6 +91,8 @@ def _write_tracks(tracks: dict[int, schema.Track], has_route: bool, frame_count:
         buf.extend(bytes(-len(buf) % 4))
         if has_route:
             _write_int_list(buf, track.route)
+            buf.extend(np.asarray(track.route_entry_s, dtype="<f4").tobytes())
+            buf.extend(np.asarray(track.route_exit_s, dtype="<f4").tobytes())
         records.append(buf)
     return _index_records(records)
 

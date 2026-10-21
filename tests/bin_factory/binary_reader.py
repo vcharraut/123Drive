@@ -53,7 +53,7 @@ class _Reader:
 def parse_binary(data):
     magic, version, count = struct.unpack_from("<8sII", data)
     assert magic == b"123DRIVE"
-    assert version == 2
+    assert version == 3
     sections = {}
     end = 16 + 32 * count
     for index in range(count):
@@ -72,8 +72,19 @@ def parse_binary(data):
         eid, kind = record.ints(2)
         span = record.dynamic(frames)
         route = record.ints(record.ints(1)[0])
+        entry_s, exit_s = record.floats(len(route)), record.floats(len(route))
         record.finish()
-        agents.append({"id": eid, "type": kind, "span": span, "n_points": span[0], "route": route})
+        agents.append(
+            {
+                "id": eid,
+                "type": kind,
+                "span": span,
+                "n_points": span[0],
+                "route": route,
+                "route_entry_s": entry_s,
+                "route_exit_s": exit_s,
+            }
+        )
 
     roads, lanes = [], []
     r, n_roads, _ = sections[b"ROADS"]

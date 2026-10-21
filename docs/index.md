@@ -33,18 +33,25 @@ Add the origin to restore source coordinates. When `map_has_z` is false, elevati
 Each track retains its original tracking token or static map-object ID as `source_id`,
 independent of local numeric IDs. Map-only binaries have no scene UUID or timestamps.
 
-Binary format v2 uses a versioned header, a section directory, and indexed records.
+Binary format v3 uses a versioned header, a section directory, and indexed records.
 Validity uses one byte per frame. The writer omits repeated constant dimensions and zero
 elevation, and readers restore them. Curvature and all other sections remain available.
-Regenerate existing unversioned bins and update simulator readers to support v2.
+v3 adds per-lane route spans to agent records; regenerate v2 bins and update simulator readers to support v3.
 
 The code defines the details: [pipeline], [loader], [schema], and [binary writer].
 
 ## Routes and eligible agents
 
 A route is an ordered list of lane IDs. The converter matches the recorded vehicle
-trajectory to connected lanes using position, heading, and elevation. It extends
-the route toward a dead end, choosing the straightest continuation at branches.
+trajectory to lanes using position, heading, and elevation. Consecutive lanes follow a
+successor link, or a lane change where the recorded vehicle moved to a neighbouring lane
+matched at the same point; there are no lane changes on lanes inside intersections, after a
+split, or before a merge. It extends the route toward a dead end, choosing the straightest
+continuation at branches.
+
+`route_entry_s` and `route_exit_s` give, per route lane, the `cum_length` span driven on it:
+the whole lane across successor links, the switch points across a lane change. They carry
+positions only, no timing.
 
 A non-ego vehicle keeps its route only if it:
 

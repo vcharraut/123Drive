@@ -2,6 +2,9 @@
 
 Cache lane geometry and connectivity once per scenario. Match valid, on-road vehicles to
 lanes with dynamic programming, then extend their routes beyond the observed trajectory.
+Consecutive route lanes follow a successor link or a lane change between two lanes matched at
+the same logged point, never on junction lanes. Each route lane carries the arc-length span
+``[entry_s, exit_s]`` driven on it, in the lane's ``cum_length`` metric.
 """
 
 import itertools
@@ -34,7 +37,8 @@ PARKED_DIRECTIONAL_CONSISTENCY = 0.8
 MAX_JUMP_SPEED = 50.0  # m/s between consecutive valid frames; faster log jumps shift goals
 SKIPPED_POINT_COST = 50.0
 HOP_COST = 1.0
-LANE_CHANGE_COST = 6.0
+SUCCESSOR_COST = 6.0
+LANE_CHANGE_COST = 6.0  # lateral step between two lanes matched at the same logged point
 
 _RouteCache = dict[str, Any]
 _Candidate = tuple[int, int, float, float]  # (point_idx, lane_id, distance, s)
@@ -64,11 +68,11 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
             continue
 
         if is_ego:
-            route = _compute_track_route(agent_id, agent_data, route_cache)
+            route, entry_s, exit_s = _compute_track_route(agent_id, agent_data, route_cache)
             has_road_ahead = (
                 bool(route)
                 and _is_onroad_at(agent_data, 0, route_cache)
-                and _route_remaining(agent_data.position[0], route, route_cache) >= MIN_ROUTE_REMAINING
+                and _route_remaining(agent_data.position[0], route, entry_s, exit_s, route_cache) >= MIN_ROUTE_REMAINING
             )
             if not has_road_ahead:
                 raise ValueError(
@@ -76,6 +80,8 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
                     f"off-road start in scenario {scenario.metadata.id}"
                 )
             agent_data.route = route
+            agent_data.route_entry_s = _to_cum_length(route, entry_s, route_cache)
+            agent_data.route_exit_s = _to_cum_length(route, exit_s, route_cache)
             continue
 
         onroad_t = next((t for t in range(max_check) if _is_onroad_at(agent_data, t, route_cache)), None)
@@ -83,14 +89,15 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
             agent_data.route = []
             continue
 
-        route = _compute_track_route(agent_id, agent_data, route_cache)
+        route, entry_s, exit_s = _compute_track_route(agent_id, agent_data, route_cache)
         init_t = (
             next(
                 (
                     t
                     for t in range(onroad_t, max_check)
                     if (t == onroad_t or _is_onroad_at(agent_data, t, route_cache))
-                    and _route_remaining(agent_data.position[t], route, route_cache) >= MIN_ROUTE_REMAINING
+                    and _route_remaining(agent_data.position[t], route, entry_s, exit_s, route_cache)
+                    >= MIN_ROUTE_REMAINING
                 ),
                 None,
             )
@@ -99,6 +106,8 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
         )
         if init_t is not None:
             agent_data.route = route
+            agent_data.route_entry_s = _to_cum_length(route, entry_s, route_cache)
+            agent_data.route_exit_s = _to_cum_length(route, exit_s, route_cache)
             start_frames[agent_idx] = init_t
         else:
             agent_data.route = []
@@ -112,7 +121,9 @@ def _is_onroad_at(agent: schema.Track, t: int, route_cache: _RouteCache) -> bool
     )
 
 
-def _compute_track_route(agent_id: int, agent: schema.Track, route_cache: _RouteCache) -> list[int]:
+def _compute_track_route(
+    agent_id: int, agent: schema.Track, route_cache: _RouteCache
+) -> tuple[list[int], list[float], list[float]]:
     return compute_agent_route(
         agent_id=agent_id,
         positions=agent.position,
@@ -183,23 +194,34 @@ def _clear_conflicting_routes(agents: dict[int, schema.Track], start_frames: np.
     while (hit := controlled[agent] & ~is_ego[agent] & ((frame == start_frames[agent]) | ~controlled[other])).any():
         controlled[agent[hit]] = False
     for k in np.flatnonzero(was_controllable & ~controlled):
-        tracks[k].route = []
+        tracks[k].route, tracks[k].route_entry_s, tracks[k].route_exit_s = [], [], []
 
 
-def _route_remaining(position: np.ndarray, route: list[int], route_cache: _RouteCache) -> float:
-    """Return metres ahead of ``position``, adding the rest of the nearest route lane and all later lanes."""
+def _route_remaining(
+    position: np.ndarray, route: list[int], entry_s: list[float], exit_s: list[float], route_cache: _RouteCache
+) -> float:
+    """Return metres ahead of ``position``: the rest of the nearest route lane's span and all later spans."""
     idx = np.array([route_cache["lane_id_to_idx"][lane_id] for lane_id in route])
     distances, closest, closest_t = _points_to_polylines_distance(
         position[:2].reshape(1, 2), route_cache["lane_polylines"][idx], route_cache["lane_lengths"][idx]
     )
     nearest = int(np.argmin(distances[0]))
     segment = closest[0, nearest]
-    lengths = route_cache["lane_cum_lengths"][idx, route_cache["lane_lengths"][idx] - 1]
     progress = (
         route_cache["lane_cum_lengths"][idx[nearest], segment]
         + closest_t[0, nearest] * route_cache["lane_segment_lengths"][idx[nearest], segment]
     )
-    return float(lengths[nearest] - progress + lengths[nearest + 1 :].sum())
+    return float(exit_s[nearest] - progress + sum(exit_s[nearest + 1 :]) - sum(entry_s[nearest + 1 :]))
+
+
+def _to_cum_length(route: list[int], s_values: list[float], route_cache: _RouteCache) -> list[float]:
+    """Map planar arc lengths on each route lane to the lane's 3D ``cum_length``."""
+    idx = [route_cache["lane_id_to_idx"][lane_id] for lane_id in route]
+    n = route_cache["lane_lengths"]
+    return [
+        float(np.interp(s, route_cache["lane_cum_lengths"][i, : n[i]], route_cache["lane_cum_lengths_3d"][i, : n[i]]))
+        for i, s in zip(idx, s_values, strict=True)
+    ]
 
 
 def _pair_box_corners(position: np.ndarray, heading: np.ndarray, length: np.ndarray, width: np.ndarray) -> np.ndarray:
@@ -233,6 +255,7 @@ def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _Rou
     lane_tail_dirs = np.zeros((n_lanes, 2), dtype=np.float64)
     lane_segment_lengths = np.zeros((n_lanes, max(0, max_points - 1)), dtype=np.float64)
     lane_cum_lengths = np.zeros((n_lanes, max_points), dtype=np.float64)
+    lane_cum_lengths_3d = np.zeros((n_lanes, max_points), dtype=np.float64)
 
     for idx, lane_polyline in enumerate(lane_polylines):
         n_points = lane_lengths[idx]
@@ -245,6 +268,7 @@ def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _Rou
         seg_lengths = np.linalg.norm(np.diff(polyline, axis=0), axis=1)
         lane_segment_lengths[idx, : len(seg_lengths)] = seg_lengths
         lane_cum_lengths[idx, :n_points] = np.concatenate(([0.0], np.cumsum(seg_lengths)))
+        lane_cum_lengths_3d[idx, :n_points] = arc_length(lane_polylines_xyz[idx, :n_points])
 
     lane_id_to_idx = {lane_id: idx for idx, lane_id in enumerate(lane_ids)}
     lane_graph = {
@@ -255,6 +279,14 @@ def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _Rou
     for lane_id, exits in lane_graph.items():
         for exit_id in exits:
             lane_rev_graph[exit_id].append(lane_id)
+    # No lane change on a junction lane: inside an intersection, after a split, or before a merge
+    junction_lanes = frozenset(
+        lane_id
+        for lane_id in lane_ids
+        if lanes[lane_id].in_junction
+        or any(len(lane_graph[entry_id]) >= 2 for entry_id in lane_rev_graph[lane_id])
+        or any(len(lane_rev_graph[exit_id]) >= 2 for exit_id in lane_graph[lane_id])
+    )
 
     edge_polylines = [
         element.polyline[:, :3]
@@ -270,12 +302,17 @@ def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _Rou
         "lane_id_to_idx": lane_id_to_idx,
         "lane_graph": lane_graph,
         "lane_rev_graph": lane_rev_graph,
+        "junction_lanes": junction_lanes,
+        "lane_end_s": {
+            lane_id: float(lane_cum_lengths[idx, lane_lengths[idx] - 1]) for idx, lane_id in enumerate(lane_ids)
+        },
         "lane_bbox_mins": lane_bbox_mins,
         "lane_bbox_maxs": lane_bbox_maxs,
         "lane_head_dirs": lane_head_dirs,
         "lane_tail_dirs": lane_tail_dirs,
         "lane_segment_lengths": lane_segment_lengths,
         "lane_cum_lengths": lane_cum_lengths,
+        "lane_cum_lengths_3d": lane_cum_lengths_3d,
         "path_cache": {},
         "in_cost_cache": {},
         "road_edges": tuple((p, p[:, :2].min(axis=0), p[:, :2].max(axis=0)) for p in edge_polylines),
@@ -291,8 +328,8 @@ def compute_agent_route(
     widths: np.ndarray,
     is_ego: bool,
     route_cache: _RouteCache,
-) -> list[int]:
-    """Return the lane route for one agent, or ``[]``.
+) -> tuple[list[int], list[float], list[float]]:
+    """Return ``(route, entry_s, exit_s)`` for one agent, or empty lists, with planar arc lengths per route lane.
 
     Ego bypasses the on-road gate. Non-ego agents must be valid and on-road at some
     timestep in ``0..MAX_INIT_TIMESTEP``.
@@ -310,19 +347,52 @@ def compute_agent_route(
         )
     ):
         log.debug("agent=%d: skipping route computation (insufficient valid data or offroad start)", agent_id)
-        return []
+        return [], [], []
 
     observations = _build_point_observations(positions[valid], headings[valid], route_cache)
     if not observations:
         log.debug("agent=%d: no GT-supported lane candidates found", agent_id)
-        return []
+        return [], [], []
 
+    lane_end_s = route_cache["lane_end_s"]
+    point_candidates = {candidates[0][0]: candidates for candidates in observations}
     candidate_path = _select_candidate_path(observations, int(valid.sum()), route_cache)
-    gt_route = [candidate_path[0][1]]
+    route, entry_s, exit_s = [candidate_path[0][1]], [0.0], []
     for prev_candidate, next_candidate in itertools.pairwise(candidate_path):
-        gt_route.extend(_find_shortest_lane_path(prev_candidate[1], next_candidate[1], route_cache)[1:])
+        if prev_candidate[1] == next_candidate[1]:
+            continue
+        path = _find_shortest_lane_path(prev_candidate[1], next_candidate[1], route_cache)
+        if path:
+            # A lane changed into at its end drops out, so the lane change leads straight to its successor
+            drop = (
+                len(route) > 1
+                and entry_s[-1] >= lane_end_s[path[0]]
+                and path[0] not in route_cache["lane_graph"][route[-2]]
+            )
+            if drop:
+                route.pop()
+                entry_s.pop()
+            exit_s.extend(lane_end_s[lane_id] for lane_id in path[1 if drop else 0 : -1])
+            entry_s.extend([0.0] * (len(path) - 1))
+            route.extend(path[1:])
+            continue
+        # Lane change at the previous logged point, where both lanes were candidates
+        lane_exit_s = max(prev_candidate[3], entry_s[-1])
+        lane_entry_s = next(c[3] for c in point_candidates[prev_candidate[0]] if c[1] == next_candidate[1])
+        if lane_exit_s <= entry_s[-1] and len(route) > 1:
+            # A lane left where it was entered drops out, so the lane change starts from the lane before it
+            route.pop()
+            entry_s.pop()
+            lane_exit_s = exit_s.pop()
+        exit_s.append(lane_exit_s)
+        entry_s.append(lane_entry_s)
+        route.append(next_candidate[1])
 
-    return _extend_route_to_dead_end(gt_route, route_cache)
+    observed = len(route)
+    route = _extend_route_to_dead_end(route, route_cache)
+    entry_s.extend([0.0] * (len(route) - observed))
+    exit_s.extend(lane_end_s[lane_id] for lane_id in route[observed - 1 :])
+    return route, entry_s, exit_s
 
 
 def _build_point_observations(
@@ -394,6 +464,8 @@ def _select_candidate_path(
     adj_costs: list[float] = []
     prefix_min_adj: list[float] = []
     lane_last_obs: dict[int, int] = {}
+    lane_sets = [{candidate[1] for candidate in candidates} for candidates in observations]
+    junction_lanes = route_cache["junction_lanes"]
 
     for obs_idx, candidates in enumerate(observations):
         obs_costs: list[float] = []
@@ -416,7 +488,9 @@ def _select_candidate_path(
                 for prev_cand_idx, (_, prev_lane_id, _, prev_s) in enumerate(observations[prev_idx]):
                     hop_cost = in_costs.get(prev_lane_id)
                     if hop_cost is None:
-                        continue
+                        if lane_id not in lane_sets[prev_idx] or {prev_lane_id, lane_id} & junction_lanes:
+                            continue
+                        hop_cost = LANE_CHANGE_COST
                     if prev_lane_id == lane_id and s + BACKWARD_PROGRESS_TOLERANCE < prev_s:
                         continue
 
@@ -462,7 +536,7 @@ def _get_incoming_transition_costs(end_lane_id: int, route_cache: _RouteCache) -
     costs: dict[int, float] = {end_lane_id: 0.0}
     frontier = [end_lane_id]
     for hops in range(1, MAX_TRANSITION_HOPS + 1):
-        penalty = hops * HOP_COST + LANE_CHANGE_COST
+        penalty = hops * HOP_COST + SUCCESSOR_COST
         next_frontier = []
         for curr in frontier:
             for prev_id in rev_graph.get(curr, ()):

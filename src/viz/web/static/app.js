@@ -620,14 +620,31 @@ function cropPathToStart(path, startPos) {
   return path.slice(startIdx);
 }
 
+// Keep the part of a lane polyline between arc lengths s0 and s1, interpolated at both ends.
+function cropPathByS(path, cum, s0, s1) {
+  if (!cum || cum.length !== path.length) return path;
+  const at = s => {
+    const found = cum.findIndex(c => c >= s);
+    const i = found < 1 ? (found === 0 ? 1 : cum.length - 1) : found;
+    const t = Math.min(Math.max((s - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1), 0), 1);
+    return path[i - 1].map((v, k) => v + t * (path[i][k] - v));
+  };
+  return [at(s0), ...path.filter((_, i) => cum[i] > s0 && cum[i] < s1), at(s1)];
+}
+
 function getAgentRouteSegments(agent, roadMap) {
   const startPos = getAgentRouteStart(agent);
   const route = Array.isArray(agent.route) ? agent.route : [];
   return route
-    .map(laneId => roadMap.get(laneId))
-    .filter(road => road && Array.isArray(road.xyz) && road.xyz.length > 1)
-    .map((road, idx) => {
-      const path = road.xyz.map(([x, y, z = 0]) => [x, y, z]);
+    .map((laneId, routeIdx) => ({road: roadMap.get(laneId), routeIdx}))
+    .filter(({road}) => road && Array.isArray(road.xyz) && road.xyz.length > 1)
+    .map(({road, routeIdx}, idx) => {
+      const path = cropPathByS(
+        road.xyz.map(([x, y, z = 0]) => [x, y, z]),
+        road.cum_length,
+        agent.route_entry_s[routeIdx],
+        agent.route_exit_s[routeIdx],
+      );
       const croppedPath = idx === 0 ? cropPathToStart(path, startPos) : path;
       return {path: croppedPath, laneId: road.id, agentId: agent.id};
     })

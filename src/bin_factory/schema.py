@@ -47,6 +47,8 @@ class Track:
     width: np.ndarray
     height: np.ndarray
     route: list = dataclasses.field(default_factory=list)
+    route_entry_s: list = dataclasses.field(default_factory=list)  # per route lane, cum_length where it is entered
+    route_exit_s: list = dataclasses.field(default_factory=list)  # per route lane, cum_length where it is left
     source_id: str = ""
 
 

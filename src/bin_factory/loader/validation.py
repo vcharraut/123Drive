@@ -289,6 +289,8 @@ def _validate_lane_refs(
 
     for items in (scenario.agents, scenario.objects):
         for track_id, track in items.items():
+            if not len(track.route_entry_s) == len(track.route_exit_s) == len(track.route):
+                errors.append(f"Track {track_id} route_entry_s/route_exit_s do not match its route")
             for lane_id in track.route:
                 if lane_id not in lane_ids:
                     errors.append(f"Track {track_id} route references non-lane element {lane_id}")

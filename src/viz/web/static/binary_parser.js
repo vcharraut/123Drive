@@ -1,4 +1,4 @@
-/* 123Drive v2 decoder. The layout is defined in src/bin_factory/serialize.py. */
+/* 123Drive v3 decoder. The layout is defined in src/bin_factory/serialize.py. */
 'use strict';
 
 window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true} = {}) {
@@ -27,7 +27,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true}
     const magic = decoder.decode(new Uint8Array(buffer, 0, 8));
     off = 8;
     const version = i32();
-    if (magic !== '123DRIVE' || version !== 2) {
+    if (magic !== '123DRIVE' || version !== 3) {
       throw new Error('Unsupported binary format; regenerate bins with the current converter');
     }
     const sectionCount = i32();
@@ -95,7 +95,11 @@ window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true}
         id, type, xyz: colsToRows([x, y, z]), heading, velocity: colsToRows([vx, vy]),
         length: dimensions[0], width: dimensions[1], height: dimensions[2], valid,
       };
-      if (hasRoute) track.route = intList();
+      if (hasRoute) {
+        track.route = intList();
+        track.route_entry_s = Array.from(f32arr(track.route.length));
+        track.route_exit_s = Array.from(f32arr(track.route.length));
+      }
       return track;
     };
     const agents = records('AGENTS', frames => readTrack(frames, true));

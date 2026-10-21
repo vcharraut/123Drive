@@ -24,6 +24,8 @@ def _track(length, agent_type, valid, route=(), base=0.0):
         width=np.full(length, 2.0),
         height=np.full(length, 1.6),
         route=list(route),
+        route_entry_s=[0.0] * len(route),
+        route_exit_s=[1.0] * len(route),
     )
 
 
@@ -250,7 +252,7 @@ def test_zero_geometry_elevation_is_implicit_without_losing_nonzero_z():
         np.testing.assert_array_equal(decoded.map[eid].geometry, element.geometry.astype(np.float32))
 
 
-@pytest.mark.parametrize("version", [0, 1, 3])
+@pytest.mark.parametrize("version", [0, 1, 2])
 def test_unsupported_version_is_rejected(version):
     data = bytearray(serialize.scenario_to_binary(_build_scenario()))
     struct.pack_into("<I", data, 8, version)
