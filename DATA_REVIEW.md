@@ -33,8 +33,7 @@ git history of this file (`1ed26ef`).
   routed vehicles as v2; 1844 nuPlan and 332 WOD routes change lanes. Before `--fix`, ego routes more than 5 m off
   their log drop from 9 to 3 in nuPlan and stay at 5 in WOD; other routes drop from 428 to 229 and from 156 to 110.
   PufferDinde `vcha/new_maps` reads v3 (`abf7060e8`) and can add random lane changes to generated routes
-  (`route_lane_change_prob`, default 0, `8e7d8d2bd`). Its `--fix` results match v2 except 1 nuPlan agent, whose
-  shorter v3 route ends before its off-road step.
+  (`route_lane_change_prob`, default 0, `8e7d8d2bd`).
 - Format checks on v3 bins at `1ed26ef` (1247 nuPlan, 494 WOD, 12 CARLA; same accepted and rejected scenes as v2):
   every file decodes to its last byte, sections are aligned, values are finite, polygons are closed, `cum_length`
   is monotonic, IDs are unique, all references resolve, and ego is ID 0 and valid on every frame. Route spans have
@@ -43,7 +42,11 @@ git history of this file (`1ed26ef`).
   start or into its end, which removes the drop that joined a lane to the successor of its neighbour without the
   junction check. Before, 796 nuPlan and 68 WOD steps (45 on ego routes) changed lanes on a lane after a split or
   before a merge, and 2 spans had zero length; now none do. 915 nuPlan (50 ego) and 69 WOD (1 ego) routes change,
-  and the counts above include the fix. The PufferDinde `--fix` audit was not rerun on these routes.
+  and the counts above include the fix.
+- Replay audit of the `b58a1f4` bins with PufferDinde `vcha/new_maps` at `8e7d8d2bd`: one `--fix` pass clears 1183
+  nuPlan and 286 WOD routes and leaves 16623 and 5327 frame-0 controllable vehicles, as with v2. First-pass non-ego
+  offenders (collision / off-road / red light / stop sign) are 119 / 520 / 402 / 185 in nuPlan (521 off-road with v2)
+  and 26 / 114 / 101 / 54 in WOD. The last pass shows only the same mid-log ego infractions as v2, none at step 0.
 
 ### 2026-10-20
 
