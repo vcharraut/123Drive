@@ -9,7 +9,8 @@ from bin_factory.generators.routes import (
 
 
 def _lane(z):
-    return schema.MapElement(
+    return schema.RoadPolyline(
+        layer=int(puffer_types.MapLayer.LANE),
         type=int(puffer_types.LaneType.SURFACE_STREET),
         polyline=np.array([[0.0, 0.0, z], [10.0, 0.0, z]]),
     )
@@ -52,7 +53,8 @@ def test_route_matching_rejects_stacked_lane_at_wrong_elevation():
 def test_offroad_gate_ignores_wrong_elevation_lane():
     road_map = {
         1: _lane(0.0),
-        2: schema.MapElement(
+        2: schema.RoadPolyline(
+            layer=int(puffer_types.MapLayer.LANE),
             type=int(puffer_types.LaneType.SURFACE_STREET),
             polyline=np.array([[0.0, 6.0, 5.0], [10.0, 6.0, 5.0]]),
         ),

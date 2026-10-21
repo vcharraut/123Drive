@@ -87,7 +87,9 @@ def extract_scenario(
 
     centroid = _compute_centroid(ego_states)
     metadata.origin_xyz = tuple(float(value) for value in centroid)
-    map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, ego_states, map_only, speed_limit_source)
+    polylines, surfaces, stop_zones, map_lane_ids = _extract_map(
+        map_api, centroid, ego_states, map_only, speed_limit_source
+    )
 
     if scene_api is not None and ego_states is not None:
         dt = float(scene_api.scene_metadata.iteration_duration_s)
@@ -125,11 +127,12 @@ def extract_scenario(
     )
 
     if not map_api.map_has_z:
-        _zero_all_z(agents, objects, traffic_lights, map_elements, stop_zones)
+        _zero_all_z(agents, objects, traffic_lights, [*polylines.values(), *surfaces.values(), *stop_zones])
 
     scenario = schema.PufferScenario(
         agents=agents,
-        map=map_elements,
+        polylines=polylines,
+        surfaces=surfaces,
         objects=objects,
         metadata=metadata,
     )
@@ -143,7 +146,7 @@ def extract_scenario(
     return scenario, extras
 
 
-def _mark_junction_lanes(map_api: py123d_api.MapAPI, lanes: dict[int, schema.MapElement]) -> None:
+def _mark_junction_lanes(map_api: py123d_api.MapAPI, lanes: dict[int, schema.RoadPolyline]) -> None:
     """Flag lanes whose lane group belongs to an intersection."""
     if map_objects.MapLayer.LANE_GROUP not in map_api.available_map_layers:
         return
@@ -328,9 +331,10 @@ def _extract_map(
     ego_states: list[Any] | None = None,
     map_only: bool = False,
     speed_limit_source: str = "road",
-) -> tuple[dict[int, schema.MapElement], list[schema.StopZone], set[int]]:
+) -> tuple[dict[int, schema.RoadPolyline], dict[int, schema.RoadSurface], list[schema.StopZone], set[int]]:
     """Extract static map elements from a 123D MapAPI."""
-    result: dict[int, schema.MapElement] = {}
+    result: dict[int, schema.RoadPolyline] = {}
+    surfaces: dict[int, schema.RoadSurface] = {}
     stop_zones: list[schema.StopZone] = []
     non_lane_objects: list[Any] = []
     undefined_lane: list[int] = []
@@ -351,7 +355,7 @@ def _extract_map(
     for obj in map_objs:
         if obj.layer == map_objects.MapLayer.LANE:
             element = _write_map_object(obj, centroid, speed_limit_source)
-            if not isinstance(element, schema.MapElement):
+            if not isinstance(element, schema.RoadPolyline):
                 continue
             result[obj.object_id] = element
             if obj.lane_type == map_objects.LaneType.UNDEFINED:
@@ -381,9 +385,12 @@ def _extract_map(
             controlled_lanes = [lane_id for lane_id in element.controlled_lanes if lane_id in lane_ids]
             if controlled_lanes:
                 stop_zones.append(dataclasses.replace(element, controlled_lanes=controlled_lanes))
-        else:
+        elif isinstance(element, schema.RoadSurface):
             if obj.layer == map_objects.MapLayer.INTERSECTION:
                 intersection_element_ids[obj.object_id] = next_id
+            surfaces[next_id] = element
+            next_id += 1
+        else:
             result[next_id] = element
             next_id += 1
     drop_duplicate_lines(result)
@@ -394,7 +401,7 @@ def _extract_map(
         dataclasses.replace(stop_zone, intersection_id=intersection_element_ids.get(stop_zone.intersection_id, -1))
         for stop_zone in stop_zones
     ]
-    return result, stop_zones, lane_ids
+    return result, surfaces, stop_zones, lane_ids
 
 
 def _ego_corridor(ego_states: list[Any]) -> shapely.Geometry:
@@ -403,10 +410,10 @@ def _ego_corridor(ego_states: list[Any]) -> shapely.Geometry:
     return centerline.buffer(SCENE_MAP_MARGIN)
 
 
-def _is_short_road_line(element: schema.MapElement | schema.StopZone) -> bool:
+def _is_short_road_line(element: schema.RoadPolyline | schema.RoadSurface | schema.StopZone) -> bool:
     # PY123D-REPORT[opendrive]: 36% of CARLA road lines are shorter than 10 cm.
     return (
-        isinstance(element, schema.MapElement)
+        isinstance(element, schema.RoadPolyline)
         and element.is_line
         and element.polyline is not None
         and bool(((element.polyline[-1, :2] - element.polyline[0, :2]) ** 2).sum() < MIN_LINE_LENGTH**2)
@@ -419,18 +426,18 @@ def _is_short_road_line(element: schema.MapElement | schema.StopZone) -> bool:
 
 def _write_map_object(
     map_object: Any, centroid: np.ndarray, speed_limit_source: str = "road"
-) -> schema.MapElement | schema.StopZone | None:
-    """Convert a 123D map object into a MapElement or StopZone."""
+) -> schema.RoadPolyline | schema.RoadSurface | schema.StopZone | None:
+    """Convert a 123D map object into a RoadPolyline, RoadSurface, or StopZone."""
     layer = map_object.layer
     if layer not in mapping.SUPPORTED_MAP_LAYERS:
         return None
 
     if layer == map_objects.MapLayer.LANE:
-        puffer_type = mapping.LANE_TYPE_MAP.get(map_object.lane_type)
-        if puffer_type is None:
+        if map_object.lane_type == map_objects.LaneType.SHOULDER:
             return None
-        return schema.MapElement(
-            type=puffer_type,
+        return schema.RoadPolyline(
+            layer=int(layer),
+            type=int(map_object.lane_type),
             polyline=_trim_end_hooks(_centered_array(map_object.centerline_3d.array, centroid)),
             speed_limit_mps=_lane_speed_limit(map_object, speed_limit_source),
             entry_lanes=map_object.predecessor_ids,
@@ -442,22 +449,15 @@ def _write_map_object(
         )
 
     if layer in (map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE):
-        if layer == map_objects.MapLayer.ROAD_LINE:
-            puffer_type = mapping.ROAD_LINE_TYPE_MAP.get(map_object.road_line_type)
-        else:
-            puffer_type = mapping.ROAD_EDGE_TYPE_MAP.get(map_object.road_edge_type)
-        if puffer_type is None:
-            return None
-        return schema.MapElement(
-            type=puffer_type,
+        subtype = map_object.road_line_type if layer == map_objects.MapLayer.ROAD_LINE else map_object.road_edge_type
+        return schema.RoadPolyline(
+            layer=int(layer),
+            type=int(subtype),
             polyline=_centered_array(map_object.polyline_3d.array, centroid),
         )
 
-    if layer in mapping.SURFACE_TYPE_MAP:
-        return schema.MapElement(
-            type=mapping.SURFACE_TYPE_MAP[layer],
-            polygon=_centered_array(map_object.outline_3d.array, centroid),
-        )
+    if int(layer) in puffer_types.SURFACE_LAYERS:
+        return schema.RoadSurface(layer=int(layer), polygon=_centered_array(map_object.outline_3d.array, centroid))
 
     if layer == map_objects.MapLayer.STOP_ZONE:
         puffer_type = mapping.STOP_ZONE_TYPE_MAP.get(map_object.stop_zone_type)
@@ -625,15 +625,14 @@ def _zero_all_z(
     agents: dict[int, schema.Track],
     objects: dict[int, schema.Track],
     traffic_lights: dict[int, schema.TrafficLightTrack],
-    map_elements: dict[int, schema.MapElement],
-    stop_zones: list[schema.StopZone],
+    map_elements: list[schema.RoadPolyline | schema.RoadSurface | schema.StopZone],
 ) -> None:
     """Force all Z values to 0 when map has no Z data."""
     for track in [*agents.values(), *objects.values()]:
         track.position[:, 2] = 0.0
     for tl in traffic_lights.values():
         tl.position[2] = 0.0
-    for element in [*map_elements.values(), *stop_zones]:
+    for element in map_elements:
         for key in ("polyline", "left_boundary", "right_boundary", "polygon"):
             arr = getattr(element, key, None)
             if arr is not None:
@@ -641,7 +640,7 @@ def _zero_all_z(
 
 
 def _fix_lane_topology(
-    lanes: dict[int, schema.MapElement],
+    lanes: dict[int, schema.RoadPolyline],
     undefined_lane_ids: list[int],
     valid_lane_ids: set[int],
 ) -> None:
@@ -677,7 +676,7 @@ def _fix_lane_topology(
             lane.type = connected_types.pop()
 
 
-def _drop_partial_neighbors(lanes: dict[int, schema.MapElement]) -> None:
+def _drop_partial_neighbors(lanes: dict[int, schema.RoadPolyline]) -> None:
     """Keep a left or right neighbour only if it runs alongside the lane over a lane change's length."""
     # PY123D-REPORT[wod-motion]: WOMD neighbours carry the index range where two lanes are adjacent. py123d keeps one
     # neighbour per side and drops the range, so lanes side by side for a few metres come out as whole-lane neighbours.
@@ -724,7 +723,7 @@ def _alongside(line: np.ndarray, other: np.ndarray, side: float) -> bool:
     return adjacent.sum() >= min(NEIGHBOR_MIN_OVERLAP, 0.5 * min(cum[-1], other_length))
 
 
-def _fill_missing_speed_limits(lanes: dict[int, schema.MapElement]) -> None:
+def _fill_missing_speed_limits(lanes: dict[int, schema.RoadPolyline]) -> None:
     """Give each lane with an unknown speed limit the limit of its nearest connected lane via BFS."""
     # PY123D-REPORT[opendrive]: py123d only copies road-type speeds one hop into junction lanes and matches the
     # unit "mps" where OpenDRIVE spells "m/s", leaving ~50% of CARLA Town01-10 lanes without a limit.
@@ -764,7 +763,7 @@ def _trim_end_hooks(line: np.ndarray) -> np.ndarray:
     return line
 
 
-def drop_duplicate_lines(elements: dict[int, schema.MapElement]) -> None:
+def drop_duplicate_lines(elements: dict[int, schema.RoadPolyline]) -> None:
     """Remove road lines that repeat an earlier line of the same type, in either direction or resampled."""
     # PY123D-REPORT[nuplan,opendrive]: ~40% of road lines come twice, once per adjacent lane, often reversed and
     # sometimes sampled differently.
@@ -806,7 +805,8 @@ def _map_speed_limits(map_api: py123d_api.MapAPI, speed_limit_source: str = "roa
     objs: list[Any] = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE))
     ids = {obj.object_id for obj in objs}
     lanes = {
-        obj.object_id: schema.MapElement(
+        obj.object_id: schema.RoadPolyline(
+            layer=int(puffer_types.MapLayer.LANE),
             type=-1,
             speed_limit_mps=_lane_speed_limit(obj, speed_limit_source),
             entry_lanes=[ref for ref in obj.predecessor_ids if ref in ids],

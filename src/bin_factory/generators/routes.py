@@ -56,7 +56,7 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
     """
     scenario_length = scenario.metadata.scenario_length
     max_check = min(MAX_INIT_TIMESTEP + 1, scenario_length)
-    route_cache = build_route_cache(scenario.map)
+    route_cache = build_route_cache(scenario.polylines)
     dt = scenario.metadata.dt
     start_frames = np.zeros(len(scenario.agents), dtype=np.int64)
 
@@ -233,12 +233,13 @@ def _pair_box_corners(position: np.ndarray, heading: np.ndarray, length: np.ndar
     return rotated + position[:, None]
 
 
-def build_route_cache(static_map_elements: dict[int, schema.MapElement]) -> _RouteCache:
+def build_route_cache(static_map_elements: dict[int, schema.RoadPolyline]) -> _RouteCache:
     """Precompute lane geometry and connectivity shared by all agents."""
     lanes = {
         element_id: element
         for element_id, element in static_map_elements.items()
-        if element.type in (puffer_types.LaneType.SURFACE_STREET, puffer_types.LaneType.FREEWAY)
+        if element.is_lane
+        and element.type in (puffer_types.LaneType.SURFACE_STREET, puffer_types.LaneType.FREEWAY)
         and element.polyline is not None
         and len(element.polyline) > 0
     }

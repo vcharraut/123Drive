@@ -53,7 +53,7 @@ class _Reader:
 def parse_binary(data):
     magic, version, count = struct.unpack_from("<8sII", data)
     assert magic == b"123DRIVE"
-    assert version == 3
+    assert version == 4
     sections = {}
     end = 16 + 32 * count
     for index in range(count):
@@ -87,11 +87,11 @@ def parse_binary(data):
         )
 
     roads, lanes = [], []
-    r, n_roads, _ = sections[b"ROADS"]
+    r, n_roads, _ = sections[b"ROADPOLY"]
     for record in r.records(n_roads):
-        eid, kind, npts, flags = record.ints(4)
+        eid, layer, kind, npts, flags = record.ints(5)
         record.floats((3 if flags & 1 else 4) * npts)
-        is_lane = 0 <= kind <= 9
+        is_lane = layer == 0  # py123d MapLayer.LANE
         entry, exit_, speed = [], [], 0
         if is_lane:
             entry = record.ints(record.ints(1)[0])
@@ -101,10 +101,27 @@ def parse_binary(data):
             speed = record.floats(1)[0]
             record.floats(2 * npts)
         record.finish()
-        road = {"id": eid, "type": kind, "npts": npts, "lane": is_lane, "entry": entry, "exit": exit_, "speed": speed}
+        road = {
+            "id": eid,
+            "layer": layer,
+            "type": kind,
+            "npts": npts,
+            "lane": is_lane,
+            "entry": entry,
+            "exit": exit_,
+            "speed": speed,
+        }
         roads.append(road)
         if is_lane:
             lanes.append(road)
+
+    surfaces = []
+    r, n_surfaces, _ = sections[b"ROADSURF"]
+    for record in r.records(n_surfaces):
+        eid, layer, npts, flags = record.ints(4)
+        record.floats((2 if flags & 1 else 3) * npts)
+        record.finish()
+        surfaces.append({"id": eid, "layer": layer, "npts": npts})
 
     tcs = []
     r, n_tc, _ = sections[b"TRAFFIC"]
@@ -155,10 +172,11 @@ def parse_binary(data):
     object_sources = [r.string() for _ in objects]
     r.finish()
     return {
-        "counts": (n_agents, n_roads, n_tc, n_objects),
+        "counts": (n_agents, n_roads, n_surfaces, n_tc, n_objects),
         "agents": agents,
         "roads": roads,
         "lanes": lanes,
+        "surfaces": surfaces,
         "tcs": tcs,
         "objects": objects,
         "object_spans": object_spans,

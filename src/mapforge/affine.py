@@ -8,7 +8,7 @@ import numpy as np
 
 from bin_factory.conversion.geometry import resample_polyline
 from bin_factory.generators import build_lane_distance_matrix, compute_lane_lengths
-from bin_factory.schema import MapElement, PufferScenario, Track, TrafficControl
+from bin_factory.schema import PufferScenario, RoadPolyline, RoadSurface, Track, TrafficControl
 from mapforge import static_binary
 
 
@@ -93,9 +93,12 @@ def augment_maps(
 
         scenario = static_binary.static_binary_to_scenario(input_path.read_bytes(), source=str(input_path))
         geometries = [
-            np.asarray(element.geometry, dtype=np.float64)[:, :2]
-            for element in scenario.map.values()
-            if element.geometry is not None and len(element.geometry)
+            np.asarray(geometry, dtype=np.float64)[:, :2]
+            for geometry in [
+                *(element.polyline for element in scenario.polylines.values()),
+                *(element.polygon for element in scenario.surfaces.values()),
+            ]
+            if geometry is not None and len(geometry)
         ]
         centroid = np.vstack(geometries).mean(axis=0)
         for transform_name, matrix in catalog.items():
@@ -123,7 +126,7 @@ def apply_affine_transform(
 
     resample_points = float(np.max(np.linalg.svd(matrix, compute_uv=False))) > 1.0 + SINGULAR_VALUE_TOLERANCE
     mirrored = bool(np.linalg.det(matrix) < 0)
-    for element in scenario.map.values():
+    for element in [*scenario.polylines.values(), *scenario.surfaces.values()]:
         _transform_map_element(element, matrix, centroid, mirrored, resample_points)
     for traffic_control in scenario.traffic_controls:
         _transform_traffic_control(traffic_control, matrix, centroid)
@@ -131,25 +134,26 @@ def apply_affine_transform(
         _transform_object_track(track, matrix, centroid)
 
     compute_lane_lengths(scenario)
-    scenario.lane_graph = build_lane_distance_matrix(scenario.map)
+    scenario.lane_graph = build_lane_distance_matrix(scenario.polylines)
 
 
 def _transform_map_element(
-    element: MapElement,
+    element: RoadPolyline | RoadSurface,
     matrix: np.ndarray,
     centroid: np.ndarray,
     mirrored: bool,
     resample_points: bool,
 ) -> None:
-    if mirrored:  # a reflection turns every lane's left neighbour into its right one
+    # A reflection turns every lane's left neighbour into its right one
+    if mirrored and isinstance(element, RoadPolyline):
         element.left_neighbor, element.right_neighbor = element.right_neighbor, element.left_neighbor
-    key = "polyline" if element.uses_polyline else "polygon"
+    key = "polyline" if isinstance(element, RoadPolyline) else "polygon"
     xyz = np.asarray(getattr(element, key), dtype=np.float64)
     transformed = _transform_xyz(xyz, matrix, centroid)
     if resample_points:
         # Road edges keep their converted spacing when --edge_max_segment_length is below 10 m
         max_length = MAX_AUGMENTED_SEGMENT_LENGTH
-        if element.is_edge:
+        if isinstance(element, RoadPolyline) and element.is_edge:
             max_length = min(max_length, float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).max()))
         transformed = resample_polyline(transformed, max_length)
     setattr(element, key, transformed)

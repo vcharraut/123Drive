@@ -8,8 +8,8 @@ from bin_factory import puffer_types
 MAP_REF_KEYS = ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor")
 
 
-def remap_element_refs(element: "MapElement", id_map: dict[int, int]) -> "MapElement":
-    """Copy a MapElement with every MAP_REF_KEYS id remapped through ``id_map`` and unknown ids dropped."""
+def remap_element_refs(element: "RoadPolyline", id_map: dict[int, int]) -> "RoadPolyline":
+    """Copy a RoadPolyline with every MAP_REF_KEYS id remapped through ``id_map`` and unknown ids dropped."""
     return dataclasses.replace(
         element,
         **{key: [id_map[ref] for ref in getattr(element, key) if ref in id_map] for key in MAP_REF_KEYS},
@@ -60,10 +60,10 @@ class TrafficLightTrack:
 
 
 @dataclasses.dataclass
-class MapElement:
-    type: int
+class RoadPolyline:
+    layer: int
+    type: int  # py123d subtype of the layer
     polyline: np.ndarray | None = None
-    polygon: np.ndarray | None = None
     speed_limit_mps: float = -1.0
     entry_lanes: list = dataclasses.field(default_factory=list)
     exit_lanes: list = dataclasses.field(default_factory=list)
@@ -77,31 +77,21 @@ class MapElement:
 
     @property
     def is_lane(self) -> bool:
-        return 0 <= self.type <= 9
+        return self.layer == puffer_types.MapLayer.LANE
 
     @property
     def is_line(self) -> bool:
-        return 10 <= self.type <= 19
+        return self.layer == puffer_types.MapLayer.ROAD_LINE
 
     @property
     def is_edge(self) -> bool:
-        return 20 <= self.type <= 29
+        return self.layer == puffer_types.MapLayer.ROAD_EDGE
 
-    @property
-    def is_crosswalk(self) -> bool:
-        return self.type == puffer_types.MiscRoadType.CROSSWALK
 
-    @property
-    def uses_polyline(self) -> bool:
-        return self.is_lane or self.is_line or self.is_edge
-
-    @property
-    def geometry(self) -> np.ndarray | None:
-        return self.polyline if self.uses_polyline else self.polygon
-
-    @property
-    def min_points(self) -> int:
-        return 2 if self.uses_polyline else 3
+@dataclasses.dataclass
+class RoadSurface:
+    layer: int
+    polygon: np.ndarray | None = None
 
 
 @dataclasses.dataclass
@@ -138,7 +128,8 @@ class ExtractionExtras:
 class PufferScenario:
     agents: dict[int, Track]
     objects: dict[int, Track]
-    map: dict[int, MapElement]
+    polylines: dict[int, RoadPolyline]
     metadata: ScenarioMetadata
+    surfaces: dict[int, RoadSurface] = dataclasses.field(default_factory=dict)  # same id space as polylines
     traffic_controls: list[TrafficControl] = dataclasses.field(default_factory=list)
     lane_graph: dict | None = None

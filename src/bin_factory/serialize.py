@@ -1,4 +1,4 @@
-"""Little-endian 123Drive binary format, version 3.
+"""Little-endian 123Drive binary format, version 4.
 
 The header stores magic[8], version as u32, and section_count as u32. Each directory entry
 packs tag[8], offset as u64, byte_length as u64, record_count as u32, and frame_count as u32.
@@ -10,8 +10,11 @@ for x, y, optional z, heading, vx, vy, length, width, and height, then valid[n] 
 to 4 bytes. Agents append an int list route, then route_entry_s[count] and route_exit_s[count] as float32: the
 cum_length span driven on each route lane. Flags 0..2 store constant dimensions as scalars,
 bit 3 omits zero z, and bit 4 adds an overriding frame count after flags.
-ROADS store id, type, n, and flags as i32, then x, y, optional z, and heading as float32[n].
-Bit 0 omits zero z. Lanes append four topology int lists, speed as f32, cum_length[n], and curvature[n].
+ROADPOLY stores lanes, road lines, and road edges: id, layer, type, n, and flags as i32, then x, y, optional z,
+and heading as float32[n]. Layer and type are py123d MapLayer and subtype values. Bit 0 omits zero z.
+Lanes append four topology int lists, speed as f32, cum_length[n], and curvature[n].
+ROADSURF stores surface outlines: id, layer, n, and flags as i32, then x, y, and optional z as float32[n].
+Polylines and surfaces share one id space.
 TRAFFIC stores id and type as i32, stop_line as 6xf32, heading as f32, and state and lane int lists.
 LANEGRPH stores lane_ids as i32 and distances as f32 of shape count by count without record indexing.
 METADATA stores id, dataset, and location strings, scenario_length as i32, dt as f32, and target int lists.
@@ -34,7 +37,7 @@ from bin_factory import schema
 
 
 BINARY_MAGIC = b"123DRIVE"
-BINARY_VERSION = 3
+BINARY_VERSION = 4
 DIRECTORY_ENTRY = struct.Struct("<8sQQII")
 TRAFFIC_PHASE_SECTION_TAG = b"TLPHASE1"
 SOURCE_SECTION_TAG = b"SOURCE01"
@@ -116,16 +119,16 @@ def _compute_curvature(pts: np.ndarray, seg: np.ndarray) -> np.ndarray:
     return (turn / (hi - lo)).astype("<f4")
 
 
-def _write_roads(road_map: dict[int, schema.MapElement]) -> bytearray:
+def _write_polylines(polylines: dict[int, schema.RoadPolyline]) -> bytearray:
     records = []
-    for eid, elem in road_map.items():
-        xyz = elem.geometry
+    for eid, elem in polylines.items():
+        xyz = elem.polyline
         xyz_f = np.asarray(xyz, dtype="<f4")
         pts = np.asarray(xyz, dtype=np.float64)
         seg = np.arctan2(np.diff(pts[:, 1]), np.diff(pts[:, 0]))
         heading = np.append(seg, seg[-1]).astype("<f4")
         omit_z = not np.any(xyz_f[:, 2])
-        buf = bytearray(struct.pack("<4i", int(eid), int(elem.type), len(xyz_f), int(omit_z)))
+        buf = bytearray(struct.pack("<5i", int(eid), int(elem.layer), int(elem.type), len(xyz_f), int(omit_z)))
         buf.extend(xyz_f[:, : 2 if omit_z else 3].T.tobytes())
         buf.extend(heading.tobytes())
         if elem.is_lane:
@@ -134,6 +137,17 @@ def _write_roads(road_map: dict[int, schema.MapElement]) -> bytearray:
             buf.extend(struct.pack("<f", elem.speed_limit_mps))
             buf.extend(np.asarray(elem.cum_length, dtype="<f4").tobytes())
             buf.extend(_compute_curvature(pts, seg).tobytes())
+        records.append(buf)
+    return _index_records(records)
+
+
+def _write_surfaces(surfaces: dict[int, schema.RoadSurface]) -> bytearray:
+    records = []
+    for eid, elem in surfaces.items():
+        xyz_f = np.asarray(elem.polygon, dtype="<f4")
+        omit_z = not np.any(xyz_f[:, 2])
+        buf = bytearray(struct.pack("<4i", int(eid), int(elem.layer), len(xyz_f), int(omit_z)))
+        buf.extend(xyz_f[:, : 2 if omit_z else 3].T.tobytes())
         records.append(buf)
     return _index_records(records)
 
@@ -200,13 +214,14 @@ def _write_source(
 
 
 def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
-    agents, road_map, tcs, objects = scenario.agents, scenario.map, scenario.traffic_controls, scenario.objects
+    agents, tcs, objects = scenario.agents, scenario.traffic_controls, scenario.objects
     frame_count = scenario.metadata.scenario_length
     object_frames = len(next(iter(objects.values())).position) if objects else frame_count
     graph_buf, graph_count = _write_lane_graph(scenario.lane_graph)
     sections = [
         (b"AGENTS", _write_tracks(agents, True, frame_count), len(agents), frame_count),
-        (b"ROADS", _write_roads(road_map), len(road_map), 0),
+        (b"ROADPOLY", _write_polylines(scenario.polylines), len(scenario.polylines), 0),
+        (b"ROADSURF", _write_surfaces(scenario.surfaces), len(scenario.surfaces), 0),
         (b"TRAFFIC", _write_traffic_controls(tcs), len(tcs), 0),
         (b"OBJECTS", _write_tracks(objects, False, object_frames), len(objects), object_frames),
         (b"LANEGRPH", graph_buf, graph_count, 0),
@@ -293,8 +308,10 @@ def static_binary_to_scenario(data: BufferLike, source: str = "<bytes>") -> sche
         sections = read_sections(data)
         if sections[b"AGENTS"][1]:
             raise StaticBinaryError(f"{source} is not static: found {sections[b'AGENTS'][1]} agents")
-        road_data, road_count, _ = sections[b"ROADS"]
-        road_map = _read_roads(_Reader(road_data), road_count)
+        polyline_data, polyline_count, _ = sections[b"ROADPOLY"]
+        polylines = _read_polylines(_Reader(polyline_data), polyline_count)
+        surface_data, surface_count, _ = sections[b"ROADSURF"]
+        surfaces = _read_surfaces(_Reader(surface_data), surface_count)
         traffic_data, traffic_count, _ = sections[b"TRAFFIC"]
         traffic_controls = _read_traffic_controls(_Reader(traffic_data), traffic_count)
         object_data, object_count, object_frames = sections[b"OBJECTS"]
@@ -314,24 +331,27 @@ def static_binary_to_scenario(data: BufferLike, source: str = "<bytes>") -> sche
     return schema.PufferScenario(
         agents={},
         objects=objects,
-        map=road_map,
+        polylines=polylines,
+        surfaces=surfaces,
         traffic_controls=traffic_controls,
         lane_graph=lane_graph,
         metadata=metadata,
     )
 
 
-def _read_roads(reader: _Reader, n_roads: int) -> dict[int, schema.MapElement]:
-    road_map = {}
-    for record in reader.records(n_roads):
-        element_id, road_type, n_points, flags = (record.i32() for _ in range(4))
-        x = record.f32_array(n_points)
-        y = record.f32_array(n_points)
-        z = np.zeros(n_points) if flags & 1 else record.f32_array(n_points)
+def _read_xyz(record: _Reader, n_points: int, flags: int) -> np.ndarray:
+    x = record.f32_array(n_points)
+    y = record.f32_array(n_points)
+    z = np.zeros(n_points) if flags & 1 else record.f32_array(n_points)
+    return np.column_stack([x, y, z]).astype(np.float64)
+
+
+def _read_polylines(reader: _Reader, count: int) -> dict[int, schema.RoadPolyline]:
+    polylines = {}
+    for record in reader.records(count):
+        element_id, layer, road_type, n_points, flags = (record.i32() for _ in range(5))
+        element = schema.RoadPolyline(layer=layer, type=road_type, polyline=_read_xyz(record, n_points, flags))
         record.f32_array(n_points)  # heading is recomputed when serializing
-        element = schema.MapElement(type=road_type)
-        xyz = np.column_stack([x, y, z]).astype(np.float64)
-        setattr(element, "polyline" if element.uses_polyline else "polygon", xyz)
         if element.is_lane:
             element.entry_lanes = record.int_list()
             element.exit_lanes = record.int_list()
@@ -341,8 +361,16 @@ def _read_roads(reader: _Reader, n_roads: int) -> dict[int, schema.MapElement]:
             element.cum_length = record.f32_array(n_points).astype(np.float64)
             element.length = float(element.cum_length[-1])
             record.f32_array(n_points)  # curvature is recomputed when serializing
-        road_map[element_id] = element
-    return road_map
+        polylines[element_id] = element
+    return polylines
+
+
+def _read_surfaces(reader: _Reader, count: int) -> dict[int, schema.RoadSurface]:
+    surfaces = {}
+    for record in reader.records(count):
+        element_id, layer, n_points, flags = (record.i32() for _ in range(4))
+        surfaces[element_id] = schema.RoadSurface(layer=layer, polygon=_read_xyz(record, n_points, flags))
+    return surfaces
 
 
 def _read_traffic_controls(reader: _Reader, n_traffic: int) -> list[schema.TrafficControl]:

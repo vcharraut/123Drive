@@ -62,9 +62,9 @@ def validate_scenario(
     _validate_dynamic_states(scenario.agents, "Agent", length, errors)
     # Map-only scenarios have no frames but store static map objects as one-frame tracks.
     _validate_dynamic_states(scenario.objects, "Object", max(length, 1), errors)
-    _validate_map_elements(scenario.map, errors)
+    _validate_map_elements(scenario.polylines, scenario.surfaces, errors)
     _validate_stop_zones(stop_zones, errors)
-    _validate_traffic_lights(traffic_lights, length, scenario.map, errors)
+    _validate_traffic_lights(traffic_lights, length, scenario.polylines, errors)
     _validate_traffic_controls(scenario.traffic_controls, length, errors)
     _validate_lane_graph(scenario.lane_graph, errors)
 
@@ -73,8 +73,8 @@ def validate_scenario(
 
     # Semantic checks
     _validate_no_nan_inf(scenario, errors)
-    lane_ids = {eid for eid, e in scenario.map.items() if e.is_lane}
-    _validate_lane_topology(scenario.map, lane_ids, errors)
+    lane_ids = {eid for eid, e in scenario.polylines.items() if e.is_lane}
+    _validate_lane_topology(scenario.polylines, lane_ids, errors)
     _validate_tl_lane_refs(traffic_lights, lane_ids, errors)
     _validate_lane_refs(scenario, stop_zones, lane_ids, errors)
     if scenario.agents:
@@ -82,7 +82,7 @@ def validate_scenario(
         _validate_agent_sizes(scenario.agents, "Agent", errors)
     if scenario.objects:
         _validate_agent_sizes(scenario.objects, "Object", errors)
-    _validate_road_edge_z_overlap(scenario.map, errors)
+    _validate_road_edge_z_overlap(scenario.polylines, errors)
 
     return errors
 
@@ -113,21 +113,29 @@ def _validate_geometry(elem: object, key: str, label: str, min_points: int, erro
         errors.append(f"{label} {key} needs >= {min_points} points, got {len(geom)}")
 
 
-def _validate_map_elements(map_data: dict[int, schema.MapElement], errors: list[str]) -> None:
-    has_lane_lengths = any(elem.is_lane and elem.cum_length is not None for elem in map_data.values())
-    for eid, elem in map_data.items():
-        if elem.uses_polyline:
-            _validate_geometry(elem, "polyline", f"Map {eid}", 2, errors)
-            if elem.is_lane:
-                for key in ("entry_lanes", "exit_lanes"):
-                    if not isinstance(getattr(elem, key, None), list):
-                        errors.append(f"Map {eid} missing or invalid {key}")
-                if has_lane_lengths:
-                    expected = len(elem.polyline) if isinstance(elem.polyline, np.ndarray) else 0
-                    if not isinstance(elem.cum_length, np.ndarray) or elem.cum_length.shape != (expected,):
-                        errors.append(f"Map {eid} cum_length must be shape ({expected},)")
-        else:
-            _validate_geometry(elem, "polygon", f"Map {eid}", 3, errors)
+def _validate_map_elements(
+    polylines: dict[int, schema.RoadPolyline], surfaces: dict[int, schema.RoadSurface], errors: list[str]
+) -> None:
+    for eid in polylines.keys() & surfaces.keys():
+        errors.append(f"Map {eid} is both a polyline and a surface")
+    for eid, surface in surfaces.items():
+        if surface.layer not in puffer_types.SURFACE_LAYERS:
+            errors.append(f"Map {eid} surface layer {surface.layer} is not a surface layer")
+        _validate_geometry(surface, "polygon", f"Map {eid}", 3, errors)
+    has_lane_lengths = any(elem.is_lane and elem.cum_length is not None for elem in polylines.values())
+    for eid, elem in polylines.items():
+        types = puffer_types.POLYLINE_TYPES.get(elem.layer)
+        if types is None or elem.type not in types:
+            errors.append(f"Map {eid} has invalid polyline layer {elem.layer} or type {elem.type}")
+        _validate_geometry(elem, "polyline", f"Map {eid}", 2, errors)
+        if elem.is_lane:
+            for key in ("entry_lanes", "exit_lanes"):
+                if not isinstance(getattr(elem, key, None), list):
+                    errors.append(f"Map {eid} missing or invalid {key}")
+            if has_lane_lengths:
+                expected = len(elem.polyline) if isinstance(elem.polyline, np.ndarray) else 0
+                if not isinstance(elem.cum_length, np.ndarray) or elem.cum_length.shape != (expected,):
+                    errors.append(f"Map {eid} cum_length must be shape ({expected},)")
 
         if elem.is_lane:
             for key in ("left_boundary", "right_boundary"):
@@ -145,7 +153,7 @@ def _validate_stop_zones(stop_zones: list[schema.StopZone], errors: list[str]) -
 def _validate_traffic_lights(
     tl_data: dict[int, schema.TrafficLightTrack],
     length: int,
-    map_data: dict[int, schema.MapElement],
+    map_data: dict[int, schema.RoadPolyline],
     errors: list[str],
 ) -> None:
     for eid, tl in tl_data.items():
@@ -206,7 +214,7 @@ def _validate_no_nan_inf(scenario: schema.PufferScenario, errors: list[str]) -> 
                 if isinstance(arr, np.ndarray) and np.issubdtype(arr.dtype, np.number) and not np.all(np.isfinite(arr)):
                     errors.append(f"{prefix} {eid} {field} contains NaN or Inf")
 
-    for eid, elem in scenario.map.items():
+    for eid, elem in [*scenario.polylines.items(), *scenario.surfaces.items()]:
         for key in ("polyline", "polygon", "left_boundary", "right_boundary", "cum_length"):
             if (
                 (arr := getattr(elem, key, None)) is not None
@@ -250,7 +258,7 @@ def _validate_ego(agents: dict[int, schema.Track], length: int, dt: float, error
         errors.append(f"Ego teleports at timestep {i}: moved {dists[i]:.2f}m")
 
 
-def _validate_lane_topology(map_data: dict[int, schema.MapElement], lane_ids: set[int], errors: list[str]) -> None:
+def _validate_lane_topology(map_data: dict[int, schema.RoadPolyline], lane_ids: set[int], errors: list[str]) -> None:
     for eid, elem in map_data.items():
         if not elem.is_lane:
             continue
@@ -340,7 +348,7 @@ def _intersection_points(geom: BaseGeometry) -> list[Point]:
     return []
 
 
-def _validate_road_edge_z_overlap(map_data: dict[int, schema.MapElement], errors: list[str]) -> None:
+def _validate_road_edge_z_overlap(map_data: dict[int, schema.RoadPolyline], errors: list[str]) -> None:
     edges = [
         (eid, np.asarray(elem.polyline))
         for eid, elem in map_data.items()

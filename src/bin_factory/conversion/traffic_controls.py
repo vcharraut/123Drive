@@ -7,7 +7,7 @@ from bin_factory.log_context import log
 
 
 def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
-    lanes_by_id = {eid: edata for eid, edata in scenario.map.items() if edata.is_lane}
+    lanes_by_id = {eid: edata for eid, edata in scenario.polylines.items() if edata.is_lane}
     light_controls, covered_lanes = _build_traffic_light_controls(extras.traffic_lights, lanes_by_id)
     next_id = max((tc.id for tc in light_controls), default=-1) + 1
     zone_controls = _build_stop_zone_controls(
@@ -22,7 +22,7 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
 
 def _build_traffic_light_controls(
     traffic_lights: dict[int, schema.TrafficLightTrack],
-    lanes_by_id: dict[int, schema.MapElement],
+    lanes_by_id: dict[int, schema.RoadPolyline],
 ) -> tuple[list[schema.TrafficControl], set[int]]:
     controls: list[schema.TrafficControl] = []
     covered_lanes: set[int] = set()
@@ -67,7 +67,7 @@ def _build_traffic_light_controls(
 
 def _build_stop_zone_controls(
     stop_zones: list[schema.StopZone],
-    lanes_by_id: dict[int, schema.MapElement],
+    lanes_by_id: dict[int, schema.RoadPolyline],
     covered_lanes: set[int],
     scenario_length: int,
     next_id: int,
@@ -146,7 +146,7 @@ def _renumber_intersection_phases(controls: list[schema.TrafficControl]) -> list
     ]
 
 
-def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int, schema.MapElement]) -> np.ndarray:
+def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int, schema.RoadPolyline]) -> np.ndarray:
     lane = lanes_by_id.get(lane_id)
     if lane is None:
         raise ValueError("controlled lane is missing")
@@ -161,7 +161,7 @@ def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int
     return np.array([center - half_width, center + half_width], dtype=np.float64)
 
 
-def _heading_near(point: np.ndarray, lane_ids: list[int], lanes_by_id: dict[int, schema.MapElement]) -> float:
+def _heading_near(point: np.ndarray, lane_ids: list[int], lanes_by_id: dict[int, schema.RoadPolyline]) -> float:
     """Return the direction of the nearest lane segment at ``point``.
 
     Stop zones may sit at an approach lane's end in nuPlan or inside a CARLA junction.
@@ -180,7 +180,9 @@ def _heading_near(point: np.ndarray, lane_ids: list[int], lanes_by_id: dict[int,
     return min(candidates)[1]
 
 
-def _compute_heading_from_incoming_lanes(lane: schema.MapElement, lanes_by_id: dict[int, schema.MapElement]) -> float:
+def _compute_heading_from_incoming_lanes(
+    lane: schema.RoadPolyline, lanes_by_id: dict[int, schema.RoadPolyline]
+) -> float:
     headings = []
     for entry_id in lane.entry_lanes:
         entry_lane = lanes_by_id.get(entry_id)

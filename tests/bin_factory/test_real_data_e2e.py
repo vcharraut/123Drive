@@ -74,10 +74,10 @@ def test_binary_layout_and_counts_match_processed_scenario(log_name, infer_traff
     # against real, variable-shaped data (mixed map types, routes, TL state vectors).
     assert parsed["consumed"] == len(data)
 
-    n_road = sum(1 for e in scenario.map.values() if e.geometry is not None and len(e.geometry) > 1)
     assert parsed["counts"] == (
         len(scenario.agents),
-        n_road,
+        len(scenario.polylines),
+        len(scenario.surfaces),
         len(scenario.traffic_controls),
         len(scenario.objects),
     )
@@ -151,11 +151,14 @@ def test_references_stay_within_bounds(log_name):
 @pytest.mark.parametrize("log_name", LOG_NAMES)
 def test_map_types_and_geometry_are_supported(log_name):
     scenario = _process(log_name)
-    for elem in scenario.map.values():
-        assert elem.type in puffer_types.ROAD_TYPE_NAMES
-        geometry = elem.polyline if elem.uses_polyline else elem.polygon
-        assert geometry is not None
-        assert len(geometry) >= elem.min_points
+    for elem in scenario.polylines.values():
+        assert elem.type in puffer_types.POLYLINE_TYPES[elem.layer]
+        assert elem.polyline is not None
+        assert len(elem.polyline) >= 2
+    for surface in scenario.surfaces.values():
+        assert surface.layer in puffer_types.SURFACE_LAYERS
+        assert surface.polygon is not None
+        assert len(surface.polygon) >= 3
 
 
 # Metadata round-trip
@@ -181,11 +184,11 @@ def test_metadata_round_trips(log_name):
 def test_traffic_lights_present_and_inferred():
     scenario = _process(TL_LOG)
     parsed = _parse(serialize.scenario_to_binary(scenario))
-    assert parsed["counts"][2] > 0, "expected traffic controls in the TL fixture"
+    assert parsed["counts"][3] > 0, "expected traffic controls in the TL fixture"
 
     inferred = _process(TL_LOG, infer_traffic_lights=True)
     parsed_inferred = _parse(serialize.scenario_to_binary(inferred))
-    assert parsed_inferred["counts"][2] >= parsed["counts"][2]
+    assert parsed_inferred["counts"][3] >= parsed["counts"][3]
 
 
 # Determinism and CLI output
@@ -237,12 +240,11 @@ def test_map_only_has_map_but_no_dynamic_entities(location):
     assert scenario.objects == {}
     assert scenario.metadata.scenario_length == 0
     assert scenario.metadata.dt == 0.0
-    assert len(scenario.map) > 0
+    assert len(scenario.polylines) > 0
 
     parsed = _parse(serialize.scenario_to_binary(scenario))
-    n_road = sum(1 for e in scenario.map.values() if e.geometry is not None and len(e.geometry) > 1)
     # No agents, no objects; map + (stop-zone-derived) traffic controls remain.
-    assert parsed["counts"] == (0, n_road, len(scenario.traffic_controls), 0)
+    assert parsed["counts"] == (0, len(scenario.polylines), len(scenario.surfaces), len(scenario.traffic_controls), 0)
     assert parsed["agents"] == []
     assert parsed["objects"] == []
 

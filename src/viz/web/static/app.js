@@ -80,13 +80,16 @@ const EGO_ROUTE_COLOR = [220, 38, 38, 96];
 // Use these types until /api/types responds.
 window.TYPES = {
   AGENT_TYPE_NAMES: {0:'other', 1:'vehicle', 2:'pedestrian', 3:'cyclist'},
-  ROAD_TYPE_NAMES: {},
+  MAP_LAYER_NAMES: {},
+  POLYLINE_TYPE_NAMES: {},
   TC_TYPE_NAMES: {1:'traffic_light', 2:'stop_sign', 3:'yield_sign'},
   OBJECT_TYPE_NAMES: {1:'traffic_sign', 2:'traffic_cone', 3:'traffic_light', 4:'barrier', 5:'generic_object'},
   TL_STATE_NAMES: {0:'unknown', 1:'red', 2:'yellow', 3:'green', 4:'off'},
   TL_STATE_COLORS: {0:'#808080', 1:'#FF0000', 2:'#FFFF00', 3:'#00FF00', 4:'#808080'},
-  LANE_RANGE: [0, 9],
 };
+// py123d MapLayer values, as in bin_factory/puffer_types.py
+const MAP_LAYER = {LANE: 0, LANE_GROUP: 1, INTERSECTION: 2, CROSSWALK: 3, WALKWAY: 4, CARPARK: 5,
+                   GENERIC_DRIVABLE: 6, ROAD_EDGE: 8, ROAD_LINE: 9, SPEED_BUMP: 10, SHOULDER: 12};
 const TC_TYPE_COLORS = {2:[220,38,38], 3:[234,179,8]};
 
 // RGB versions of TL_STATE_COLORS for deck.gl layers
@@ -581,7 +584,7 @@ function reconstructPath(scenario, srcId, dstId) {
   const totalDist = dist(srcIdx, dstIdx);
   if (!isFinite(totalDist)) return null;
 
-  const roadMap = buildRoadMap(scenario.road_map_elements);
+  const roadMap = buildRoadMap(scenario.road_polylines);
   const path = [srcId];
   let curIdx = srcIdx;
   let curId = srcId;
@@ -950,7 +953,7 @@ function getStaticLayers(scenario, layerFlags) {
   const cacheKey = scenario.metadata.id + JSON.stringify(layerFlags);
   if (state.staticLayerCacheKey === cacheKey) return state.staticLayerCache;
 
-  const roads = scenario.road_map_elements;
+  const roads = scenario.road_polylines;
   const layers = [];
   const onClick = (cb) => ({
     pickable: true,
@@ -1009,23 +1012,24 @@ function getStaticLayers(scenario, layerFlags) {
       ? scatterRoads(`sc-${id}`, data, color, Math.max(2, width))
       : pxPath(id, data, color, width, dashed);
 
-  // Lanes, types 0 to 9
+  // Lanes; type 0 is py123d LaneType.UNDEFINED
   if (layerFlags.lanes) {
-    const knownLanes = roads.filter(r => r.type >= 1 && r.type <= 9);
-    const unknownLanes = roads.filter(r => r.type === 0);
+    const lanes = roads.filter(r => r.layer === MAP_LAYER.LANE);
+    const knownLanes = lanes.filter(r => r.type !== 0);
+    const unknownLanes = lanes.filter(r => r.type === 0);
     if (knownLanes.length) layers.push(roadLayer('lanes-known', knownLanes, [205,210,215], 1));
     if (layerFlags.unknowns && unknownLanes.length) layers.push(roadLayer('lanes-unknown', unknownLanes, [124, 58, 237], 1, true));
   }
 
-  // Road lines, types 10 to 19
+  // Road lines, by py123d RoadLineType; a line that starts dashed is drawn dashed
   if (layerFlags.road_lines) {
-    const lines = roads.filter(r => r.type >= 10 && r.type <= 19);
-    const whiteSolid  = lines.filter(r => [12,13].includes(r.type));
-    const whiteDashed = lines.filter(r => r.type === 11);
-    const yellowSolid = lines.filter(r => [15,16,17].includes(r.type));
-    const yellowDash  = lines.filter(r => [14,18].includes(r.type));
-    const unknown     = lines.filter(r => r.type === 10);
-    const rest        = lines.filter(r => ![10,11,12,13,14,15,16,17,18].includes(r.type));
+    const lines = roads.filter(r => r.layer === MAP_LAYER.ROAD_LINE);
+    const whiteSolid  = lines.filter(r => [7,11,12].includes(r.type));
+    const whiteDashed = lines.filter(r => [3,4,9].includes(r.type));
+    const yellowSolid = lines.filter(r => [6,10].includes(r.type));
+    const yellowDash  = lines.filter(r => [2,5,8,13].includes(r.type));
+    const unknown     = lines.filter(r => [0,1].includes(r.type));
+    const rest        = lines.filter(r => ![0,1,2,3,4,5,6,7,8,9,10,11,12,13].includes(r.type));
 
     if (whiteSolid.length)  layers.push(roadLayer('rl-white-solid',  whiteSolid,  [160,165,170], 1));
     if (whiteDashed.length) layers.push(roadLayer('rl-white-dashed', whiteDashed, [160,165,170], 1, true));
@@ -1035,26 +1039,28 @@ function getStaticLayers(scenario, layerFlags) {
     if (rest.length)        layers.push(roadLayer('rl-rest',         rest,        [160,165,170], 1));
   }
 
-  // Road edges, types 20 to 29
+  // Road edges; type 0 is py123d RoadEdgeType.UNKNOWN
   if (layerFlags.road_edges) {
-    const knownEdges   = roads.filter(r => r.type >= 21 && r.type <= 29);
-    const unknownEdges = roads.filter(r => r.type === 20);
+    const edges = roads.filter(r => r.layer === MAP_LAYER.ROAD_EDGE);
+    const knownEdges   = edges.filter(r => r.type !== 0);
+    const unknownEdges = edges.filter(r => r.type === 0);
     if (knownEdges.length)   layers.push(roadLayer('edges-known',   knownEdges,   [80, 90, 100], 1.5));
     if (layerFlags.unknowns && unknownEdges.length) layers.push(roadLayer('edges-unknown', unknownEdges, [124, 58, 237], 1.5));
   }
 
-  // Surface layers, types 31 to 37
-  for (const [flag, type, id, color] of [
-    ['crosswalks',       31, 'crosswalks',       [217,119,6]],
-    ['speed_bumps',      32, 'speed-bumps',      [219,39,119]],
-    ['carparks',         33, 'carparks',          [8,145,178]],
-    ['lane_groups',      34, 'lane-groups',      [96,165,250]],
-    ['intersections',    35, 'intersections',     [147,51,234]],
-    ['walkways',         36, 'walkways',          [22,163,74]],
-    ['generic_drivable', 37, 'generic-drivable', [100,116,139]],
+  // Surface outlines
+  for (const [flag, layer, id, color] of [
+    ['crosswalks',       MAP_LAYER.CROSSWALK,        'crosswalks',       [217,119,6]],
+    ['speed_bumps',      MAP_LAYER.SPEED_BUMP,       'speed-bumps',      [219,39,119]],
+    ['carparks',         MAP_LAYER.CARPARK,          'carparks',         [8,145,178]],
+    ['lane_groups',      MAP_LAYER.LANE_GROUP,       'lane-groups',      [96,165,250]],
+    ['intersections',    MAP_LAYER.INTERSECTION,     'intersections',    [147,51,234]],
+    ['walkways',         MAP_LAYER.WALKWAY,          'walkways',         [22,163,74]],
+    ['generic_drivable', MAP_LAYER.GENERIC_DRIVABLE, 'generic-drivable', [100,116,139]],
+    ['shoulders',        MAP_LAYER.SHOULDER,         'shoulders',        [161,98,7]],
   ]) {
     if (!layerFlags[flag]) continue;
-    const elements = roads.filter(r => r.type === type);
+    const elements = scenario.road_surfaces.filter(r => r.layer === layer);
     if (elements.length) layers.push(roadLayer(id, elements, color, 2));
   }
 
@@ -1356,7 +1362,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     const GREEN = [16, 185, 129];
     const AMBER = [217, 119, 6];
 
-    const roadMap = buildRoadMap(scenario.road_map_elements);
+    const roadMap = buildRoadMap(scenario.road_polylines);
 
     const selPathLayer = (id, data, color, width) => new PathLayer({
       id, data, getPath: toXY,
@@ -1483,7 +1489,7 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
   // Path finder highlights
   const pf = state.pathFinder;
   if (pf.active || pf.path) {
-    const pfRoadMap = buildRoadMap(scenario.road_map_elements);
+    const pfRoadMap = buildRoadMap(scenario.road_polylines);
     const SRC_COLOR  = [16, 185, 129]; // green
     const DST_COLOR  = [239, 68, 68];  // red
     const PATH_COLOR = [6, 182, 212];  // cyan/teal
@@ -1649,10 +1655,6 @@ function render() {
 
 // Selection and info panel
 
-function isLaneType(roadType) {
-  return roadType >= TYPES.LANE_RANGE[0] && roadType <= TYPES.LANE_RANGE[1];
-}
-
 function handlePathFinderClick(laneId) {
   const pf = state.pathFinder;
   const el = document.getElementById('element-detail');
@@ -1699,7 +1701,7 @@ function handlePathFinderClick(laneId) {
 
 function selectElement(type, data) {
   // Intercept lane clicks in path finder mode
-  if (state.pathFinder.active && type === 'road' && isLaneType(data.type)) {
+  if (state.pathFinder.active && type === 'road' && data.layer === MAP_LAYER.LANE) {
     handlePathFinderClick(data.id);
     return;
   }
@@ -1761,7 +1763,8 @@ function renderElementInfo(type, data) {
     scenario: state.scenario,
     AGENT_TYPE_NAMES: window.TYPES.AGENT_TYPE_NAMES,
     OBJECT_TYPE_NAMES: window.TYPES.OBJECT_TYPE_NAMES,
-    ROAD_TYPE_NAMES: window.TYPES.ROAD_TYPE_NAMES,
+    MAP_LAYER_NAMES: window.TYPES.MAP_LAYER_NAMES,
+    POLYLINE_TYPE_NAMES: window.TYPES.POLYLINE_TYPE_NAMES,
     TC_TYPE_NAMES: window.TYPES.TC_TYPE_NAMES,
     TL_STATE_NAMES: window.TYPES.TL_STATE_NAMES,
     TL_STATE_COLORS: window.TYPES.TL_STATE_COLORS,
@@ -1839,7 +1842,7 @@ function renderScenarioMeta(data) {
     <div class="info-row"><span class="info-label">Dataset</span><span class="info-val">${escapeHtml(m.dataset)}</span></div>
     <div class="info-row"><span class="info-label">Length</span><span class="info-val">${escapeHtml(m.scenario_length)}</span></div>
     <div class="info-row"><span class="info-label">Agents</span><span class="info-val">${escapeHtml(data.agents.length)}</span></div>
-    <div class="info-row"><span class="info-label">Roads</span><span class="info-val">${escapeHtml(data.road_map_elements.length)}</span></div>
+    <div class="info-row"><span class="info-label">Roads</span><span class="info-val">${escapeHtml(data.road_polylines.length + data.road_surfaces.length)}</span></div>
     <div class="info-row"><span class="info-label">TCs</span><span class="info-val">${escapeHtml(data.traffic_control_elements.length)}</span></div>
     <div class="info-row"><span class="info-label">Objects</span><span class="info-val">${escapeHtml((data.objects || []).length)}</span></div>
     <div class="info-row"><span class="info-label">OOI</span><span class="info-val">${safeIdList(ooi)}</span></div>
@@ -2157,7 +2160,7 @@ document.getElementById('btn-search-go').addEventListener('click', () => {
   const collections = {
     agent: state.scenario.agents,
     object: state.scenario.objects || [],
-    road: state.scenario.road_map_elements,
+    road: [...state.scenario.road_polylines, ...state.scenario.road_surfaces],
     traffic_control: state.scenario.traffic_control_elements,
   };
   const item = collections[type]?.find(item => item.id === id);

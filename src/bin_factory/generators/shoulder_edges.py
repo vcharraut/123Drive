@@ -84,16 +84,20 @@ def add_shoulder_edges(
     shoulders = _Surfaces(shoulder_outlines)
     if not shoulders:
         return 0
-    lanes = {i: e for i, e in scenario.map.items() if e.is_lane and e.polyline is not None}
+    lanes = {i: e for i, e in scenario.polylines.items() if e.is_lane and e.polyline is not None}
     kerbs = STRtree(
-        [shapely.LineString(e.polyline[:, :2]) for e in scenario.map.values() if e.is_edge and e.polyline is not None]
+        [
+            shapely.LineString(e.polyline[:, :2])
+            for e in scenario.polylines.values()
+            if e.is_edge and e.polyline is not None
+        ]
     )
     surroundings = _Surroundings(shoulders, _Surfaces(junction_outlines), _lane_surfaces(lanes), kerbs)
     continuing = _Surfaces(shoulder_outlines + junction_outlines)  # a band goes on through junction surfaces too
     sides = {lane_id: _lane_sides(lane_id, element, surroundings, continuing) for lane_id, element in lanes.items()}
     lanes_with_runs = {lane_id for lane_id, s_list in sides.items() if any(s.has_unsnapped_run for s in s_list)}
     ramps = {lane_id for lane_id, element in lanes.items() if _is_ramp(element, sides[lane_id])}
-    next_id = max(scenario.map.keys(), default=-1) + 1
+    next_id = max([*scenario.polylines, *scenario.surfaces], default=-1) + 1
     added = 0
     caps: set = set()  # two lanes ending on one band close it with the same cap
     for lane_id, element in lanes.items():
@@ -113,15 +117,17 @@ def add_shoulder_edges(
                 polyline = _distinct_points(_offset_points(points, point_normals, offsets))
                 if len(polyline) < 2:
                     continue  # the run collapsed onto one point at the band limits
-                scenario.map[next_id] = _edge(polyline if side.lane_on_right else polyline[::-1])
+                scenario.polylines[next_id] = _edge(polyline if side.lane_on_right else polyline[::-1])
                 next_id += 1
-                next_id, cap_count = _append_run_caps(scenario.map, next_id, caps, side, start, end, run_ends, offsets)
+                next_id, cap_count = _append_run_caps(
+                    scenario.polylines, next_id, caps, side, start, end, run_ends, offsets
+                )
                 added += 1 + cap_count
     return added
 
 
 def _append_run_caps(
-    map_elements: dict[int, schema.MapElement],
+    map_elements: dict[int, schema.RoadPolyline],
     next_id: int,
     caps: set,
     side: _Side,
@@ -147,7 +153,7 @@ def _append_run_caps(
 
 
 def _lane_sides(
-    lane_id: int, lane: schema.MapElement, surroundings: _Surroundings, continuing: "_Surfaces"
+    lane_id: int, lane: schema.RoadPolyline, surroundings: _Surroundings, continuing: "_Surfaces"
 ) -> list[_Side]:
     """Band samples and shoulder runs along the boundaries of a lane."""
     sides = []
@@ -173,7 +179,7 @@ def _lane_sides(
     return sides
 
 
-def _is_ramp(lane: schema.MapElement, sides: list[_Side]) -> bool:
+def _is_ramp(lane: schema.RoadPolyline, sides: list[_Side]) -> bool:
     """Check for a one-way, single-lane carriageway outside junctions.
 
     It must have no lateral neighbours and shoulders along both boundaries.
@@ -253,7 +259,7 @@ def _through_stubs(lanes: dict, ids: list, forward: bool) -> list:
     return result + pending
 
 
-def _lane_length(lane: schema.MapElement) -> float:
+def _lane_length(lane: schema.RoadPolyline) -> float:
     return float(np.linalg.norm(np.diff(np.asarray(lane.polyline)[:, :2], axis=0), axis=1).sum())
 
 
@@ -273,7 +279,7 @@ def _lane_surfaces(lanes: dict) -> "_Surfaces":
 
 
 def _boundary_bands(
-    boundary: np.ndarray, lane_id: int, lane: schema.MapElement, surroundings: _Surroundings
+    boundary: np.ndarray, lane_id: int, lane: schema.RoadPolyline, surroundings: _Surroundings
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Return samples, tangents, outward normals, and band widths along a lane boundary.
 
@@ -320,7 +326,7 @@ def _band_width(surroundings: _Surroundings, lane_id: int, point_xyz: np.ndarray
     return _band(surroundings.shoulders, point_xyz, normal)[0]
 
 
-def _lane_has_run(lane_id: int, lane: schema.MapElement | None, surroundings: _Surroundings) -> bool:
+def _lane_has_run(lane_id: int, lane: schema.RoadPolyline | None, surroundings: _Surroundings) -> bool:
     """Whether a boundary of `lane` would get a run (same mask rules as add_shoulder_edges)."""
     if lane is None or not lane.is_lane or lane.polyline is None:
         return False
@@ -452,9 +458,12 @@ def _band_ahead(
     return best
 
 
-def _edge(polyline: np.ndarray) -> schema.MapElement:
-    edge_type = int(puffer_types.RoadEdgeType.BOUNDARY)
-    return schema.MapElement(type=edge_type, polyline=np.array(polyline, dtype=np.float64))
+def _edge(polyline: np.ndarray) -> schema.RoadPolyline:
+    return schema.RoadPolyline(
+        layer=int(puffer_types.MapLayer.ROAD_EDGE),
+        type=int(puffer_types.RoadEdgeType.ROAD_EDGE_BOUNDARY),
+        polyline=np.array(polyline, dtype=np.float64),
+    )
 
 
 class _Surfaces:

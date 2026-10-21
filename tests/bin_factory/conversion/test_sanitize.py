@@ -5,7 +5,8 @@ from bin_factory.conversion.sanitize import prune_invalid_map_elements
 
 
 def _lane(points, exit_lanes=()):
-    return schema.MapElement(
+    return schema.RoadPolyline(
+        layer=int(puffer_types.MapLayer.LANE),
         type=int(puffer_types.LaneType.SURFACE_STREET),
         polyline=np.zeros((points, 3), dtype=np.float64),
         exit_lanes=list(exit_lanes),
@@ -16,7 +17,7 @@ def _scenario(map_):
     return schema.PufferScenario(
         agents={},
         objects={},
-        map=map_,
+        polylines=map_,
         metadata=schema.ScenarioMetadata(id="x", dataset="d", scenario_length=0, dt=0.0),
     )
 
@@ -26,8 +27,8 @@ def test_prune_drops_undersized_polylines_and_filters_dangling_refs():
 
     prune_invalid_map_elements(scenario, schema.ExtractionExtras())
 
-    assert set(scenario.map) == {1}
-    assert scenario.map[1].exit_lanes == []  # ref to pruned lane removed
+    assert set(scenario.polylines) == {1}
+    assert scenario.polylines[1].exit_lanes == []  # ref to pruned lane removed
 
 
 def test_prune_filters_extras_against_surviving_lanes():

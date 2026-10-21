@@ -36,13 +36,16 @@ def opendrive_bins():
     return {loc: _opendrive_static_bytes(loc) for loc in MAP_LOCATIONS}
 
 
+def _geometries(scenario):
+    return {
+        **{eid: e.polyline for eid, e in scenario.polylines.items()},
+        **{eid: e.polygon for eid, e in scenario.surfaces.items()},
+    }
+
+
 def _all_xy(scenario):
     return np.vstack(
-        [
-            np.asarray(e.geometry, dtype=np.float64)[:, :2]
-            for e in scenario.map.values()
-            if e.geometry is not None and len(e.geometry)
-        ]
+        [np.asarray(g, dtype=np.float64)[:, :2] for g in _geometries(scenario).values() if g is not None and len(g)]
     )
 
 
@@ -81,7 +84,7 @@ def test_read_static_scenario_is_map_only(opendrive_bins, location):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins[location])
     assert scenario.agents == {}
     assert scenario.objects == {}
-    assert len(scenario.map) > 0
+    assert len(scenario.polylines) > 0
     assert scenario.metadata.id == location
     assert scenario.metadata.dataset == "opendrive"
 
@@ -90,9 +93,12 @@ def test_read_static_scenario_is_map_only(opendrive_bins, location):
 def test_read_preserves_geometry_to_float32(opendrive_bins, location):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins[location])
     # The reader keeps element ids and shapes; geometry survives to float32 precision.
-    for element in scenario.map.values():
-        assert element.geometry is not None
-        assert len(element.geometry) >= element.min_points
+    for element in scenario.polylines.values():
+        assert element.polyline is not None
+        assert len(element.polyline) >= 2
+    for surface in scenario.surfaces.values():
+        assert surface.polygon is not None
+        assert len(surface.polygon) >= 3
 
 
 @pytest.mark.parametrize("location", MAP_LOCATIONS)
@@ -105,7 +111,10 @@ def test_read_serialize_is_idempotent(opendrive_bins, location):
 
 def test_read_rejects_binary_with_agents():
     scenario = schema.PufferScenario(
-        agents={}, objects={}, map={}, metadata=schema.ScenarioMetadata(id="", dataset="", scenario_length=0, dt=0.0)
+        agents={},
+        objects={},
+        polylines={},
+        metadata=schema.ScenarioMetadata(id="", dataset="", scenario_length=0, dt=0.0),
     )
     data = bytearray(serialize.scenario_to_binary(scenario))
     data[40:44] = (1).to_bytes(4, "little")
@@ -141,7 +150,7 @@ def test_write_round_trips_and_requires_explicit_overwrite(opendrive_bins, tmp_p
     scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
     out = tmp_path / "out.bin"
     static_binary.write_static_scenario(scenario, out)
-    assert list(static_binary.static_binary_to_scenario(out.read_bytes()).map) == list(scenario.map)
+    assert list(_geometries(static_binary.static_binary_to_scenario(out.read_bytes()))) == list(_geometries(scenario))
     with pytest.raises(FileExistsError):
         static_binary.write_static_scenario(scenario, out)
     static_binary.write_static_scenario(scenario, out, overwrite=True)  # explicit overwrite is allowed
@@ -196,8 +205,9 @@ def test_flip_mirrors_x_about_centroid(opendrive_bins):
     centroid = _centroid(scenario)
     affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["flip"]["FlipX"], centroid)
 
-    for eid, element in scenario.map.items():
-        geometry, ref = element.geometry, reference.map[eid].geometry
+    reference_geometries = _geometries(reference)
+    for eid, geometry in _geometries(scenario).items():
+        ref = reference_geometries[eid]
         assert geometry is not None
         assert ref is not None
         # FlipX has unit singular values -> no resampling, so point counts are preserved.
@@ -211,12 +221,12 @@ def test_scale_grows_extent_and_resamples(opendrive_bins):
     reference = copy.deepcopy(scenario)
     centroid = _centroid(scenario)
     before_extent = np.ptp(_all_xy(reference), axis=0)
-    before_points = sum(len(e.geometry) for e in reference.map.values() if e.geometry is not None)
+    before_points = sum(len(g) for g in _geometries(reference).values() if g is not None)
 
     affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["scale"]["Sc10"], centroid)
 
     after_extent = np.ptp(_all_xy(scenario), axis=0)
-    after_points = sum(len(e.geometry) for e in scenario.map.values() if e.geometry is not None)
+    after_points = sum(len(g) for g in _geometries(scenario).values() if g is not None)
     assert np.allclose(after_extent / before_extent, 1.10, atol=1e-2)
     # A scale > 1 lengthens segments, so resampling can only add points, never drop them.
     assert after_points > before_points

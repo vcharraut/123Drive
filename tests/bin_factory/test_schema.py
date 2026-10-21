@@ -1,49 +1,22 @@
-import numpy as np
 import pytest
+from py123d.datatypes import map_objects
 
 from bin_factory import puffer_types, schema
 
 
-def _pts(n):
-    return np.zeros((n, 3), dtype=np.float64)
+@pytest.mark.parametrize("name", ["MapLayer", "LaneType", "RoadLineType", "RoadEdgeType"])
+def test_map_enums_mirror_py123d(name):
+    ours, theirs = getattr(puffer_types, name), getattr(map_objects, name)
+    assert [(m.name, m.value) for m in ours] == [(m.name, m.value) for m in theirs]
 
 
-@pytest.mark.parametrize(
-    ("road_type", "uses_polyline", "min_points"),
-    [
-        (puffer_types.LaneType.SURFACE_STREET, True, 2),
-        (puffer_types.LaneType.FREEWAY, True, 2),
-        (puffer_types.RoadLineType.SOLID_SINGLE_WHITE, True, 2),
-        (puffer_types.RoadEdgeType.BOUNDARY, True, 2),
-        (puffer_types.MiscRoadType.CROSSWALK, False, 3),
-        (puffer_types.MiscRoadType.SPEED_BUMP, False, 3),
-        (puffer_types.MiscRoadType.CARPARK, False, 3),
-        (puffer_types.MiscRoadType.LANE_GROUP, False, 3),
-        (puffer_types.MiscRoadType.INTERSECTION, False, 3),
-        (puffer_types.MiscRoadType.WALKWAY, False, 3),
-        (puffer_types.MiscRoadType.GENERIC_DRIVABLE, False, 3),
-    ],
-)
-def test_geometry_key_and_min_points(road_type, uses_polyline, min_points):
-    polyline = _pts(4) if uses_polyline else None
-    polygon = None if uses_polyline else _pts(4)
-    elem = schema.MapElement(type=int(road_type), polyline=polyline, polygon=polygon)
+def test_polyline_predicates_follow_layer():
+    def polyline(layer):
+        return schema.RoadPolyline(layer=int(layer), type=1)
 
-    assert elem.uses_polyline is uses_polyline
-    assert elem.min_points == min_points
-    assert elem.geometry is (polyline if uses_polyline else polygon)
-
-
-def test_type_predicates_match_puffer_ranges():
-    assert schema.MapElement(type=int(puffer_types.LaneType.FREEWAY)).is_lane
-    assert schema.MapElement(type=int(puffer_types.RoadLineType.UNKNOWN)).is_line
-    assert schema.MapElement(type=int(puffer_types.RoadEdgeType.MEDIAN)).is_edge
-    assert schema.MapElement(type=int(puffer_types.MiscRoadType.CROSSWALK)).is_crosswalk
-
-
-def test_lane_is_not_line_or_edge():
-    lane = schema.MapElement(type=int(puffer_types.LaneType.SURFACE_STREET))
-    assert lane.is_lane
-    assert not lane.is_line
-    assert not lane.is_edge
-    assert not lane.is_crosswalk
+    assert polyline(puffer_types.MapLayer.LANE).is_lane
+    assert polyline(puffer_types.MapLayer.ROAD_LINE).is_line
+    assert polyline(puffer_types.MapLayer.ROAD_EDGE).is_edge
+    edge = polyline(puffer_types.MapLayer.ROAD_EDGE)
+    assert not edge.is_lane
+    assert not edge.is_line

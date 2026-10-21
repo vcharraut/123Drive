@@ -117,7 +117,7 @@
       }
     };
 
-    for (const road of scenario.road_map_elements) {
+    for (const road of [...scenario.road_polylines, ...scenario.road_surfaces]) {
       for (const pt of road.xyz) addPoint(pt);
     }
     for (const tc of scenario.traffic_control_elements || []) {

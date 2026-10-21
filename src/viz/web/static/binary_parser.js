@@ -1,4 +1,4 @@
-/* 123Drive v3 decoder. The layout is defined in src/bin_factory/serialize.py. */
+/* 123Drive v4 decoder. The layout is defined in src/bin_factory/serialize.py. */
 'use strict';
 
 window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true} = {}) {
@@ -27,7 +27,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true}
     const magic = decoder.decode(new Uint8Array(buffer, 0, 8));
     off = 8;
     const version = i32();
-    if (magic !== '123DRIVE' || version !== 3) {
+    if (magic !== '123DRIVE' || version !== 4) {
       throw new Error('Unsupported binary format; regenerate bins with the current converter');
     }
     const sectionCount = i32();
@@ -103,14 +103,14 @@ window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true}
       return track;
     };
     const agents = records('AGENTS', frames => readTrack(frames, true));
-    const road_map_elements = records('ROADS', () => {
-      const id = i32(), type = i32(), S = i32(), flags = i32();
+    const road_polylines = records('ROADPOLY', () => {
+      const id = i32(), layer = i32(), type = i32(), S = i32(), flags = i32();
       const x = f32arr(S), y = f32arr(S);
       const z = flags & 1 ? new Float32Array(S) : f32arr(S);
       const heading = f32arr(S);
       let entry_lanes = [], exit_lanes = [], left_neighbors = [], right_neighbors = [];
       let speed_limit = 0, length = 0, cum_length = [], curvature = [];
-      if (type >= TYPES.LANE_RANGE[0] && type <= TYPES.LANE_RANGE[1]) {
+      if (layer === 0) {  // py123d MapLayer.LANE
         entry_lanes = intList();
         exit_lanes = intList();
         left_neighbors = intList();
@@ -121,9 +121,15 @@ window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true}
         curvature = f32arr(S);
       }
       return {
-        id, type, xyz: colsToRows([x, y, z]), heading, entry_lanes, exit_lanes, left_neighbors, right_neighbors,
-        speed_limit, length, cum_length, curvature,
+        id, layer, type, xyz: colsToRows([x, y, z]), heading, entry_lanes, exit_lanes, left_neighbors,
+        right_neighbors, speed_limit, length, cum_length, curvature,
       };
+    });
+    const road_surfaces = records('ROADSURF', () => {
+      const id = i32(), layer = i32(), S = i32(), flags = i32();
+      const x = f32arr(S), y = f32arr(S);
+      const z = flags & 1 ? new Float32Array(S) : f32arr(S);
+      return {id, layer, xyz: colsToRows([x, y, z])};
     });
     const traffic_control_elements = records('TRAFFIC', () => {
       const id = i32(), type = i32();
@@ -163,7 +169,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true}
       for (const name of ['scene_uuid', 'log_name', 'split', 'log_version', 'map_version']) metadata[name] = str();
       for (const track of [...agents, ...objects]) track.source_id = str();
     }
-    return {agents, road_map_elements, traffic_control_elements, objects, lane_graph, metadata};
+    return {agents, road_polylines, road_surfaces, traffic_control_elements, objects, lane_graph, metadata};
   } catch (error) {
     if (error instanceof RangeError) throw new Error('Unexpected end of binary payload');
     throw error;

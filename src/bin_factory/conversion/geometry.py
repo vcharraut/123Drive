@@ -20,7 +20,7 @@ def polyline_length(polyline: np.ndarray) -> float:
 
 
 def interpolate_all_polygons(scenario: schema.PufferScenario, spacing: float = 5.0) -> None:
-    for element_data in scenario.map.values():
+    for element_data in scenario.surfaces.values():
         if element_data.polygon is not None:
             element_data.polygon = _interpolate_polygon(element_data.polygon, spacing)
 
@@ -40,7 +40,7 @@ def _interpolate_polygon(xyz: np.ndarray | None, spacing: float) -> np.ndarray:
 def reverse_road_edges(scenario: schema.PufferScenario) -> None:
     # PY123D-REPORT[nuplan,carla,opendrive,nuscenes]: py123d road edges run opposite to the WOMD orientation;
     # enabled per dataset via the `reverse_road_edges` preset key.
-    for element in scenario.map.values():
+    for element in scenario.polylines.values():
         if element.is_edge and element.polyline is not None:
             element.polyline = element.polyline[::-1]
 
@@ -51,7 +51,7 @@ def process_polylines(
     area_threshold: float = 0.1,
     edge_max_segment_length: float = 10.0,
 ) -> None:
-    for element in scenario.map.values():
+    for element in scenario.polylines.values():
         if element.polyline is None:
             continue
 

@@ -10,7 +10,7 @@ GRAPH_LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE
 LANE_CHANGE_COST = 25.0  # metres, about the distance a lane change takes, keeping the right lane ahead of a split
 
 
-def build_lane_distance_matrix(map_elements: dict[int, schema.MapElement]) -> dict | None:
+def build_lane_distance_matrix(map_elements: dict[int, schema.RoadPolyline]) -> dict | None:
     """Build the all-pairs shortest-path distance matrix over drivable lanes.
 
     Only SURFACE_STREET and FREEWAY lanes participate. Exit edges cost the source lane's
@@ -19,7 +19,7 @@ def build_lane_distance_matrix(map_elements: dict[int, schema.MapElement]) -> di
     Return ``{"lane_ids": [...], "distances": float64 NxN array}``, or ``None`` without
     drivable lanes. Rows are sources, columns are destinations, and unreachable pairs are ``+inf``.
     """
-    lanes = [(eid, e) for eid, e in map_elements.items() if e.type in GRAPH_LANE_TYPES]
+    lanes = [(eid, e) for eid, e in map_elements.items() if e.is_lane and e.type in GRAPH_LANE_TYPES]
     if not lanes:
         return None
 
@@ -51,7 +51,7 @@ def compute_lane_lengths(scenario: schema.PufferScenario) -> None:
 
     Run after ``geometry.process_polylines`` so lengths match the serialized geometry.
     """
-    for elem in scenario.map.values():
+    for elem in scenario.polylines.values():
         if not elem.is_lane or elem.polyline is None:
             continue
         cum = arc_length(elem.polyline)

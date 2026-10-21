@@ -33,13 +33,13 @@ def prepare_scenario(py123d_data: Any, config: Any) -> schema.PufferScenario:
         reverse_road_edges(scenario)
     process_polylines(scenario, config.max_segment_length, config.area_threshold, config.edge_max_segment_length)
     # Simplification straightens small kinks, so road lines that differed by more than the duplicate distance can match
-    loader.drop_duplicate_lines(scenario.map)
+    loader.drop_duplicate_lines(scenario.polylines)
     interpolate_all_polygons(scenario)
     prune_invalid_map_elements(scenario, extras)
     process_traffic_controls(scenario, extras)
     process_agent_routes(scenario)
     compute_lane_lengths(scenario)
-    scenario.lane_graph = build_lane_distance_matrix(scenario.map)
+    scenario.lane_graph = build_lane_distance_matrix(scenario.polylines)
     _validate(scenario, config.validate_level, "Post-transform validation failed")
     return scenario
 

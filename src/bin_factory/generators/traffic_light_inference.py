@@ -54,7 +54,7 @@ def infer_traffic_lights(scenario: schema.PufferScenario, extras: schema.Extract
     length, dt = scenario.metadata.scenario_length, float(scenario.metadata.dt)
     polys = {
         lid: np.asarray(e.polyline, dtype=np.float64)[:, :2]
-        for lid, e in scenario.map.items()
+        for lid, e in scenario.polylines.items()
         if e.is_lane and e.polyline is not None and len(e.polyline) > 1 and np.ptp(e.polyline[:, :2], 0).any()
     }
     tracks = {int(tl.controlled_lane): tl for tl in extras.traffic_lights.values()}
@@ -63,7 +63,7 @@ def infer_traffic_lights(scenario: schema.PufferScenario, extras: schema.Extract
         for zone in extras.stop_zones
         if zone.type == puffer_types.TCType.TRAFFIC_LIGHT
         for lid in zone.controlled_lanes
-        for exit_id in scenario.map[lid].exit_lanes
+        for exit_id in scenario.polylines[lid].exit_lanes
     }
     ids = sorted((set(tracks) | zone_exits) & set(polys))
     if length <= 0 or not ids:
@@ -98,14 +98,14 @@ def infer_traffic_lights(scenario: schema.PufferScenario, extras: schema.Extract
     inferred = np.select([go > _CONFIDENCE, go < 1 - _CONFIDENCE], [_GREEN, _RED], 0)
     kept = (observed != 0) & ~(lag & (inferred != 0)) | caution[:, None]
     states = np.where(kept, observed, _yellow_tails(inferred, kept, round(_YELLOW_S / dt)))
-    _write_inferred_states(ids, states, tracks, scenario.map, extras.traffic_lights)
+    _write_inferred_states(ids, states, tracks, scenario.polylines, extras.traffic_lights)
 
 
 def _write_inferred_states(
     ids: list[int],
     states: np.ndarray,
     tracks: dict[int, schema.TrafficLightTrack],
-    map_elements: dict[int, schema.MapElement],
+    map_elements: dict[int, schema.RoadPolyline],
     traffic_lights: dict[int, schema.TrafficLightTrack],
 ) -> None:
     for lid, row in zip(ids, states, strict=True):

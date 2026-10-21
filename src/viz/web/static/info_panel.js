@@ -72,23 +72,18 @@ ${routeRow}      <details><summary>Trajectory</summary>
   }
 
   function renderRoadInfo(data, context) {
-    const {ROAD_TYPE_NAMES, escapeHtml, safeIdList} = context;
-    const typeName = ROAD_TYPE_NAMES[data.type] || `type_${data.type}`;
+    const {MAP_LAYER_NAMES, POLYLINE_TYPE_NAMES, escapeHtml, safeIdList} = context;
+    const category = (MAP_LAYER_NAMES[data.layer] || `layer_${data.layer}`).replace('_', ' ');
+    // Surfaces carry no subtype
+    const typeName = data.type === undefined ? '—' : (POLYLINE_TYPE_NAMES[data.layer] || {})[data.type] || `type_${data.type}`;
     const npts = data.xyz.length;
-    const isLane = data.type >= 0 && data.type <= 9;
-    const isLine = data.type >= 10 && data.type <= 19;
-    const isEdge = data.type >= 20 && data.type <= 29;
+    const isLane = data.layer === 0;  // py123d MapLayer.LANE
     const showZ = hasZPositions(data);
 
     const cum = data.cum_length || [];
     const showCum = isLane && cum.length === data.xyz.length;
     const ptRows = data.xyz.slice(0, 30).map(([x, y, z = 0], i) =>
       `<tr><td>${i}</td><td>${x.toFixed(2)}</td><td>${y.toFixed(2)}</td>${showZ ? `<td>${z.toFixed(2)}</td>` : ''}${showCum ? `<td>${cum[i].toFixed(2)}</td>` : ''}</tr>`).join('');
-
-    let category = 'misc';
-    if (isLane) category = 'lane';
-    else if (isLine) category = 'road line';
-    else if (isEdge) category = 'road edge';
 
     let html = `
       <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>

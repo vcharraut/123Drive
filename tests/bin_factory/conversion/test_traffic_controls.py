@@ -14,14 +14,16 @@ from bin_factory.conversion.traffic_controls import process_traffic_controls
 
 
 def _lane(lane_type, polyline):
-    return schema.MapElement(type=int(lane_type), polyline=np.array(polyline, dtype=np.float64))
+    return schema.RoadPolyline(
+        layer=int(puffer_types.MapLayer.LANE), type=int(lane_type), polyline=np.array(polyline, dtype=np.float64)
+    )
 
 
 def _scenario(lanes, length=5):
     return schema.PufferScenario(
         agents={},
         objects={},
-        map=lanes,
+        polylines=lanes,
         metadata=schema.ScenarioMetadata(id="t", dataset="d", scenario_length=length, dt=0.1),
     )
 
@@ -49,7 +51,7 @@ def test_bike_lane_traffic_light_is_dropped():
     controlled = {lid for tc in scenario.traffic_controls for lid in tc.controlled_lanes}
     assert controlled == {1}  # the bike-lane signal (lane 2) is dropped
     assert all(tc.type == puffer_types.TCType.TRAFFIC_LIGHT for tc in scenario.traffic_controls)
-    assert 2 in scenario.map  # the bike lane itself stays in the map
+    assert 2 in scenario.polylines  # the bike lane itself stays in the map
 
 
 def test_vehicle_lane_traffic_light_is_kept_at_lane_start():

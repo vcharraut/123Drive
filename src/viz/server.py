@@ -23,8 +23,9 @@ except ImportError as exc:  # pragma: no cover - import guard
 
 from bin_factory.puffer_types import (
     AGENT_TYPE_NAMES,
+    MAP_LAYER_NAMES,
     OBJECT_TYPE_NAMES,
-    ROAD_TYPE_NAMES,
+    POLYLINE_TYPE_NAMES,
     TC_TYPE_NAMES,
     TL_STATE_NAMES,
     TLState,
@@ -83,7 +84,8 @@ def _sanitize_export_name(name: str) -> str:
 def get_types() -> dict:
     return {
         "AGENT_TYPE_NAMES": AGENT_TYPE_NAMES,
-        "ROAD_TYPE_NAMES": ROAD_TYPE_NAMES,
+        "MAP_LAYER_NAMES": MAP_LAYER_NAMES,
+        "POLYLINE_TYPE_NAMES": POLYLINE_TYPE_NAMES,
         "TL_STATE_NAMES": TL_STATE_NAMES,
         "TL_STATE_COLORS": {
             TLState.GREEN: "#00FF00",
@@ -94,7 +96,6 @@ def get_types() -> dict:
         },
         "TC_TYPE_NAMES": TC_TYPE_NAMES,
         "OBJECT_TYPE_NAMES": OBJECT_TYPE_NAMES,
-        "LANE_RANGE": (0, 9),
     }
 
 

@@ -29,11 +29,12 @@ def _track(length, agent_type, valid, route=(), base=0.0):
     )
 
 
-def _lane(road_type, points, entry=(), exit_=(), speed=-1.0):
+def _lane(road_type, points, entry=(), exit_=(), speed=-1.0, layer=puffer_types.MapLayer.LANE):
     polyline = np.arange(points * 3, dtype=np.float64).reshape(points, 3)
     cum = np.linalg.norm(np.diff(polyline, axis=0), axis=1).cumsum()
     cum_length = np.concatenate([[0.0], cum]) if points > 1 else np.zeros(points)
-    return schema.MapElement(
+    return schema.RoadPolyline(
+        layer=int(layer),
         type=int(road_type),
         polyline=polyline,
         speed_limit_mps=speed,
@@ -65,15 +66,14 @@ def _build_scenario():
         0: _track(3, puffer_types.AgentType.VEHICLE, [1, 1, 1], route=[10, 11]),
         1: _track(3, puffer_types.AgentType.PEDESTRIAN, [0, 1, 0], base=100.0),
     }
-    crosswalk = schema.MapElement(
-        type=int(puffer_types.MiscRoadType.CROSSWALK),
+    crosswalk = schema.RoadSurface(
+        layer=int(puffer_types.MapLayer.CROSSWALK),
         polygon=np.arange(12, dtype=np.float64).reshape(4, 3),
     )
-    road_map = {
+    polylines = {
         10: _lane(puffer_types.LaneType.SURFACE_STREET, 4, exit_=[11], speed=13.0),
         11: _lane(puffer_types.LaneType.FREEWAY, 2, entry=[10]),
-        12: _lane(puffer_types.RoadLineType.SOLID_SINGLE_WHITE, 3),
-        13: crosswalk,
+        12: _lane(puffer_types.RoadLineType.SOLID_WHITE, 3, layer=puffer_types.MapLayer.ROAD_LINE),
     }
     objects = {0: _track(3, puffer_types.ObjectType.GENERIC_OBJECT, [1, 1, 1])}
     agents[0].source_id = "ego-source"
@@ -93,7 +93,8 @@ def _build_scenario():
     return schema.PufferScenario(
         agents=agents,
         objects=objects,
-        map=road_map,
+        polylines=polylines,
+        surfaces={13: crosswalk},
         metadata=metadata,
         traffic_controls=traffic_controls,
         lane_graph=lane_graph,
@@ -106,8 +107,8 @@ def test_round_trip_high_level_fields():
     assert serialize.scenario_to_binary(scenario) == data
     parsed = _parse(data)
 
-    # Header counts: agents, road elements, traffic controls, objects.
-    assert parsed["counts"] == (2, 4, 1, 1)
+    # Header counts: agents, road polylines, road surfaces, traffic controls, objects.
+    assert parsed["counts"] == (2, 3, 1, 1, 1)
 
     ego = next(a for a in parsed["agents"] if a["id"] == 0)
     assert ego["route"] == [10, 11]
@@ -160,11 +161,12 @@ def test_big_endian_inputs_serialize_identically():
         for field in ("position", "heading", "velocity", "valid", "length", "width", "height"):
             array = getattr(track, field)
             setattr(track, field, array.astype(">i4" if field == "valid" else ">f8"))
-    for element in big.map.values():
-        key = "polyline" if element.uses_polyline else "polygon"
-        setattr(element, key, getattr(element, key).astype(">f8"))
+    for element in big.polylines.values():
+        element.polyline = element.polyline.astype(">f8")
         if element.cum_length is not None:
             element.cum_length = element.cum_length.astype(">f8")
+    for surface in big.surfaces.values():
+        surface.polygon = surface.polygon.astype(">f8")
     big.lane_graph["distances"] = big.lane_graph["distances"].astype(">f8")
 
     assert serialize.scenario_to_binary(big) == serialize.scenario_to_binary(little)
@@ -246,13 +248,15 @@ def test_zero_geometry_elevation_is_implicit_without_losing_nonzero_z():
     scenario = _build_scenario()
     scenario.agents = {}
     scenario.metadata.map_has_z = False
-    scenario.map[10].polyline[:, 2] = 0.0
+    scenario.polylines[10].polyline[:, 2] = 0.0
     decoded = serialize.static_binary_to_scenario(serialize.scenario_to_binary(scenario))
-    for eid, element in scenario.map.items():
-        np.testing.assert_array_equal(decoded.map[eid].geometry, element.geometry.astype(np.float32))
+    for eid, element in scenario.polylines.items():
+        np.testing.assert_array_equal(decoded.polylines[eid].polyline, element.polyline.astype(np.float32))
+    for eid, surface in scenario.surfaces.items():
+        np.testing.assert_array_equal(decoded.surfaces[eid].polygon, surface.polygon.astype(np.float32))
 
 
-@pytest.mark.parametrize("version", [0, 1, 2])
+@pytest.mark.parametrize("version", [0, 1, 2, 3])
 def test_unsupported_version_is_rejected(version):
     data = bytearray(serialize.scenario_to_binary(_build_scenario()))
     struct.pack_into("<I", data, 8, version)
@@ -277,8 +281,8 @@ def test_browser_reader_preserves_tracks_sources_and_curvature(tmp_path):
     scenario.agents[0].width[:] = [2.0, 2.1, 2.2]
     scenario.agents[1].position[:, 2] = 0.0
     scenario.objects[1] = _track(1, puffer_types.ObjectType.BARRIER, [1])
-    scenario.map[10].polyline = np.array([[0, 0, 0], [5, 0, 0], [5, 5, 0], [10, 5, 0]], dtype=float)
-    scenario.map[10].cum_length = np.array([0, 5, 10, 15], dtype=float)
+    scenario.polylines[10].polyline = np.array([[0, 0, 0], [5, 0, 0], [5, 5, 0], [10, 5, 0]], dtype=float)
+    scenario.polylines[10].cum_length = np.array([0, 5, 10, 15], dtype=float)
     scenario.traffic_controls[0].intersection_id = 42
     scenario.traffic_controls[0].phase_idx = 2
     binary = tmp_path / "scenario.bin"
@@ -290,7 +294,7 @@ def test_browser_reader_preserves_tracks_sources_and_curvature(tmp_path):
             "-e",
             """
 const fs = require('fs'), assert = require('assert');
-global.window = {}; global.TYPES = {LANE_RANGE: [0, 9]};
+global.window = {};
 require(process.argv[1]);
 const bytes = fs.readFileSync(process.argv[2]);
 const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
@@ -299,8 +303,11 @@ assert.equal(window.parsePufferBinary(buffer, {laneGraph: false}).lane_graph, nu
 assert(scene.agents[0].heading instanceof Float32Array);
 assert(scene.agents[0].valid instanceof Uint8Array);
 assert(scene.metadata.timestamps_us instanceof BigInt64Array);
-assert(scene.road_map_elements[0].curvature.some(value => value !== 0));
-assert.equal(scene.road_map_elements[0].length, 15);
+assert(scene.road_polylines[0].curvature.some(value => value !== 0));
+assert.equal(scene.road_polylines[0].length, 15);
+assert.equal(scene.road_polylines[2].layer, 9);
+assert.equal(scene.road_surfaces[0].layer, 3);
+assert.equal(scene.road_surfaces[0].xyz.length, 4);
 assert.equal(scene.traffic_control_elements[0].junction_id, 42);
 assert.equal(scene.traffic_control_elements[0].phase_idx, 2);
 const version = buffer.slice(0);

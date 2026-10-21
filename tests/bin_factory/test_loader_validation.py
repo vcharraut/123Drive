@@ -49,9 +49,10 @@ def test_singleton_ego_corridor_is_valid():
         query=lambda corridor, layers, predicate: {},
     )
 
-    elements, stop_zones, lane_ids = extractor._extract_map(map_api, np.zeros(3), [state], False)  # ty: ignore[invalid-argument-type]
+    polylines, surfaces, stop_zones, lane_ids = extractor._extract_map(map_api, np.zeros(3), [state], False)  # ty: ignore[invalid-argument-type]
 
-    assert elements == {}
+    assert polylines == {}
+    assert surfaces == {}
     assert stop_zones == []
     assert lane_ids == set()
 
@@ -70,7 +71,7 @@ def test_stop_zones_drop_lanes_outside_corridor():
         query=lambda corridor, layers, predicate: {map_objects.MapLayer.STOP_ZONE: [zone]},
     )
 
-    _elements, stop_zones, _lane_ids = extractor._extract_map(map_api, np.zeros(3), [state], False)  # ty: ignore[invalid-argument-type]
+    _polylines, _surfaces, stop_zones, _lane_ids = extractor._extract_map(map_api, np.zeros(3), [state], False)  # ty: ignore[invalid-argument-type]
 
     assert stop_zones == []
 
@@ -79,8 +80,9 @@ def test_validation_rejects_non_xyz_geometry_and_nonfinite_dt():
     scenario = schema.PufferScenario(
         agents={},
         objects={},
-        map={
-            1: schema.MapElement(
+        polylines={
+            1: schema.RoadPolyline(
+                layer=int(puffer_types.MapLayer.LANE),
                 type=int(puffer_types.LaneType.SURFACE_STREET),
                 polyline=np.zeros((2, 2)),
             )
@@ -98,7 +100,7 @@ def test_validation_reports_malformed_lane_graph():
     scenario = schema.PufferScenario(
         agents={},
         objects={},
-        map={},
+        polylines={},
         lane_graph=[],  # ty: ignore[invalid-argument-type]
         metadata=schema.ScenarioMetadata(id="x", dataset="d", scenario_length=0, dt=0.0),
     )
@@ -112,7 +114,7 @@ def test_teleport_threshold_scales_with_dt():
     scenario = schema.PufferScenario(
         agents={0: _track([[0, 0, 0], [6, 0, 0]], [1, 1])},
         objects={},
-        map={},
+        polylines={},
         metadata=schema.ScenarioMetadata(id="x", dataset="d", scenario_length=2, dt=0.1),
     )
 
