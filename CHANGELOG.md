@@ -2,6 +2,71 @@
 
 Generated from tags on `main`.
 
+## v0.4 - 2026-10-22
+
+Compared with `v0.3.2`.
+Source: `v0.3.2..v0.4` - 87 commits, 76 files changed.
+
+### Added
+
+- Versioned binary format `v0.4` (`123DRIVE` magic, `u16` major/minor `(0, 4)`, section
+  directory, and 8-byte aligned indexed records):
+  - Split road geometry into `ROADPOLY` (lanes, road lines, road edges with py123d
+    `MapLayer` and subtype values, plus per-point lane `curvature`) and `ROADSURF`
+    (crosswalk, walkway, carpark, drivable-area, speed-bump, shoulder, intersection,
+    and lane-group outlines).
+  - Per-lane route spans `route_entry_s` and `route_exit_s` on agents, supporting
+    multi-lane and lane-change routes.
+  - `SOURCE01` section preserving `origin_xyz`, `map_has_z`, `timestamps_are_relative`,
+    microsecond `timestamps_us`, `scene_uuid`, `log_name`, `split`, `log_version`,
+    `map_version`, and per-track `source_id`.
+  - `TLPHASE1` section storing `junction_id` and `phase_idx` per traffic control.
+  - Compact track encoding: valid-span slicing (`first`, `n`), scalar constant
+    dimensions, omitted zero elevation, and `u8` validity masks.
+- Presets `nurec` (`nurec-2604`, starting at frame 1) and `nuplan-map` (map-only
+  nuPlan city maps), plus `nuplan-mini`.
+- `--shoulders {drivable,offroad}` and `--ramp_widening_m`: synthesize road edges
+  along shoulder boundaries outside junctions, with optional ramp widening and caps
+  where shoulder bands end on road surface without a kerb.
+- `--speed_limit_source {road,signs}`: derive lane speed limits from road attributes
+  or CARLA/OpenDRIVE speed signs (30 km/h default before the first sign).
+- `--static_objects {all,onroad}` (default `onroad`): export static map objects as
+  standing binary objects and preserve them through `mapforge`.
+- GCP Batch submission tooling under `docker_tools/gcp/`.
+
+### Changed
+
+- Package layout reorganized into `loader/`, `conversion/`, and `generators/`, with
+  `preparation.py` replacing `transforms/pipeline.py`.
+- Agent control eligibility is now derived directly from having a nonempty `route`
+  (dropped `control_state`, `route_gt_len`, `goal_position`, and `yaw_rate` from
+  binaries); non-ego vehicles jumping faster than `MAX_JUMP_SPEED` (`50.0` m/s) or
+  failing the `0..10` startup window get empty routes.
+- Renamed `--interpolate_tl` (`--impute_tl`) to `--infer_traffic_lights`; added
+  permissive-green and flashing-caution handling.
+- Polyline and surface processing: trim centerline endpoint hooks, drop degenerate and
+  duplicate road lines (including reversed dash-solid / solid-dash pairs) before and
+  after simplification, simplify `ROADSURF` outlines with `--area_threshold`, and
+  default `--edge_max_segment_length` to `1.0` m.
+- Stop-line heading uses the controlled lane closest to the stop zone; missing lane
+  speed limits are filled over the full map before cropping.
+- Scenario metadata stores the map `location` and the nominal `--dt` instead of the
+  measured mean step.
+- Docker images build from the local `../py123d` checkout (`py123d==0.7.0`); minimum
+  Python version raised to `3.12`.
+
+### Removed
+
+- Element and track ID reindexing (`reindex.py`): original map IDs are preserved and
+  polylines/surfaces share one ID space.
+- `--route_check_timestep` and `--min_route_valid_points` CLI flags.
+- `GLOSSARY.md`.
+
+### Docs
+
+- Rewrote user documentation under `docs/index.md`, `docs/presets.md`, and
+  `docs/cli-reference.md`, and added `DATA_REVIEW.md`.
+
 ## v0.3.2 - 2026-06-24
 
 Compared with `v0.3.1`.

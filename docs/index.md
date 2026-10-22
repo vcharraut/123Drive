@@ -33,7 +33,7 @@ Add the origin to restore source coordinates. When `map_has_z` is false, elevati
 Each track retains its original tracking token or static map-object ID as `source_id`,
 independent of local numeric IDs. Map-only binaries have no scene UUID or timestamps.
 
-Binary format v1 uses a versioned header, a section directory, and indexed records.
+Binary format v0.4 uses a versioned header, a section directory, and indexed records.
 Validity uses one byte per frame. The writer omits repeated constant dimensions and zero
 elevation, and readers restore them. Curvature and all other sections remain available.
 Agent records carry per-lane route spans.

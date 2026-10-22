@@ -51,9 +51,9 @@ class _Reader:
 
 
 def parse_binary(data):
-    magic, version, count = struct.unpack_from("<8sII", data)
+    magic, major, minor, count = struct.unpack_from("<8sHHI", data)
     assert magic == b"123DRIVE"
-    assert version == 1
+    assert (major, minor) == (0, 4)
     sections = {}
     end = 16 + 32 * count
     for index in range(count):

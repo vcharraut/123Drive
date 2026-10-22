@@ -1,6 +1,6 @@
-"""Little-endian 123Drive binary format, version 1.
+"""Little-endian 123Drive binary format, version 0.4.
 
-The header stores magic[8], version as u32, and section_count as u32. Each directory entry
+The header stores magic[8], version as major and minor u16, and section_count as u32. Each directory entry
 packs tag[8], offset as u64, byte_length as u64, record_count as u32, and frame_count as u32.
 Sections and indexed records start on 8-byte boundaries. Indexed sections begin
 with record_count + 1 relative u64 offsets, and each record ends with zero padding.
@@ -37,7 +37,7 @@ from bin_factory import schema
 
 
 BINARY_MAGIC = b"123DRIVE"
-BINARY_VERSION = 1
+BINARY_VERSION = (0, 4)
 DIRECTORY_ENTRY = struct.Struct("<8sQQII")
 TRAFFIC_PHASE_SECTION_TAG = b"TLPHASE1"
 SOURCE_SECTION_TAG = b"SOURCE01"
@@ -230,7 +230,7 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         (SOURCE_SECTION_TAG, _write_source(scenario.metadata, agents, objects), 1, 0),
     ]
 
-    result = bytearray(struct.pack("<8sII", BINARY_MAGIC, BINARY_VERSION, len(sections)))
+    result = bytearray(struct.pack("<8sHHI", BINARY_MAGIC, *BINARY_VERSION, len(sections)))
     result.extend(bytes(DIRECTORY_ENTRY.size * len(sections)))
     for index, (tag, payload, count, frames) in enumerate(sections):
         result.extend(bytes(-len(result) % 8))
@@ -246,8 +246,8 @@ class StaticBinaryError(ValueError):
 
 
 def read_sections(data: BufferLike) -> dict[bytes, tuple[memoryview, int, int]]:
-    magic, version, count = struct.unpack_from("<8sII", data)
-    if magic != BINARY_MAGIC or version != BINARY_VERSION:
+    magic, major, minor, count = struct.unpack_from("<8sHHI", data)
+    if magic != BINARY_MAGIC or (major, minor) != BINARY_VERSION:
         raise ValueError("Unsupported binary format; regenerate bins with the current converter")
     end = 16 + count * DIRECTORY_ENTRY.size
     sections: dict[bytes, tuple[memoryview, int, int]] = {}

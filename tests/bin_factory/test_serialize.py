@@ -256,10 +256,10 @@ def test_zero_geometry_elevation_is_implicit_without_losing_nonzero_z():
         np.testing.assert_array_equal(decoded.surfaces[eid].polygon, surface.polygon.astype(np.float32))
 
 
-@pytest.mark.parametrize("version", [0, 2, 3, 4])
+@pytest.mark.parametrize("version", [(0, 0), (0, 3), (0, 5), (1, 0)])
 def test_unsupported_version_is_rejected(version):
     data = bytearray(serialize.scenario_to_binary(_build_scenario()))
-    struct.pack_into("<I", data, 8, version)
+    struct.pack_into("<HH", data, 8, *version)
     with pytest.raises(serialize.StaticBinaryError, match="Unsupported binary format"):
         serialize.static_binary_to_scenario(data)
 
