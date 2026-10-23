@@ -652,20 +652,26 @@ def _fix_lane_topology(
     # PY123D-REPORT[nuplan]: most nuPlan lane connectors come out of py123d as LaneType.UNDEFINED.
     # PY123D-REPORT[wod-motion]: some WOMD entry/exit refs point at lanes up to ~100 m away.
     gap_sq = MAX_LANE_GAP**2
-    for element in lanes.values():
-        line = cast("np.ndarray", element.polyline)
-        element.entry_lanes = [
-            lid
-            for lid in element.entry_lanes
-            if lid in valid_lane_ids
-            and ((cast("np.ndarray", lanes[lid].polyline)[-1, :2] - line[0, :2]) ** 2).sum() <= gap_sq
-        ]
-        element.exit_lanes = [
-            lid
-            for lid in element.exit_lanes
-            if lid in valid_lane_ids
-            and ((line[-1, :2] - cast("np.ndarray", lanes[lid].polyline)[0, :2]) ** 2).sum() <= gap_sq
-        ]
+    exits_by_lane = {lane_id: set(lane.exit_lanes) for lane_id, lane in lanes.items()}
+
+    def _gap_sq(src_id: int, dst_id: int) -> float:
+        src_end = cast("np.ndarray", lanes[src_id].polyline)[-1, :2]
+        return float(((src_end - cast("np.ndarray", lanes[dst_id].polyline)[0, :2]) ** 2).sum())
+
+    def _connected(src_id: int, dst_id: int) -> bool:
+        # A dropped lane joins its successor sideways; a neighbour reaching that successor end to start marks the merge
+        neighbor_ids = [*lanes[src_id].left_neighbor, *lanes[src_id].right_neighbor]
+        return _gap_sq(src_id, dst_id) <= gap_sq or (
+            _gap_sq(src_id, dst_id) <= NEIGHBOR_GAP[1] ** 2
+            and any(
+                nid in valid_lane_ids and dst_id in exits_by_lane[nid] and _gap_sq(nid, dst_id) <= gap_sq
+                for nid in neighbor_ids
+            )
+        )
+
+    for lane_id, element in lanes.items():
+        element.entry_lanes = [lid for lid in element.entry_lanes if lid in valid_lane_ids and _connected(lid, lane_id)]
+        element.exit_lanes = [lid for lid in element.exit_lanes if lid in valid_lane_ids and _connected(lane_id, lid)]
         element.left_neighbor = [lid for lid in element.left_neighbor if lid in valid_lane_ids]
         element.right_neighbor = [lid for lid in element.right_neighbor if lid in valid_lane_ids]
 
