@@ -17,6 +17,64 @@ uv run web --dir ./output
 
 Open <http://localhost:8080> to inspect the output. See [Command options](cli-reference.md) for all options.
 
+## Generate towns
+
+Generate static maps from scratch, without an Arrow dataset:
+
+```bash
+uv run mapgen --size 500 --seed 0 --count 5 --output_dir ./output/towns
+uv run web --dir ./output/towns
+```
+
+The default `mixed` style combines diagonal avenues with skewed streets, variable
+block sizes, and an irregular town outline. Seeds vary the outline, rotation,
+diagonal connections, T-junctions, one-way streets, and parking placement.
+`paris` also uses this blend; `lyon` has fewer diagonal streets. These are synthetic
+layouts inspired by the cities, not reconstructions or measured street distributions.
+
+Large crossings and roundabouts share a limit of two per map. At most one crossing
+has more than four arms. Other junctions use compact three- or four-way layouts,
+with 7 m approach setbacks even along avenues.
+
+Maps include connected right-hand traffic lanes and junction turns, traffic controls,
+crosswalks, 2.2 m sidewalks, curb parking, and small carparks with driveway openings.
+Tiny one-way streets use 2.5–2.8 m lanes and usually omit curb parking. Two-way
+local lanes are 2.75–3.05 m wide; avenues use 3.25 m lanes. These dimensions are
+generator choices informed by the [Certu urban-road guide's 3 m lane recommendation](https://www.msr25.doubs.developpement-durable.gouv.fr/IMG/pdf/guide_certu_te-et-amenagements-de-voirie-en-milieu-urbain.pdf).
+Street speed limits are 20 km/h on narrow one-way streets, 30 km/h on local two-way
+streets, and 50 km/h on avenues. Ordinary junction connectors use 20 km/h.
+STOP/YIELD lines sit 0.8 m before junction entries, after the pedestrian crossing.
+Crossings leave room for a waiting car; parking starts farther back for visibility.
+
+Unsignalized crossings keep a priority route through the junction. Only minor
+approaches receive STOP or YIELD controls; there are no all-way stops or all-way
+yields at ordinary intersections. Some quiet crossings stay unsigned for
+[priority to the right](https://www.onisr.securite-routiere.gouv.fr/politique-de-securite-routiere/code-de-la-route).
+STOP placement is a seeded variation, not a visibility assessment of real buildings.
+
+One or two suitable crossings receive traffic lights. Each approach has a protected
+phase: 16 s green, 3 s amber, then 2 s all-red before the next approach. Binaries
+include at least 120 s of coordinated states and junction/phase IDs. Signal stop
+lines precede the crosswalk; the viewer can play the exported cycle.
+
+Suitable junctions become compact roundabouts with a central island and a shared
+counterclockwise circulation lane at 15 km/h. Entries yield to circulating traffic,
+following the [Cerema giratory-junction guidance](https://demarches-securite-routes.cerema.fr/IMG/pdf/Audit_SR_PMS_Urbain_Fiches_techniques_mars_2012_cle2651e9-1.pdf).
+Entry yield lines sit 0.8 m before the outer ring edge. Roundabouts use the remaining
+large-junction allowance; some small layouts have no suitable junction.
+
+Carpark surfaces and driveways are included; lane routing covers the street network.
+Maps contain no parked vehicles. The simulator supplies parked and moving vehicles.
+In PufferDinde, enable `yield_signs_enabled` and `priority_right_enabled` to enforce
+those rules. Its current procedural mode replaces exported light states: the
+pedestrian cycle uses junction phases, while the non-pedestrian mode randomizes
+lights independently. Map phase data alone does not change that simulator behavior.
+
+The default 500 m extent is comparable to the bundled CARLA Town03/Town05 road
+reference extents (approximately 577 × 575 m and 473 × 399 m). `--size` accepts
+200–1200 m. Geometry stays flat. Output uses the existing binary format and viewer;
+PufferDinde supplies moving agents. Generation with identical options is repeatable.
+
 ## Conversion process
 
 The converter selects scenes, resamples trajectories, and loads nearby map geometry.

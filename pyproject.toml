@@ -50,6 +50,7 @@ all = [
 [project.scripts]
 convert = "bin_factory.main:main"
 mapforge = "mapforge.affine:main"
+mapgen = "mapforge.town:main"
 build = "docker_tools.cli:main"
 web = "viz.server:main"
 

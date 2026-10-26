@@ -70,6 +70,23 @@ Generate affine variations of static map binaries.
 | `--groups GROUP ...` | all | Transform groups: scale, shear, flip |
 | `--overwrite` | off | Replace existing output files |
 
+## mapgen
+
+Generate French-inspired static towns from scratch. No source map is required.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--output_dir PATH` | required | Destination for `.bin` maps |
+| `--style STYLE` | `mixed` | Organic Paris/Lyon blend; `paris` uses the blend, `lyon` has fewer diagonals |
+| `--size METRES` | `500` | Town extent, 200–1200 m |
+| `--seed N` | `0` | Nonnegative generation seed |
+| `--count N` | `1` | Number of maps, using consecutive seeds |
+| `--overwrite` | off | Replace existing output files |
+
+Files are named `STYLE_SIZEm_SEED.bin`. See [Generate towns](index.md#generate-towns)
+for map contents and examples. Larger towns have more lanes; the binary's all-pairs
+lane-distance matrix grows quadratically with lane count.
+
 ## build
 
 `uv run build py123d --dataset NAME` builds an extractor image.

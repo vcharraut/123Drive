@@ -49,9 +49,9 @@ def reverse_road_edges(scenario: schema.PufferScenario) -> None:
 
 def process_polylines(
     scenario: schema.PufferScenario,
-    max_segment_length: float = 2.0,
+    max_segment_length: float = 10.0,
     area_threshold: float = 0.1,
-    edge_max_segment_length: float = 10.0,
+    edge_max_segment_length: float = 1.0,
 ) -> None:
     for element in scenario.polylines.values():
         if element.polyline is None:

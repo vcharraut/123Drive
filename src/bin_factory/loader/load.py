@@ -5,6 +5,7 @@ import pathlib
 
 from py123d import api as py123d_api
 from py123d.api.map.arrow import arrow_map_api
+from py123d.api.scene.arrow import arrow_scene_api
 from py123d.api.scene.arrow.modalities import sync_utils
 from py123d.common import execution
 from py123d.common.utils import uuid_utils
@@ -48,7 +49,8 @@ def _skip_first_frame(scene: py123d_api.SceneAPI) -> py123d_api.SceneAPI:
     # PY123D-REPORT[nurec]: the 10 Hz grid starts one step before the second rig pose, so log frame 0 precedes the
     # first pose: the ego is extrapolated there and almost no track has started yet.
     # Start the scene at frame 1, keeping its end.
-    scene_class, (log_dir, _, maps_root) = scene.__reduce__()
+    _, (log_dir, _, maps_root) = scene.__reduce__()
+    log_dir = pathlib.Path(log_dir)
     metadata = scene.scene_metadata
     start = metadata.initial_idx + metadata.target_iteration_stride
     metadata = dataclasses.replace(
@@ -58,7 +60,7 @@ def _skip_first_frame(scene: py123d_api.SceneAPI) -> py123d_api.SceneAPI:
         num_future_iterations=metadata.num_future_iterations - 1,
         future_duration_s=metadata.future_duration_s - metadata.iteration_duration_s,
     )
-    return scene_class(log_dir, metadata, maps_root)
+    return arrow_scene_api.ArrowSceneAPI(log_dir, metadata, maps_root)
 
 
 def _discover_maps(maps_root: pathlib.Path, datasets: list[str] | None, num_scenes: int | None) -> list:

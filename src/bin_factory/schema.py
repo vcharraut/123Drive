@@ -91,7 +91,7 @@ class RoadPolyline:
 @dataclasses.dataclass
 class RoadSurface:
     layer: int
-    polygon: np.ndarray | None = None
+    polygon: np.ndarray
 
 
 @dataclasses.dataclass
