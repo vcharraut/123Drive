@@ -483,7 +483,7 @@ def generate_town(style: str = "mixed", size: float = 500.0, seed: int = 0) -> P
             for i, (line_type, line) in enumerate(markings)
         }
     )
-    # Clockwise exteriors and counterclockwise holes keep drivable space on the right.
+    # Reverse clockwise exteriors and counterclockwise holes to keep drivable space on the left.
     polygons = shapely.orient_polygons(shapely.set_precision(pavement, 0.001), exterior_cw=True)
     rings = [ring for p in shapely.get_parts(polygons) for ring in [p.exterior, *p.interiors]]
     first = len(polylines)
@@ -496,7 +496,7 @@ def generate_town(style: str = "mixed", size: float = 500.0, seed: int = 0) -> P
                     if ring.is_ccw and Polygon(ring).intersects(islands)
                     else RoadEdgeType.ROAD_EDGE_BOUNDARY
                 ),
-                polyline=xyz(ring.coords),
+                polyline=xyz(ring.coords[::-1]),
             )
             for i, ring in enumerate(rings)
         }

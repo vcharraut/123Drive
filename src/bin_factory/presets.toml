@@ -15,6 +15,13 @@ reverse_road_edges = true
 speed_limit_source = "signs"
 scenario_id_field = "log_name"
 
+[griffin]
+datasets = ["griffin"]
+reverse_road_edges = true
+speed_limit_source = "signs"
+infer_traffic_lights = true
+scenario_id_field = "log_name"
+
 [nuplan]
 datasets = ["nuplan"]
 reverse_road_edges = true
@@ -37,7 +44,6 @@ scenario_id_field = "scene_uuid"
 
 [nurec]
 datasets = ["nurec-2604"]
-infer_traffic_lights = true
 scenario_id_field = "log_name"
 
 [nuscenes]

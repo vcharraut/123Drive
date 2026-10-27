@@ -260,6 +260,21 @@ def _extract_objects(
                 obj.velocity[frame_idx, 0] = vel[0]
                 obj.velocity[frame_idx, 1] = vel[1]
 
+    # PY123D-REPORT[griffin]: Griffin label files include the ego vehicle at (0, 0) in ego coordinates with its actual
+    # CARLA box (1.60 x 0.82 m), while EgoStateSE3Metadata hardcodes 4.79 x 1.85 m and leaves the duplicate in
+    # box_detections_se3. Copy its dimensions onto ego and drop the duplicate track.
+    if scene_api.dataset == "griffin":
+        ego_dups = [
+            oid
+            for oid, obj in objects.items()
+            if oid and obj.valid[0] and np.hypot(*(obj.position[0, :2] - ego.position[0, :2])) < 0.5
+        ]
+        for oid in ego_dups:
+            ego.source_id = objects[oid].source_id
+            ego.length[:], ego.width[:], ego.height[:] = objects[oid].length, objects[oid].width, objects[oid].height
+            tokens_to_object_id.pop(objects.pop(oid).source_id, None)
+            labels.pop(oid, None)
+
     return objects, labels, tokens_to_object_id
 
 
