@@ -1,9 +1,14 @@
 import dataclasses
+import math
 
 import numpy as np
 
 from bin_factory import puffer_types, schema
 from bin_factory.log_context import log
+
+
+SAME_APPROACH_RAD = 0.35  # ~20 deg: lights this close in heading serve the same approach
+FACING_APPROACH_RAD = 0.785  # up to ~45 deg off exactly opposite, two approaches still face each other
 
 
 def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
@@ -17,7 +22,7 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
         scenario.metadata.scenario_length,
         next_id,
     )
-    scenario.traffic_controls = _renumber_intersection_phases(light_controls + zone_controls)
+    scenario.traffic_controls = group_facing_phases(light_controls + zone_controls)
 
 
 def _build_traffic_light_controls(
@@ -133,17 +138,33 @@ def _build_stop_zone_controls(
     return controls
 
 
-def _renumber_intersection_phases(controls: list[schema.TrafficControl]) -> list[schema.TrafficControl]:
-    """Renumber phases per intersection to 0..N-1 in cycle order so the simulator cycles N slots."""
-    phases: dict[int, set[int]] = {}
+def group_facing_phases(controls: list[schema.TrafficControl]) -> list[schema.TrafficControl]:
+    """Give each junction light the first phase whose lights all serve its approach or face it, compact 0..N-1."""
+    junctions: dict[int, list[list[float]]] = {}
+    grouped = []
     for tc in controls:
-        if tc.phase_idx >= 0:
-            phases.setdefault(tc.intersection_id, set()).add(tc.phase_idx)
-    rank = {iid: {p: i for i, p in enumerate(sorted(ps))} for iid, ps in phases.items()}
-    return [
-        dataclasses.replace(tc, phase_idx=rank[tc.intersection_id][tc.phase_idx]) if tc.phase_idx >= 0 else tc
-        for tc in controls
-    ]
+        if tc.phase_idx < 0:
+            grouped.append(tc)
+            continue
+        phases = junctions.setdefault(tc.intersection_id, [])
+        phase = next(
+            (
+                index
+                for index, headings in enumerate(phases)
+                if not any(
+                    SAME_APPROACH_RAD
+                    <= abs(math.remainder(tc.heading - heading, 2 * math.pi))
+                    <= math.pi - FACING_APPROACH_RAD
+                    for heading in headings
+                )
+            ),
+            len(phases),
+        )
+        if phase == len(phases):
+            phases.append([])
+        phases[phase].append(tc.heading)
+        grouped.append(dataclasses.replace(tc, phase_idx=phase))
+    return grouped
 
 
 def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int, schema.RoadPolyline]) -> np.ndarray:
