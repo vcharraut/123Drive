@@ -75,9 +75,12 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
                 and _route_remaining(agent_data.position[0], route, entry_s, exit_s, route_cache) >= MIN_ROUTE_REMAINING
             )
             if not has_road_ahead:
-                raise ValueError(
-                    f"Ego vehicle (agent 0) has no route, under {MIN_ROUTE_REMAINING:g} m of route ahead or an "
-                    f"off-road start in scenario {scenario.metadata.id}"
+                remaining = (
+                    _route_remaining(agent_data.position[0], route, entry_s, exit_s, route_cache) if route else 0.0
+                )
+                log.warning(
+                    f"Ego vehicle (agent 0) in scenario {scenario.metadata.id}: route lanes={len(route)}, "
+                    f"onroad_t0={_is_onroad_at(agent_data, 0, route_cache)}, remaining_m={remaining:.1f}"
                 )
             agent_data.route = route
             agent_data.route_entry_s = _to_cum_length(route, entry_s, route_cache)

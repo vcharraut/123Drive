@@ -284,12 +284,17 @@ def _extract_prediction_targets(
     agents: dict[int, schema.Track],
     metadata: schema.ScenarioMetadata,
 ) -> None:
-    """Populate metadata objects_of_interest and tracks_to_predict from WOD-Motion aux data."""
+    """Populate metadata objects_of_interest and tracks_to_predict from WOD-Motion and Shifts aux data."""
     aux = scene_api.get_all_custom_modality_metadatas().get("aux")
     if aux is None:
         return
     meta = aux.metadata
     metadata.timestamps_are_relative = meta["timestamps_are_relative"]
+    if "prediction_requests" in meta:
+        metadata.tracks_to_predict = [
+            oid for token in meta["prediction_requests"] if (oid := tokens_to_object_id.get(token)) in agents
+        ]
+        return
     agents[0].source_id = meta["track_index_to_token"][meta["sdc_track_index"]]
     idx2tok = meta["track_index_to_token"]
 

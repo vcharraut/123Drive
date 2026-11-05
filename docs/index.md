@@ -26,49 +26,68 @@ uv run mapgen --size 500 --seed 0 --count 5 --output_dir ./output/towns
 uv run web --dir ./output/towns
 ```
 
-The default `mixed` style combines diagonal avenues with skewed streets, variable
-block sizes, and an irregular town outline. Seeds vary the outline, rotation,
-diagonal connections, T-junctions, one-way streets, and parking placement.
-`paris` also uses this blend; `lyon` has fewer diagonal streets. These are synthetic
-layouts inspired by the cities, not reconstructions or measured street distributions.
+Towns are synthetic European town centres. Each seed draws its targets from the range
+measured on OpenStreetMap in central Paris, Lyon, Munich and Rome, two 1.2 km windows
+per city: junction arm counts, one-way share, lanes per direction, speed limits,
+signalized junctions, roundabouts, and bus and bike lane shares. Layout controls are
+tuned so towns also fall in the measured range of junction density, street length
+between junctions, junction angles, and street orientation entropy. Towns match these
+statistics, not the layout of any city. `EUROPE` and `LAYOUT` in `src/mapforge/town.py`
+hold the ranges.
 
-Large crossings and roundabouts share a limit of two per map. At most one crossing
-has more than four arms. Other junctions use compact three- or four-way layouts,
-with 7 m approach setbacks even along avenues.
+Streets come from rotated district lattices with uneven gaps between parallel streets,
+straight or jittered, crossed by boulevards that radiate from plazas and sometimes by a
+ring. A bend inside a street is not a junction. Every directed street stays reachable
+without a U-turn, so towns have no dead ends; the measured windows have 1–18%.
+At the extremes, generated towns run a little denser and their junctions a little
+sharper than the measured windows. Approach setbacks grow with the width and angle of
+the crossing streets.
 
-Maps include connected right-hand traffic lanes and junction turns, traffic controls,
-crosswalks, 2.2 m sidewalks, curb parking, and small carparks with driveway openings.
-Tiny one-way streets use 2.5–2.8 m lanes and usually omit curb parking. Two-way
-local lanes are 2.75–3.05 m wide; avenues use 3.25 m lanes. These dimensions are
-generator choices informed by the [Certu urban-road guide's 3 m lane recommendation](https://www.msr25.doubs.developpement-durable.gouv.fr/IMG/pdf/guide_certu_te-et-amenagements-de-voirie-en-milieu-urbain.pdf).
-Street speed limits are 20 km/h on narrow one-way streets, 30 km/h on local two-way
-streets, and 50 km/h on avenues. Ordinary junction connectors use 20 km/h.
-STOP/YIELD lines sit 0.8 m before junction entries, after the pedestrian crossing.
-Crossings leave room for a waiting car; parking starts farther back for visibility.
+Major streets get 50 km/h, two or three lanes per direction with lane changes, and bus
+lanes, each in its measured share. Other streets use 30 km/h, with some 20 km/h shared
+zones. Right turns leave from the kerb lane and left turns from the inner lane;
+straight-through connectors keep the street speed and turns use 20 km/h. Car lanes are
+2.6–3.2 m wide, bus lanes 3.3 m, and bike lanes 1.6 m, informed by the
+[Certu urban-road guide's 3 m lane recommendation](https://www.msr25.doubs.developpement-durable.gouv.fr/IMG/pdf/guide_certu_te-et-amenagements-de-voirie-en-milieu-urbain.pdf).
 
-Unsignalized crossings keep a priority route through the junction. Only minor
-approaches receive STOP or YIELD controls; there are no all-way stops or all-way
-yields at ordinary intersections. Some quiet crossings stay unsigned for
+Bus lanes (`BUS_LANE`) run along the kerb of major streets and also serve bikes. Bike
+lanes (`BIKE_LANE`) run along the kerb, against traffic on many one-way streets. Both
+connect through junctions to lanes of their own kind; where none continues, they join
+the straightest car lane. Car lanes never list bus or bike connectors, so car routing
+and the lane-distance matrix stay on car lanes. Bus and bike lanes stop one street
+before a roundabout. PufferDinde reads both lane types but does not drive cars on them.
+
+Maps include traffic controls, crosswalks, 2.2 m sidewalks, kerb parking away from bus
+lanes, and small carparks with driveway openings. STOP/YIELD lines sit 0.8 m before
+junction entries, after the pedestrian crossing. Crossings leave room for a waiting
+car; parking starts farther back for visibility.
+
+Unsignalized junctions give priority to the most important street that continues
+through them. Only minor approaches receive STOP or YIELD controls; there are no
+all-way stops or all-way yields at ordinary intersections. Some quiet crossings stay
+unsigned for
 [priority to the right](https://www.onisr.securite-routiere.gouv.fr/politique-de-securite-routiere/code-de-la-route).
 STOP placement is a seeded variation, not a visibility assessment of real buildings.
 
-One or two suitable crossings receive traffic lights. Each approach has a protected
-phase: 16 s green, 3 s amber, then 2 s all-red before the next approach. Binaries
-include at least 120 s of coordinated states and junction/phase IDs. Signal stop
-lines precede the crosswalk; the viewer can play the exported cycle.
+The measured share of junctions receives traffic lights, junctions on major streets
+first. Facing approaches share a phase ID, so left turns are unprotected; bus and bike
+lanes share their approach's phase, and contraflow bike approaches yield. Binaries carry
+junction and phase IDs but no light states: the simulator generates them. Signal stop
+lines precede the crosswalk.
 
-Suitable junctions become compact roundabouts with a central island and a shared
+Junctions whose arms are at least 47° apart and 42 m long can become roundabouts at the
+measured density, plazas with many arms first. Each has a central island and a shared
 counterclockwise circulation lane at 15 km/h. Entries yield to circulating traffic,
 following the [Cerema giratory-junction guidance](https://demarches-securite-routes.cerema.fr/IMG/pdf/Audit_SR_PMS_Urbain_Fiches_techniques_mars_2012_cle2651e9-1.pdf).
-Entry yield lines sit 0.8 m before the outer ring edge. Roundabouts use the remaining
-large-junction allowance; some small layouts have no suitable junction.
+Entry yield lines sit 0.8 m before the outer ring edge. Arms narrow to one lane per
+direction. Entries leave the straight arm on a right-hand curve that meets the ring
+tangentially, and exits mirror it, leaving a small splitter island where space allows.
 
 Carpark surfaces and driveways are included; lane routing covers the street network.
 Maps contain no parked vehicles. The simulator supplies parked and moving vehicles.
 In PufferDinde, enable `yield_signs_enabled` and `priority_right_enabled` to enforce
-those rules. Its current procedural mode replaces exported light states: the
-pedestrian cycle uses junction phases, while the non-pedestrian mode randomizes
-lights independently. Map phase data alone does not change that simulator behavior.
+those rules. PufferDinde generates light states: its pedestrian cycle uses the junction
+phases, while the non-pedestrian mode randomizes lights independently.
 
 The default 500 m extent is comparable to the bundled CARLA Town03/Town05 road
 reference extents (approximately 577 × 575 m and 473 × 399 m). `--size` accepts

@@ -15,6 +15,7 @@ values. Boolean flags enabled by a preset cannot currently be disabled from the 
 | `nurec` | `nurec-2604` | `log_name` | Infer traffic lights |
 | `nuscenes` | `nuscenes` | `scene_uuid` | Reverse road edges |
 | `opendrive` | `opendrive` | `location` | Map-only; reverse road edges; speed limits from signs |
+| `shifts` | `shifts` | `log_name` | 0.2 s timestep; reverse road edges; infer traffic lights |
 | `wod-motion` | `wod-motion` | `log_name` | Infer traffic lights |
 
 Road-edge reversal adapts the source direction convention. CARLA and OpenDRIVE use

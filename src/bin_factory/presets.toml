@@ -58,6 +58,13 @@ speed_limit_source = "signs"
 static_objects = "onroad"
 scenario_id_field = "location"
 
+[shifts]
+datasets = ["shifts"]
+dt = 0.2
+reverse_road_edges = true
+infer_traffic_lights = true
+scenario_id_field = "log_name"
+
 [wod-motion]
 datasets = ["wod-motion"]
 infer_traffic_lights = true
