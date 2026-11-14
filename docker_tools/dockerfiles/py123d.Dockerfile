@@ -15,9 +15,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# py123d build context: the local checkout that 123Drive is locked to (see docker_tools/cli.py)
-COPY --from=py123d pyproject.toml README.md LICENSE /tmp/py123d/
-COPY --from=py123d src /tmp/py123d/src
+# py123d build context: the submodule that 123Drive is locked to (see docker_tools/cli.py), at uv.lock's path
+COPY --from=py123d pyproject.toml README.md LICENSE /tmp/123Drive/external/py123d/
+COPY --from=py123d src /tmp/123Drive/external/py123d/src
 
 # Pin shared dependencies to 123Drive's uv.lock: newer numpy/shapely change the large CARLA maps.
 # wrapt stays free: the nuplan extra's aiobotocore needs wrapt<2, and the lock pins 2.x only for ray.
@@ -28,9 +28,9 @@ RUN cd /tmp/123Drive && \
     -o /tmp/constraints.txt
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir -c /tmp/constraints.txt "/tmp/py123d${EXTRAS:+[${EXTRAS}]}" && \
+    pip install --no-cache-dir -c /tmp/constraints.txt "/tmp/123Drive/external/py123d${EXTRAS:+[${EXTRAS}]}" && \
     if [ "${EXTRAS}" = "nuplan" ]; then pip install --no-cache-dir -c /tmp/constraints.txt "nuplan-devkit @ git+https://github.com/motional/nuplan-devkit/@nuplan-devkit-v1.2"; fi && \
-    rm -rf /tmp/py123d /tmp/123Drive
+    rm -rf /tmp/123Drive
 
 COPY py123d_entrypoint.py /app/
 

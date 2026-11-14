@@ -14,6 +14,7 @@ raw dataset -> 123D Arrow -> 123Drive -> .bin
 ## Quick start
 
 ```bash
+git submodule update --init
 uv sync
 uv run convert --py123d_path /data/123d --output ./output
 ```

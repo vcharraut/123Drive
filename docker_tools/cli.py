@@ -8,7 +8,7 @@ import sys
 
 DOCKERFILES = pathlib.Path(__file__).parent / "dockerfiles"
 REPO_ROOT = DOCKERFILES.parent.parent
-PY123D_ROOT = REPO_ROOT.parent / "py123d"  # same checkout as [tool.uv.sources] in pyproject.toml
+PY123D_ROOT = REPO_ROOT / "external" / "py123d"  # same checkout as [tool.uv.sources] in pyproject.toml
 DEFAULT_PY_VERSION = "3.13"
 
 DATASETS = {

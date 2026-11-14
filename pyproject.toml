@@ -29,9 +29,9 @@ dependencies = [
   "py123d==0.7.0",
 ]
 
-# Temporary: local py123d checkout (feat/opendrive-v2) until its stop-zone signal fields are released
+# py123d fork, pinned as a git submodule (branch vcha)
 [tool.uv.sources]
-py123d = { path = "../py123d", editable = true }
+py123d = { path = "external/py123d", editable = true }
 
 [project.optional-dependencies]
 viz = [
@@ -71,6 +71,7 @@ Issues = "https://github.com/vcharraut/123Drive/issues"
 
 [tool.ruff]
 line-length = 120
+extend-exclude = ["external"]
 target-version = "py312"
 
 [tool.ruff.lint]
@@ -125,6 +126,12 @@ convention = "google"
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ty.src]
+exclude = ["external"]
 
 [tool.ty.environment]
 python-version = "3.12"

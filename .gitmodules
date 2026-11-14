@@ -1,0 +1,4 @@
+[submodule "external/py123d"]
+	path = external/py123d
+	url = https://github.com/vcharraut/py123d.git
+	branch = vcha

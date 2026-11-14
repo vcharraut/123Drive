@@ -90,7 +90,7 @@ lane-distance matrix grows quadratically with lane count.
 
 `uv run build py123d --dataset NAME` builds an extractor image.
 `uv run build 123drive` builds the converter image.
-Both images install py123d from the sibling checkout `../py123d`, the one `uv.lock` uses.
+Both images install py123d from the `external/py123d` submodule, the one `uv.lock` uses.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
