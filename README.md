@@ -1,7 +1,7 @@
 # 123Drive
 
 Convert [123D](https://github.com/autonomousvision/py123d) Arrow datasets into
-`.bin` scenarios for PufferDinde.
+`.bin` scenarios for Macadam.
 
 ```text
 raw dataset -> 123D Arrow -> 123Drive -> .bin
@@ -39,12 +39,12 @@ Python 3.12 to 3.13. MIT licensed.
 ## Agent control and format changes
 
 An agent with a nonempty route is eligible for control. An empty route makes it
-a background entity. PufferDinde chooses the controller and background behavior.
+a background entity. Macadam chooses the controller and background behavior.
 
 Binary format v0.4 has a versioned header and indexed sections. Road polylines (lanes, lines,
 edges) and road surfaces (crosswalks, walkways, shoulders, and other outlines) have separate
 sections and keep py123d's map layers and types. Routes may change lanes,
 and each route lane carries its `route_entry_s` and `route_exit_s` span. It does not store
 `control_state` or `route_gt_len`. Reconvert existing scenes and update the
-PufferDinde reader before using new output. See the
+Macadam reader before using new output. See the
 [binary writer](src/bin_factory/serialize.py).

@@ -1,7 +1,7 @@
 # 123Drive
 
 123Drive converts [123D](https://github.com/autonomousvision/py123d) Arrow
-datasets into `.bin` scenarios for PufferDinde. Python 3.12 to 3.13 is required.
+datasets into `.bin` scenarios for Macadam. Python 3.12 to 3.13 is required.
 
 ## Convert and view
 
@@ -55,7 +55,7 @@ lanes (`BIKE_LANE`) run along the kerb, against traffic on many one-way streets.
 connect through junctions to lanes of their own kind; where none continues, they join
 the straightest car lane. Car lanes never list bus or bike connectors, so car routing
 and the lane-distance matrix stay on car lanes. Bus and bike lanes stop one street
-before a roundabout. PufferDinde reads both lane types but does not drive cars on them.
+before a roundabout. Macadam reads both lane types but does not drive cars on them.
 
 Maps include traffic controls, crosswalks, 2.2 m sidewalks, kerb parking away from bus
 lanes, and small carparks with driveway openings. STOP/YIELD lines sit 0.8 m before
@@ -85,14 +85,14 @@ tangentially, and exits mirror it, leaving a small splitter island where space a
 
 Carpark surfaces and driveways are included; lane routing covers the street network.
 Maps contain no parked vehicles. The simulator supplies parked and moving vehicles.
-In PufferDinde, enable `yield_signs_enabled` and `priority_right_enabled` to enforce
-those rules. PufferDinde generates light states: its pedestrian cycle uses the junction
+In Macadam, enable `yield_signs_enabled` and `priority_right_enabled` to enforce
+those rules. Macadam generates light states: its pedestrian cycle uses the junction
 phases, while the non-pedestrian mode randomizes lights independently.
 
 The default 500 m extent is comparable to the bundled CARLA Town03/Town05 road
 reference extents (approximately 577 × 575 m and 473 × 399 m). `--size` accepts
 200–1200 m. Geometry stays flat. Output uses the existing binary format and viewer;
-PufferDinde supplies moving agents. Generation with identical options is repeatable.
+Macadam supplies moving agents. Generation with identical options is repeatable.
 
 ## Conversion process
 
@@ -148,7 +148,7 @@ empty routes. Ego bypasses the parked filter; conversion rejects scenes where eg
 has no usable route, starts off-road, or overlaps another agent at frame 0.
 
 A nonempty route means eligible for control. An empty route means background.
-PufferDinde chooses the controller and whether to replay, freeze, or omit background
+Macadam chooses the controller and whether to replay, freeze, or omit background
 entities. Conversion keeps their recorded trajectories and validity masks.
 There is no separate control-state or route-prefix-length field. See [route code].
 

@@ -21,7 +21,7 @@ In commit order.
   the same logged point; each route lane carries its `route_entry_s` and `route_exit_s` span in `cum_length`. Same
   routed vehicles as v2; 1844 nuPlan and 332 WOD routes change lanes. Before `--fix`, ego routes more than 5 m off
   their log drop from 9 to 3 in nuPlan and stay at 5 in WOD; other routes drop from 428 to 229 and from 156 to 110.
-  PufferDinde `vcha/new_maps` reads v3 (`abf7060e8`) and can add random lane changes to generated routes
+  Macadam `vcha/new_maps` reads v3 (`abf7060e8`) and can add random lane changes to generated routes
   (`route_lane_change_prob`, default 0, `8e7d8d2bd`).
 - Format checks on v3 bins at `1ed26ef` (1247 nuPlan, 494 WOD, 12 CARLA; same accepted and rejected scenes as v2):
   every file decodes to its last byte, sections are aligned, values are finite, polygons are closed, `cum_length`
@@ -32,7 +32,7 @@ In commit order.
   the junction check. Before, 796 nuPlan and 68 WOD steps (45 on ego routes) changed lanes on a lane after a split or
   before a merge, and 2 spans had zero length; now none do. 915 nuPlan (50 ego) and 69 WOD (1 ego) routes change,
   and the counts above include the fix.
-- Replay audit of the `b58a1f4` bins with PufferDinde `vcha/new_maps` at `8e7d8d2bd`: one `--fix` pass clears 1183
+- Replay audit of the `b58a1f4` bins with Macadam `vcha/new_maps` at `8e7d8d2bd`: one `--fix` pass clears 1183
   nuPlan and 286 WOD routes and leaves 16623 and 5327 frame-0 controllable vehicles, as with v2. First-pass non-ego
   offenders (collision / off-road / red light / stop sign) are 119 / 520 / 402 / 185 in nuPlan (521 off-road with v2)
   and 26 / 114 / 101 / 54 in WOD. The last pass shows only the same mid-log ego infractions as v2, none at step 0.
@@ -44,7 +44,7 @@ In commit order.
   sign limits are 30 to 90 km/h (120 km/h on Town12 highways), and Town10HD, which has no signs, is 30 km/h
   throughout. Town13 is unchanged (task 18). The sign rows split lane sections: Town11 grows from 2357 to 4536
   lanes (54 to 112 MB) and Town12 from 7810 to 10400 (270 to 451 MB), mostly from the lane distance matrix.
-- Won't fix: traffic-light phases stay `-1` for nuPlan and WOD (former task 7). PufferDinde uses `junction_id` and
+- Won't fix: traffic-light phases stay `-1` for nuPlan and WOD (former task 7). Macadam uses `junction_id` and
   `phase_idx` only to generate light cycles for map-only data; logged scenes replay their per-frame states. CARLA
   has phases on 3039 of 4951 controls.
 - Town12 stop signs go from 628 to 627 (former task 30), still controlling all 1398 lanes. Two `.xodr` stop zones on
@@ -71,7 +71,7 @@ In commit order.
 - Binary v4 (`e3828a7`) splits roads into `ROADPOLY` (lanes, road lines, road edges) and `ROADSURF` (crosswalks,
   walkways, carparks, drivable areas, speed bumps, shoulders, intersections, lane groups), with py123d `MapLayer`
   values and the py123d `LaneType`, `RoadLineType` (all 15), and `RoadEdgeType` values unchanged. The 123Drive schema
-  has `RoadPolyline` and `RoadSurface`; PufferDinde (`9b3a90046`) has `RoadPolyline` (`road_polylines`) and
+  has `RoadPolyline` and `RoadSurface`; Macadam (`9b3a90046`) has `RoadPolyline` (`road_polylines`) and
   `RoadSurface` (`road_surfaces`, loaded and validated, not used by the simulator yet). On all five datasets every v3
   element keeps its id, geometry, and lane data, every non-road section is byte-identical, and the replay audit gives
   the same results (1183 nuPlan and 286 WOD routes cleared, same ego rows). CARLA gains 8926 shoulder surfaces and 7
@@ -80,26 +80,26 @@ In commit order.
   (`a9418b6`); until then they kept every source vertex. Surface points drop to 27.7% in nuPlan-mini, 34.1% in
   held-out nuPlan, 69.9% in CARLA, and 99.8% in WOD, and nuPlan-mini bins shrink from 2018 to 1875 MB. Outlines move
   at most 0.1 m (100.5 mm on Town11 at 10 km, within float32 rounding), stay closed, and keep at least 4 points; area
-  changes stay within perimeter x 0.1 m (median 0.13%). Only `ROADSURF` changes. PufferDinde's 8 CARLA bins are
+  changes stay within perimeter x 0.1 m (median 0.13%). Only `ROADSURF` changes. Macadam's 8 CARLA bins are
   regenerated from these bins (`25e5fb3d9`).
-- PufferDinde's loader stores every value of the latest bins exactly. A C dump of what `load_map_binary` keeps,
+- Macadam's loader stores every value of the latest bins exactly. A C dump of what `load_map_binary` keeps,
   compared with an independent decode of each bin, matches every field of all 2152 bins (1247 nuPlan-mini, 494 WOD,
   12 CARLA, 113 held-out nuPlan, 286 held-out WOD): metadata, source, agent and object channels, routes and spans,
   polylines with headings, topology, speed, `cum_length` and curvature, surfaces, traffic controls and phases, and
   the lane graph. The loader rewrites lane references as indices and derives lane length, control state, and goals.
-  It now also rejects a surface id that repeats a polyline or surface id (PufferDinde `95572b40f`).
+  It now also rejects a surface id that repeats a polyline or surface id (Macadam `95572b40f`).
 - Reversed `DASH_SOLID_*` and `SOLID_DASH_*` road lines are duplicates (former task 34). CARLA types the two sides of
   one double line this way, and v4's lossless types had kept 7 such copies in Town03. They are removed again, so
-  Town03's elements match v3 apart from the new shoulder surfaces; no other bin changes. PufferDinde's Town03 bin is
+  Town03's elements match v3 apart from the new shoulder surfaces; no other bin changes. Macadam's Town03 bin is
   regenerated.
-- PufferDinde's two nuPlan fixture bins are nuPlan-mini scenes in v4 (former task 33, PufferDinde `d431090f4`). The
+- Macadam's two nuPlan fixture bins are nuPlan-mini scenes in v4 (former task 33, Macadam `d431090f4`). The
   old `00018a38` and `c2a99be0` bins predated the 123Drive format and their scenes are not in nuPlan-mini.
   `nuplan/` now holds `b46291dd` (used by `drive_fixture.h`) and `sdc_replay_test/` holds `ccd2111a`: Las Vegas
   scenes with 72 m and 152 m ego paths, 55 and 53 routed vehicles, and 32 and 38 traffic controls, cleaned with
   one `--fix` pass and free of ego infractions. Both match the loader dump. Their logs are 201 frames, and the e2e
   replay test runs 400 steps, past the end of the log.
 - `--preset nuplan-map` converts the four nuPlan city maps as map-only scenes, like `opendrive`. Nothing else
-  changes: the bins (4.5 to 87 MB, 962 to 4583 lanes) load in PufferDinde, and in Las Vegas 678 of 688 lanes
+  changes: the bins (4.5 to 87 MB, 962 to 4583 lanes) load in Macadam, and in Las Vegas 678 of 688 lanes
   controlled in the logged scenes get the same control type. They have no light phases, Singapore has no speed
   limits, and Boston has 25 mph on every lane, as in the source.
 - `--preset nurec` converts NVIDIA NuRec release 26.04 (`gs://alpasim/PAI_data/sample_set/26.04_release`), read by
@@ -107,7 +107,7 @@ In commit order.
   scenes convert (990 MB); the 35 others have no ego route. Scenes start at log frame 1: py123d puts frame 0 before
   the first rig pose, where the ego is extrapolated and only 107 of 12209 sampled agents were valid (now 5232 of
   11980; routed agents valid at frame 0 go from 56 of 1903 to 1883 of 1999). Every format, reference and route check
-  passes and the PufferDinde loader stores every value. The replay audit needs two `--fix` passes (1560 routes,
+  passes and the Macadam loader stores every value. The replay audit needs two `--fix` passes (1560 routes,
   then 1) and leaves 14207 frame-0 controllable vehicles; the last pass shows only ego rows, none at step 0
   (collision / off-road / red light / stop sign: 7 / 62 / 10 / 92). Edges already have the drivable side on the left.
   Source gaps: 845 scenes have no light boxes, so their signal stop lines stay UNKNOWN and are dropped; 20% of
@@ -116,12 +116,12 @@ In commit order.
 - Of the 62 NuRec ego off-road rows, 49 graze a kerb, wall or barrier by under 0.3 m (6 of them only after the
   0.1 m edge simplification), 5 cross a raw boundary jutting into the lane, and 8 cross a wall of the road below
   an overpass. Bin poses, sizes, labels and lifetimes match the raw USDZ (ego within 18 cm, tracks within the
-  smoothing spline). PufferDinde `Z_BUFFER` goes from 4 to 3 m (`934b960aa`): same-level edges sit within 2 m of
+  smoothing spline). Macadam `Z_BUFFER` goes from 4 to 3 m (`934b960aa`): same-level edges sit within 2 m of
   logged vehicles, stacked roads are 3.05 m (WOD) and 3.5 m (NuRec) apart or more, and CARLA has no map points
   between 1 and 6 m apart. The audit then loses only overpass rows: 9 NuRec (62 to 53) and 1 WOD (3 to 2) ego
   off-road events, with every other event unchanged.
 - The binary format restarts at version 1, with the v4 layout above unchanged (no earlier `123DRIVE` file used
-  version 1; the format before v2 had no magic). PufferDinde's 10 committed bins differ from v4 only in the
+  version 1; the format before v2 had no magic). Macadam's 10 committed bins differ from v4 only in the
   version field.
 
 ### 2026-10-20
@@ -136,7 +136,7 @@ In commit order.
   CARLA lanes under 10 cm all come from the source data).
 - Speed signs for Town11 and Town12 exported from CARLA; on random routes, every observed limit change matches an
   exported row (see task 29).
-- nuPlan and WOD reconverted at `88429dc` and audited with PufferDinde `vcha/new_maps` at `dd714dce9`. One `--fix`
+- nuPlan and WOD reconverted at `88429dc` and audited with Macadam `vcha/new_maps` at `dd714dce9`. One `--fix`
   pass clears 1183 nuPlan and 286 WOD routes, leaving 16623 and 5327 frame-0 controllable vehicles; the last pass
   shows only mid-log ego infractions (collision / off-road / red light / stop sign: 16 / 21 / 38 / 36 in nuPlan,
   3 / 3 / 8 / 7 in WOD).

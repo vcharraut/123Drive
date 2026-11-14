@@ -974,7 +974,7 @@ def generate_town(size: float = 500.0, seed: int = 0) -> PufferScenario:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Generate European-style towns as static PufferDinde binaries")
+    parser = argparse.ArgumentParser(description="Generate European-style towns as static Macadam binaries")
     parser.add_argument("--output_dir", type=Path, required=True)
     parser.add_argument("--size", type=float, default=500.0, help="Town extent in metres (200..1200)")
     parser.add_argument("--seed", type=int, default=0)

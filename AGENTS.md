@@ -1,6 +1,6 @@
 # Repository instructions
 
-123Drive converts 123D Arrow datasets into `.bin` scenarios for PufferDinde.
+123Drive converts 123D Arrow datasets into `.bin` scenarios for Macadam.
 
 ## Working rules
 
@@ -21,7 +21,7 @@
 ## Agent eligibility and binary compatibility
 
 - A nonempty `route` means eligible for control; an empty route means background. The binary has no `control_state` or `route_gt_len`.
-- PufferDinde chooses controllers and background behavior. Conversion preserves recorded trajectories and validity masks.
+- Macadam chooses controllers and background behavior. Conversion preserves recorded trajectories and validity masks.
 - When changing the binary layout, keep the writer, viewer parser, and test readers consistent. Existing bins and external simulator readers may need corresponding updates.
 
 ## Development and verification
