@@ -33,7 +33,7 @@ signalized junctions, roundabouts, and bus and bike lane shares. Layout controls
 tuned so towns also fall in the measured range of junction density, street length
 between junctions, junction angles, and street orientation entropy. Towns match these
 statistics, not the layout of any city. `EUROPE` and `LAYOUT` in `src/mapforge/town.py`
-hold the ranges.
+hold the ranges; `tests/mapforge/test_town.py` measures 1.2 km towns against them.
 
 Streets come from rotated district lattices with uneven gaps between parallel streets,
 straight or jittered, crossed by boulevards that radiate from plazas and sometimes by a
@@ -91,7 +91,9 @@ phases, while the non-pedestrian mode randomizes lights independently.
 
 The default 500 m extent is comparable to the bundled CARLA Town03/Town05 road
 reference extents (approximately 577 × 575 m and 473 × 399 m). `--size` accepts
-200–1200 m. Geometry stays flat. Output uses the existing binary format and viewer;
+200–1200 m. Below 525 m, street spacing shrinks to a fifth of the extent so small towns
+keep several junctions. Multiple districts, plazas and roundabouts appear mostly from
+1 km up. Geometry stays flat. Output uses the existing binary format and viewer;
 Macadam supplies moving agents. Generation with identical options is repeatable.
 
 ## Conversion process

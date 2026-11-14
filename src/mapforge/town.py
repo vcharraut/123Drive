@@ -48,7 +48,7 @@ LAYOUT = {
     "district": (500.0, 1500.0),  # district size in metres
     "aspect": (1.0, 2.0),  # block aspect ratio
     "variation": (0.0, 0.3),  # district spacing varies by up to this fraction
-    "uneven": (0.7, 0.95),  # gaps between parallel streets vary by up to this fraction
+    "uneven": (0.3, 0.5),  # gaps between parallel streets vary by up to this fraction
     "acute": (25.0, 40.0),  # smallest junction angle in degrees, except where boulevards cross
     "plazas": (0.0, 1.2),  # plazas with radiating boulevards per km²
     "ring": (0.0, 0.5),  # chance of a ring boulevard
@@ -65,7 +65,7 @@ def street_graph(
     size: float, layout: dict[str, float], rng: np.random.Generator
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Polygon, float]:
     radius = size / 2 - 20
-    spacing = min(layout["spacing"], size / 6)
+    spacing = min(layout["spacing"], size / 5)
     theta = np.linspace(0, 2 * np.pi, 256, endpoint=False)
     reach = radius * (1.13 + 0.13 * np.sin(3 * theta + rng.uniform(0, 2 * np.pi)))
     outline = Polygon(np.column_stack((np.cos(theta), np.sin(theta))) * reach[:, None])
