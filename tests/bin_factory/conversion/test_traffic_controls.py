@@ -103,3 +103,41 @@ def test_static_traffic_light_keeps_only_uncovered_lanes():
 
     assert [control.controlled_lanes for control in scenario.traffic_controls] == [[1], [2]]
     assert scenario.traffic_controls[1].states == [puffer_types.TLState.UNKNOWN] * 5
+
+
+def test_light_stop_line_lies_on_its_approach_stop_zone():
+    # nuPlan: the light is detected on connector 2, its stop polygon lies on approach lane 1 or inside the connector.
+    # The line sits at the polygon's far edge: vehicles stop before the polygon.
+    for x0, expected in ((4.0, 5.0), (13.0, 14.0)):
+        approach = _lane(puffer_types.LaneType.SURFACE_STREET, [[0, 0, 0], [10, 0, 0]])
+        connector = _lane(puffer_types.LaneType.SURFACE_STREET, [[10, 0, 0], [20, 0, 0]])
+        approach.exit_lanes, connector.entry_lanes = [2], [1]
+        scenario = _scenario({1: approach, 2: connector})
+        zone = schema.StopZone(
+            type=int(puffer_types.TCType.TRAFFIC_LIGHT),
+            polygon=np.array([[x0, -2, 0], [x0, 2, 0], [x0 + 1, 2, 0], [x0 + 1, -2, 0]], dtype=np.float64),
+            controlled_lanes=[1],
+        )
+        extras = schema.ExtractionExtras(traffic_lights={2: _tl(2)}, stop_zones=[zone])
+
+        process_traffic_controls(scenario, extras)
+
+        assert [tc.controlled_lanes for tc in scenario.traffic_controls] == [[2]]
+        np.testing.assert_allclose(scenario.traffic_controls[0].stop_line.mean(axis=0), [expected, 0, 0], atol=1e-9)
+
+
+def test_light_stop_line_takes_a_zone_just_short_of_the_approach():
+    approach = _lane(puffer_types.LaneType.SURFACE_STREET, [[0, 0, 0], [10, 0, 0]])
+    connector = _lane(puffer_types.LaneType.SURFACE_STREET, [[10, 0, 0], [20, 0, 0]])
+    approach.exit_lanes, connector.entry_lanes = [2], [1]
+    scenario = _scenario({1: approach, 2: connector})
+    zone = schema.StopZone(
+        type=int(puffer_types.TCType.TRAFFIC_LIGHT),
+        polygon=np.array([[-1.2, -2, 0], [-1.2, 2, 0], [-0.2, 2, 0], [-0.2, -2, 0]], dtype=np.float64),
+        controlled_lanes=[1],
+    )
+    extras = schema.ExtractionExtras(traffic_lights={2: _tl(2)}, stop_zones=[zone])
+
+    process_traffic_controls(scenario, extras)
+
+    np.testing.assert_allclose(scenario.traffic_controls[0].stop_line.mean(axis=0), [0, 0, 0], atol=1e-9)

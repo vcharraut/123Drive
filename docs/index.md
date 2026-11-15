@@ -158,9 +158,12 @@ There is no separate control-state or route-prefix-length field. See [route code
 
 By default, missing light observations remain unknown. `--infer_traffic_lights` combines
 observed signals, lane topology, vehicle crossings, and stopped vehicles to infer
-missing or inconsistent states. It groups intersection movements and uses conflicts
-between them to constrain inference. Confident estimates become red or green, with yellow
-transitions. Uncertain frames stay unknown.
+missing or inconsistent states. Observed signals are evidence, so vehicle behaviour can
+correct noisy labels. It groups intersection movements and uses conflicts between them to
+constrain inference. Each movement follows one continuous path of red and green with
+yellow transitions: a state holds at least 3 s and a red under 10 s between two greens is
+filled. States stay unknown only before the first and after the last confident frame.
+Turns that are free on red never show red; their red frames are unknown.
 Yellow-only detections stay unchanged. See [inference code].
 
 - [Dataset differences](presets.md)

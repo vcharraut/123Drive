@@ -2,6 +2,7 @@ import dataclasses
 import math
 
 import numpy as np
+import shapely
 
 from bin_factory import puffer_types, schema
 from bin_factory.log_context import log
@@ -9,11 +10,13 @@ from bin_factory.log_context import log
 
 SAME_APPROACH_RAD = 0.35  # ~20 deg: lights this close in heading serve the same approach
 FACING_APPROACH_RAD = 0.785  # up to ~45 deg off exactly opposite, two approaches still face each other
+ZONE_MAX_GAP = 1.5  # metres between a light's approach path and a stop zone of that approach
 
 
 def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
     lanes_by_id = {eid: edata for eid, edata in scenario.polylines.items() if edata.is_lane}
-    light_controls, covered_lanes = _build_traffic_light_controls(extras.traffic_lights, lanes_by_id)
+    light_zones = [zone for zone in extras.stop_zones if zone.type == puffer_types.TCType.TRAFFIC_LIGHT]
+    light_controls, covered_lanes = _build_traffic_light_controls(extras.traffic_lights, lanes_by_id, light_zones)
     next_id = max((tc.id for tc in light_controls), default=-1) + 1
     zone_controls = _build_stop_zone_controls(
         extras.stop_zones,
@@ -28,6 +31,7 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
 def _build_traffic_light_controls(
     traffic_lights: dict[int, schema.TrafficLightTrack],
     lanes_by_id: dict[int, schema.RoadPolyline],
+    light_zones: list[schema.StopZone],
 ) -> tuple[list[schema.TrafficControl], set[int]]:
     controls: list[schema.TrafficControl] = []
     covered_lanes: set[int] = set()
@@ -51,6 +55,9 @@ def _build_traffic_light_controls(
         try:
             heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
             stop_line = _stop_line_from_position(heading, controlled_lane_id, lanes_by_id)
+            at_zone = stop_line_at_zone(controlled_lane, lanes_by_id, light_zones)
+            if at_zone is not None:
+                heading, stop_line = at_zone
         except ValueError as exc:
             log.warning("lane=%s tl=%s: malformed traffic light, skipping: %s", controlled_lane_id, element_id, exc)
             continue
@@ -180,6 +187,40 @@ def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int
     width = _lane_width_from_boundaries(left_boundary, right_boundary)
     half_width = (width / 2) * np.array([-np.sin(heading), np.cos(heading), 0.0])
     return np.array([center - half_width, center + half_width], dtype=np.float64)
+
+
+def stop_line_at_zone(
+    lane: schema.RoadPolyline, lanes_by_id: dict[int, schema.RoadPolyline], light_zones: list[schema.StopZone]
+) -> tuple[float, np.ndarray] | None:
+    """Return the heading and stop line at a traffic-light stop zone of the light's approach, if one lies on its path.
+
+    The path is the approach lane and the controlled lane. The line spans the controlled lane's width where the zone's
+    far edge projects onto the path; zones short of the approach lane start project onto it.
+    """
+    # PY123D-REPORT[nuplan]: lights are detected on junction connectors, but the stop polygon lies on the approach
+    # lane before them or up to 9 m into the connector: a line at the connector start is off by over 3 m for 11% of
+    # nuPlan lights. Vehicles stop before the polygon, and a line through its centre is crossed while still RED.
+    for entry_id in lane.entry_lanes:
+        zones = [zone for zone in light_zones if entry_id in zone.controlled_lanes]
+        if not zones or (entry := lanes_by_id.get(entry_id)) is None:
+            continue
+        path = np.vstack([np.asarray(entry.polyline, dtype=np.float64), np.asarray(lane.polyline, dtype=np.float64)])
+        line = shapely.LineString(path[:, :2])
+        polygons = [shapely.Polygon(np.asarray(zone.polygon)[:, :2]).buffer(0) for zone in zones]
+        near = [polygon for polygon in polygons if line.distance(polygon) <= ZONE_MAX_GAP]
+        if not near:
+            continue
+        edges = [shapely.points(shapely.get_coordinates(polygon)) for polygon in near]
+        s = min(shapely.line_locate_point(line, points).max() for points in edges)
+        cum = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(path[:, :2], axis=0), axis=1))]
+        center = np.array([np.interp(s, cum, path[:, k]) for k in range(3)])
+        ahead, behind = line.interpolate(min(s + 0.5, line.length)), line.interpolate(max(s - 0.5, 0.0))
+        heading = float(np.arctan2(ahead.y - behind.y, ahead.x - behind.x))
+        left = np.asarray(lane.left_boundary if lane.left_boundary is not None else [], dtype=np.float64)
+        right = np.asarray(lane.right_boundary if lane.right_boundary is not None else [], dtype=np.float64)
+        half_width = (_lane_width_from_boundaries(left, right) / 2) * np.array([-np.sin(heading), np.cos(heading), 0.0])
+        return heading, np.array([center - half_width, center + half_width], dtype=np.float64)
+    return None
 
 
 def _heading_near(point: np.ndarray, lane_ids: list[int], lanes_by_id: dict[int, schema.RoadPolyline]) -> float:
