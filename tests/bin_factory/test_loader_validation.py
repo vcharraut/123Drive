@@ -41,6 +41,25 @@ def test_missing_velocity_uses_real_frame_gap_and_keeps_observed():
     np.testing.assert_array_equal(track.velocity[[1, 3]], 0)
 
 
+def test_womd_prediction_targets_resolve_track_ids_and_ego():
+    # Tracks 0..2 have WOMD ids 141, 5 and 7; track 2 is the ego.
+    meta = {
+        "timestamps_are_relative": True,
+        "track_index_to_token": {0: "141", 1: "5", 2: "7"},
+        "sdc_track_index": 2,
+        "objects_of_interest": [141, 7],
+        "tracks_to_predict": [{"track_index": 2}, {"track_index": 1}],
+    }
+    scene_api = SimpleNamespace(get_all_custom_modality_metadatas=lambda: {"aux": SimpleNamespace(metadata=meta)})
+    agents = {i: extractor._make_empty_track(1) for i in range(3)}
+    metadata = schema.ScenarioMetadata(id="s", dataset="wod-motion", scenario_length=1, dt=0.1)
+
+    extractor._extract_prediction_targets(scene_api, {"141": 1, "5": 2}, agents, metadata)  # ty: ignore[invalid-argument-type]
+
+    assert metadata.objects_of_interest == [1, 0]
+    assert metadata.tracks_to_predict == [0, 2]
+
+
 def test_singleton_ego_corridor_is_valid():
     state = SimpleNamespace(center_se3=SimpleNamespace(x=1.0, y=2.0))
     map_api = SimpleNamespace(

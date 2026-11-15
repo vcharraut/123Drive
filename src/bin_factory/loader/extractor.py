@@ -297,13 +297,16 @@ def _extract_prediction_targets(
         return
     agents[0].source_id = meta["track_index_to_token"][meta["sdc_track_index"]]
     idx2tok = meta["track_index_to_token"]
+    # Ego has no detection token; WOMD lists it among the tracks to predict in about one scenario in ten.
+    object_ids = {**tokens_to_object_id, agents[0].source_id: 0}
 
-    def _resolve(track_indices: Iterable[int]) -> list[int]:
-        ids = (tokens_to_object_id.get(idx2tok.get(idx)) for idx in track_indices)
+    def _resolve(tokens: Iterable[str]) -> list[int]:
+        ids = (object_ids.get(token) for token in tokens)
         return [oid for oid in ids if oid in agents]
 
-    metadata.objects_of_interest = _resolve(meta["objects_of_interest"])
-    metadata.tracks_to_predict = _resolve(entry["track_index"] for entry in meta["tracks_to_predict"])
+    # WOMD stores objects of interest as track ids and tracks to predict as track indices.
+    metadata.objects_of_interest = _resolve(str(track_id) for track_id in meta["objects_of_interest"])
+    metadata.tracks_to_predict = _resolve(idx2tok[entry["track_index"]] for entry in meta["tracks_to_predict"])
 
 
 def _extract_traffic_lights(
