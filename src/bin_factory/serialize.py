@@ -1,6 +1,6 @@
 """Serialize a PufferScenario to PufferDrive binary format.
 
-Full binary layout is specified in ``docs/binary-format.rst``; enum values are in ``puffer_types.py``.
+Full binary layout is specified in ``docs/binary-format.md``; enum values are in ``puffer_types.py``.
 """
 
 import struct
