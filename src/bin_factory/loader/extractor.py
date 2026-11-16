@@ -415,7 +415,7 @@ def _shoulder_surfaces(map_api: py123d_api.MapAPI) -> list[Any]:
     if shoulder_type is None or map_objects.MapLayer.LANE not in layers:
         return []
     lanes = map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE)
-    return [lane for lane in lanes if lane.lane_type == shoulder_type]
+    return [lane for lane in lanes if lane.lane_type == shoulder_type]  # ty: ignore[unresolved-attribute]
 
 
 def _speed_limit(speed_limit_mps: float | None) -> float:
@@ -437,7 +437,7 @@ def _mark_junction_lanes(map_api: py123d_api.MapAPI, lanes: dict[int, schema.Map
     for group in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE_GROUP):
         if getattr(group, "intersection_id", None) is None:
             continue
-        for lane_id in group.lane_ids:
+        for lane_id in group.lane_ids:  # ty: ignore[unresolved-attribute]
             lane = lanes.get(int(lane_id))
             if lane is not None:
                 lane.in_junction = True

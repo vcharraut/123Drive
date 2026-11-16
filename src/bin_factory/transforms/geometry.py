@@ -1,3 +1,5 @@
+import itertools
+
 import numpy as np
 import shapely
 from shapely import geometry as shapely_geom
@@ -179,8 +181,8 @@ def _add_height_breakpoints(polyline: np.ndarray, keep: np.ndarray, tolerance: f
     that line by more than the tolerance (Douglas-Peucker on the height along the arc length)."""
     arc = np.concatenate([[0.0], np.cumsum(np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1))])
     z = polyline[:, 2]
-    result = set(int(i) for i in keep)
-    pending = [(int(a), int(b)) for a, b in zip(keep[:-1], keep[1:])]
+    result = {int(i) for i in keep}
+    pending = [(int(a), int(b)) for a, b in itertools.pairwise(keep)]
     guard = 0
     while pending and guard < len(polyline):
         guard += 1

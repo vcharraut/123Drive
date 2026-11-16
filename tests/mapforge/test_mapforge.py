@@ -155,12 +155,7 @@ def test_clone_is_independent_deep_copy(opendrive_bins):
 
 def test_select_transforms_default_is_all_groups():
     catalog = affine.select_transforms(None)
-    base = {
-        name
-        for group_name, group in affine.TRANSFORM_GROUPS.items()
-        if group_name != "flip"
-        for name in group
-    }
+    base = {name for group_name, group in affine.TRANSFORM_GROUPS.items() if group_name != "flip" for name in group}
     expected = base | {"FlipX"} | {f"FlipX_{name}" for name in base}
     assert set(catalog) == expected
     assert len(catalog) == 15

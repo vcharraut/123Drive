@@ -111,7 +111,8 @@ class ExtractionExtras:
     traffic_lights: dict = dataclasses.field(default_factory=dict)
     stop_zones: list = dataclasses.field(default_factory=list)
     non_junction_shoulders: list = dataclasses.field(default_factory=list)  # centred (N, 3) shoulder outlines
-    junction_drivables: list = dataclasses.field(default_factory=list)  # centred (N, 3) intersection + junction-shoulder outlines
+    # centred (N, 3) intersection + junction-shoulder outlines
+    junction_drivables: list = dataclasses.field(default_factory=list)
     centroid: list | None = None
 
 

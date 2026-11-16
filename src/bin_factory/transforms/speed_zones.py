@@ -121,7 +121,9 @@ def _union_opposite_directions(lanes: dict[int, schema.MapElement], parent: dict
     inner_ids = [
         eid
         for eid in parent
-        if not lanes[eid].left_neighbor and lanes[eid].left_boundary is not None and len(lanes[eid].left_boundary) >= 2
+        if not lanes[eid].left_neighbor
+        and (left_boundary := lanes[eid].left_boundary) is not None
+        and len(left_boundary) >= 2
     ]
     if len(inner_ids) < 2:
         return
@@ -145,7 +147,7 @@ def _is_opposite_neighbor(boundary_a: np.ndarray, boundary_b: np.ndarray, gap_m:
     """True when most of boundary_a runs within gap_m of boundary_b, heading the opposite way."""
     headings_a = _point_headings(boundary_a)
     headings_b = _point_headings(boundary_b)
-    distances, nearest_idx = scipy_spatial.cKDTree(boundary_b).query(boundary_a)
+    distances, nearest_idx = scipy_spatial.cKDTree(boundary_b).query(boundary_a)  # ty: ignore[unresolved-attribute]
     heading_diff = np.abs(np.angle(np.exp(1j * (headings_a - headings_b[nearest_idx]))))
     close_and_opposite = (distances <= gap_m) & (heading_diff >= OPPOSITE_HEADING_MIN_RAD)
     return bool(np.mean(close_and_opposite) >= OPPOSITE_OVERLAP_MIN_FRACTION)
@@ -214,10 +216,11 @@ def _zones_across_junctions(
 
 
 def _is_straight_continuation(lane: schema.MapElement, other: schema.MapElement, key: str) -> bool:
+    lane_polyline, other_polyline = np.asarray(lane.polyline), np.asarray(other.polyline)
     if key == "exit_lanes":
-        heading_out, heading_in = _end_heading(lane.polyline), _start_heading(other.polyline)
+        heading_out, heading_in = _end_heading(lane_polyline), _start_heading(other_polyline)
     else:
-        heading_out, heading_in = _end_heading(other.polyline), _start_heading(lane.polyline)
+        heading_out, heading_in = _end_heading(other_polyline), _start_heading(lane_polyline)
     return abs(np.angle(np.exp(1j * (heading_in - heading_out)))) <= MAX_MERGE_TURN_RAD
 
 

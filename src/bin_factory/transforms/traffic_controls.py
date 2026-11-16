@@ -83,7 +83,12 @@ def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.Ext
             states = []
             junction_id, phase_idx = -1, -1
         if (junction_id < 0) != (phase_idx < 0):
-            log.warning("lane=%s: stop zone has junction_id=%s but phase_idx=%s, dropping phase", controlled_lane_id, junction_id, phase_idx)
+            log.warning(
+                "lane=%s: stop zone has junction_id=%s but phase_idx=%s, dropping phase",
+                controlled_lane_id,
+                junction_id,
+                phase_idx,
+            )
             junction_id, phase_idx = -1, -1
 
         elements.append(

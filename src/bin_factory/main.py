@@ -107,7 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--non_drivable_shoulders",
         action="store_true",
-        help="Add road edges along lane boundaries that border shoulder surfaces outside junctions (shoulders become off-road)",
+        help="Add road edges along lane boundaries that border shoulder surfaces outside junctions "
+        "(shoulders become off-road)",
     )
     parser.add_argument(
         "--ramp_shoulder_widening_m",

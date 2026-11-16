@@ -55,7 +55,8 @@ def test_edge_added_along_right_boundary_with_lane_on_its_right():
     edge = _edges(scenario)[0]
     assert edge.type == int(puffer_types.RoadEdgeType.BOUNDARY)
     xs = edge.polyline[:, 0]
-    assert 3.0 <= xs.min() <= 6.0 and 14.0 <= xs.max() <= 17.0
+    assert 3.0 <= xs.min() <= 6.0
+    assert 14.0 <= xs.max() <= 17.0
     assert np.all(np.diff(xs) < 0)  # from high to low x: the lane (y=0) is on the right of that direction
     np.testing.assert_allclose(edge.polyline[:, 1], -1.75)
 
@@ -121,7 +122,8 @@ def test_narrowing_within_hysteresis_continues_the_run_without_a_cap():
     bands = [_band(x0=0.0, x1=10.0), _band(x0=10.0, x1=20.0, y1=-2.55)]  # 2.25 m band, then a 0.8 m strip
     assert add_shoulder_edges(scenario, bands, []) == 1
     edge = _edges(scenario)[0]
-    assert edge.polyline[:, 0].min() <= 1.0 and edge.polyline[:, 0].max() >= 19.0
+    assert edge.polyline[:, 0].min() <= 1.0
+    assert edge.polyline[:, 0].max() >= 19.0
 
 
 def test_narrowing_to_a_hairline_ends_the_run_without_a_cap():
@@ -133,7 +135,8 @@ def test_narrowing_to_a_hairline_ends_the_run_without_a_cap():
 
 def test_short_dip_does_not_split_a_run():
     scenario = _scenario()
-    assert add_shoulder_edges(scenario, [_band(x0=0.0, x1=9.0), _band(x0=12.0, x1=20.0)], []) == 1  # 3 m gap = one sample
+    bands = [_band(x0=0.0, x1=9.0), _band(x0=12.0, x1=20.0)]  # 3 m gap = one sample
+    assert add_shoulder_edges(scenario, bands, []) == 1
 
 
 def test_dead_end_with_band_going_on_gets_a_cap():
@@ -144,7 +147,8 @@ def test_dead_end_with_band_going_on_gets_a_cap():
 
 def test_band_reaching_the_lane_start_is_capped_even_if_the_first_sample_is_narrow():
     scenario = _two_lane_scenario(second_in_junction=True)
-    # the shoulder starts 1 m into lane 0: first sample narrow, run snaps to the lane start; lane 1's band is junction interior
+    # the shoulder starts 1 m into lane 0: first sample narrow, run snaps to the lane start;
+    # lane 1's band is junction interior
     assert add_shoulder_edges(scenario, [_band(x0=1.0, x1=40.0)], [_junction(20.0, 45.0)]) == 2
     assert len(_caps(scenario)) == 1
 
@@ -156,7 +160,8 @@ def test_short_junction_connector_fully_along_a_band_gets_an_edge():
     scenario.map[0].right_boundary = np.array([[0.0, -1.75, 0.0], [3.0, -1.75, 0.0]])
     assert add_shoulder_edges(scenario, [_band(x0=-10.0, x1=10.0)], []) == 3  # the run + a cap at each dead end
     runs = [e for e in _edges(scenario) if np.allclose(e.polyline[:, 1], -1.75) and len(e.polyline) >= 2]
-    assert len(runs) == 1 and np.ptp(runs[0].polyline[:, 0]) >= 2.9
+    assert len(runs) == 1
+    assert np.ptp(runs[0].polyline[:, 0]) >= 2.9
 
 
 def test_two_metre_stub_between_two_lanes_gets_its_edge_and_no_caps():
@@ -169,7 +174,8 @@ def test_two_metre_stub_between_two_lanes_gets_its_edge_and_no_caps():
         polyline=np.array([[20.0, 0.0, 0.0], [21.6, 0.0, 0.0]]),
         left_boundary=np.array([[20.0, 1.75, 0.0], [21.6, 1.75, 0.0]]),
         right_boundary=np.array([[20.0, -1.75, 0.0], [21.6, -1.75, 0.0]]),
-        entry_lanes=[0], exit_lanes=[2],
+        entry_lanes=[0],
+        exit_lanes=[2],
     )
     third = schema.MapElement(
         type=int(puffer_types.LaneType.SURFACE_STREET),
@@ -189,21 +195,24 @@ def test_surfaces_on_another_level_are_ignored():
     scenario = _scenario()  # lane at z = 0
     bridge_band = _band(x0=5.0, x1=15.0) + np.array([0.0, 0.0, 6.0])  # same footprint, 6 m up
     assert add_shoulder_edges(scenario, [bridge_band], []) == 0
-    assert add_shoulder_edges(_scenario(in_junction=True), [_band(x0=0.0, x1=20.0)], [_junction(-5.0, 25.0) + np.array([0.0, 0.0, 6.0])]) == 1
+    bridge_junction = _junction(-5.0, 25.0) + np.array([0.0, 0.0, 6.0])
+    assert add_shoulder_edges(_scenario(in_junction=True), [_band(x0=0.0, x1=20.0)], [bridge_junction]) == 1
 
 
 def test_run_ends_inside_the_lane_are_refined_to_the_band_limits():
     scenario = _scenario()  # samples every 2 m; the band spans x = 5..15, between samples
     assert add_shoulder_edges(scenario, [_band(x0=5.0, x1=15.0)], []) == 1
     xs = _edges(scenario)[0].polyline[:, 0]
-    assert abs(xs.min() - 5.0) <= 0.25 and abs(xs.max() - 15.0) <= 0.25
+    assert abs(xs.min() - 5.0) <= 0.25
+    assert abs(xs.max() - 15.0) <= 0.25
 
 
 def test_band_starting_just_past_the_lane_start_corner_covers_the_lane_start():
     scenario = _scenario()  # the first sample sits 0.1 m before the shoulder polygon corner
     assert add_shoulder_edges(scenario, [_band(x0=0.1, x1=10.0)], []) == 1
     xs = _edges(scenario)[0].polyline[:, 0]
-    assert xs.min() == 0.0 and abs(xs.max() - 10.0) <= 0.25
+    assert xs.min() == 0.0
+    assert abs(xs.max() - 10.0) <= 0.25
 
 
 def _lane(polyline, left, right, **fields):
@@ -218,17 +227,26 @@ def _lane(polyline, left, right, **fields):
 
 def test_band_covered_by_another_lane_is_blocked_there():
     scenario = _scenario()  # a ramp connector overlaps the band beside lane 0 for x < 10
-    scenario.map[1] = _lane([[0.0, -2.75, 0.0], [10.0, -2.75, 0.0]], [[0.0, -1.0, 0.0], [10.0, -1.0, 0.0]],
-                            [[0.0, -4.5, 0.0], [10.0, -4.5, 0.0]], in_junction=True)
+    scenario.map[1] = _lane(
+        [[0.0, -2.75, 0.0], [10.0, -2.75, 0.0]],
+        [[0.0, -1.0, 0.0], [10.0, -1.0, 0.0]],
+        [[0.0, -4.5, 0.0], [10.0, -4.5, 0.0]],
+        in_junction=True,
+    )
     assert add_shoulder_edges(scenario, [_band(x0=0.0, x1=20.0)], []) == 1
     xs = _edges(scenario)[0].polyline[:, 0]
-    assert 9.5 <= xs.min() <= 10.5 and xs.max() >= 19.0  # nothing drawn across the connector
+    assert 9.5 <= xs.min() <= 10.5  # nothing drawn across the connector
+    assert xs.max() >= 19.0
 
 
 def test_crossing_lane_splits_the_run_instead_of_being_bridged():
     scenario = _scenario()  # a 3 m wide lane crosses the band at x = 10: one blocked sample, not a bridgeable dip
-    scenario.map[1] = _lane([[10.0, -6.0, 0.0], [10.0, 0.0, 0.0], [10.0, 6.0, 0.0]], [[8.5, -6.0, 0.0], [8.5, 6.0, 0.0]],
-                            [[11.5, -6.0, 0.0], [11.5, 6.0, 0.0]], in_junction=True)
+    scenario.map[1] = _lane(
+        [[10.0, -6.0, 0.0], [10.0, 0.0, 0.0], [10.0, 6.0, 0.0]],
+        [[8.5, -6.0, 0.0], [8.5, 6.0, 0.0]],
+        [[11.5, -6.0, 0.0], [11.5, 6.0, 0.0]],
+        in_junction=True,
+    )
     add_shoulder_edges(scenario, [_band(x0=0.0, x1=20.0)], [])
     runs = [e.polyline[:, 0] for e in _edges(scenario) if np.allclose(e.polyline[:, 1], -1.75)]
     assert len(runs) == 2
@@ -237,7 +255,8 @@ def test_crossing_lane_splits_the_run_instead_of_being_bridged():
 
 def test_cap_spans_the_continuing_band_when_the_end_sample_measured_a_sliver():
     scenario = _two_lane_scenario(second_in_junction=True)
-    bands = [_band(x0=0.0, x1=19.5), _band(x0=19.5, x1=20.0, y1=-2.0), _band(x0=20.0, x1=40.0)]  # 0.25 m at the lane end
+    # 0.25 m at the lane end
+    bands = [_band(x0=0.0, x1=19.5), _band(x0=19.5, x1=20.0, y1=-2.0), _band(x0=20.0, x1=40.0)]
     assert add_shoulder_edges(scenario, bands, [_junction(20.0, 45.0)]) == 2  # run on lane 0 + cap
     cap = _caps(scenario)[0].polyline
     assert np.ptp(cap[:, 1]) >= 1.5
@@ -246,10 +265,19 @@ def test_cap_spans_the_continuing_band_when_the_end_sample_measured_a_sliver():
 def test_zero_length_stub_between_two_lanes_is_looked_through_for_caps():
     scenario = _scenario()
     scenario.map[0].exit_lanes = [1]
-    scenario.map[1] = _lane([[20.0, 0.0, 0.0], [20.0, 0.0, 0.0]], [[20.0, 1.75, 0.0], [20.0, 1.75, 0.0]],
-                            [[20.0, -1.75, 0.0], [20.0, -1.75, 0.0]], entry_lanes=[0], exit_lanes=[2])
-    scenario.map[2] = _lane([[20.0, 0.0, 0.0], [30.0, 0.0, 0.0], [40.0, 0.0, 0.0]], [[20.0, 1.75, 0.0], [40.0, 1.75, 0.0]],
-                            [[20.0, -1.75, 0.0], [40.0, -1.75, 0.0]], entry_lanes=[1])
+    scenario.map[1] = _lane(
+        [[20.0, 0.0, 0.0], [20.0, 0.0, 0.0]],
+        [[20.0, 1.75, 0.0], [20.0, 1.75, 0.0]],
+        [[20.0, -1.75, 0.0], [20.0, -1.75, 0.0]],
+        entry_lanes=[0],
+        exit_lanes=[2],
+    )
+    scenario.map[2] = _lane(
+        [[20.0, 0.0, 0.0], [30.0, 0.0, 0.0], [40.0, 0.0, 0.0]],
+        [[20.0, 1.75, 0.0], [40.0, 1.75, 0.0]],
+        [[20.0, -1.75, 0.0], [40.0, -1.75, 0.0]],
+        entry_lanes=[1],
+    )
     assert add_shoulder_edges(scenario, [_band(x0=0.0, x1=40.0)], []) == 2  # one run per real lane, no caps
     assert not _caps(scenario)
 
@@ -288,7 +316,6 @@ def test_two_lanes_ending_on_one_band_share_a_single_cap():
     )
     assert add_shoulder_edges(scenario, [_band(x0=0.0, x1=20.0)], [_junction(20.0, 45.0)]) == 3  # two runs, one cap
     assert len(_caps(scenario)) == 1
-
 
 
 def _ramp_bands(x0=-10.0, x1=30.0, width=3.5, left_x1=None):
@@ -368,8 +395,12 @@ def test_cap_at_a_junction_entry_closes_the_band_beyond_the_widened_edge():
 
 def test_widening_never_puts_the_edge_inside_another_lane():
     scenario = _scenario()  # a lane beside the band from y -2.5 to -6 for 9 < x < 11; the 0.3 m probe stays outside it
-    scenario.map[1] = _lane([[10.0, -6.0, 0.0], [10.0, -2.5, 0.0]], [[11.0, -6.0, 0.0], [11.0, -2.5, 0.0]],
-                            [[9.0, -6.0, 0.0], [9.0, -2.5, 0.0]], in_junction=True)
+    scenario.map[1] = _lane(
+        [[10.0, -6.0, 0.0], [10.0, -2.5, 0.0]],
+        [[11.0, -6.0, 0.0], [11.0, -2.5, 0.0]],
+        [[9.0, -6.0, 0.0], [9.0, -2.5, 0.0]],
+        in_junction=True,
+    )
     add_shoulder_edges(scenario, _ramp_bands(), [], ramp_widening_m=1.0)
     polyline = _right_run(scenario)
     near = polyline[np.abs(polyline[:, 0] - 10.0) <= 1.0]

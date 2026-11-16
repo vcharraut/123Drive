@@ -4,7 +4,7 @@ from pathlib import Path
 
 project = "123Drive"
 author = "Valentin Charraut"
-copyright = "2026, Valentin Charraut"
+copyright = "2026, Valentin Charraut"  # noqa: A001
 
 metadata = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())
 release = metadata["project"]["version"]

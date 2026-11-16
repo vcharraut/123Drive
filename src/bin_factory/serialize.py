@@ -149,10 +149,9 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         if not elem.is_lane:
             continue
         widths = np.asarray(elem.width if elem.width is not None else [], dtype=np.float32)
-        if len(widths) != len(elem.geometry):
-            raise ValueError(
-                f"lane {eid}: {len(widths)} widths for {len(elem.geometry)} points (run compute_lane_widths)"
-            )
+        point_count = len(np.asarray(elem.geometry))
+        if len(widths) != point_count:
+            raise ValueError(f"lane {eid}: {len(widths)} widths for {point_count} points (run compute_lane_widths)")
         buf.extend(widths.tobytes())
 
     _write_speed_zone_section(buf, road_map)

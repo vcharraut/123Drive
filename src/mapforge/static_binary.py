@@ -202,7 +202,7 @@ def _read_lane_widths(reader: _Reader, road_map: dict[int, MapElement]) -> None:
     for element in road_map.values():
         if not element.is_lane:
             continue
-        n_points = len(element.polyline)
+        n_points = len(np.asarray(element.polyline))
         if has_section:
             element.width = reader.f32_array(n_points).astype(np.float64)
         else:

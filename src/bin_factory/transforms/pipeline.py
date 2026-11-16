@@ -18,19 +18,19 @@ Ordering is load-bearing:
 from __future__ import annotations
 
 import logging
-
 from typing import TYPE_CHECKING
 
 from .geometry import compute_lane_widths, interpolate_all_polygons, process_polylines, reverse_road_edges
-from .shoulder_edges import add_shoulder_edges
 from .graph import build_lane_distance_matrix, compute_lane_lengths
 from .invalid_agents import invalid_agent_overlap
 from .reindex import reindex_scenario
 from .routes import process_agent_routes
 from .sanitize import prune_invalid_map_elements
+from .shoulder_edges import add_shoulder_edges
 from .speed_zones import compute_speed_zones
 from .traffic_controls import process_traffic_controls
 from .traffic_light_interpolation import interpolate_traffic_lights
+
 
 logger = logging.getLogger("bin_factory")
 

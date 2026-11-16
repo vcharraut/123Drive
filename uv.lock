@@ -59,7 +59,7 @@ requires-dist = [
     { name = "furo", marker = "extra == 'docs'" },
     { name = "joblib" },
     { name = "numpy" },
-    { name = "py123d", specifier = "==0.6.0" },
+    { name = "py123d", specifier = ">=0.6.0,<0.8" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "scipy" },

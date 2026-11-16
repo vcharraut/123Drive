@@ -17,7 +17,6 @@ def _straight_way(horizon):
         shape=shape,
         record_tls=[_TLS.ABSENT] * horizon,
         record_vehs=[{} for _ in range(horizon)],
-        direction=_Direction.S,
     )
     approach = _ApproachingLane(
         id=0,

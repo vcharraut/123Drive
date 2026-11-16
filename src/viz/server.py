@@ -114,7 +114,7 @@ async def export_mp4(request: Request, name: str = "scenario") -> FileResponse:
     if EXPORT_SEMAPHORE.locked():
         raise HTTPException(status_code=429, detail="Another recording is being encoded")
 
-    async with EXPORT_SEMAPHORE:
+    async with EXPORT_SEMAPHORE:  # noqa: SIM117
         async with AsyncExitStack() as cleanup:
             tempdir = Path(tempfile.mkdtemp(prefix="viz-export-"))
             cleanup.callback(shutil.rmtree, tempdir, ignore_errors=True)
