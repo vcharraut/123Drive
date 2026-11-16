@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
 
 
 SCENE_MAP_MARGIN = 250.0  # Lateral buffer (m) around the ego path for non-map-only scenarios
+JUNCTION_SHOULDER_MIN_OVERLAP = 0.5  # Area fraction inside intersections that makes a shoulder a junction shoulder
 
 
 def extract_scenario(
@@ -60,18 +62,21 @@ def extract_scenario(
         else None
     )
 
-    if not map_only and ego_states is None:
-        raise ValueError("Ego states are required to convert scenario with SceneAPI")
+    if not map_only and (ego_states is None or any(state is None for state in ego_states)):
+        raise ValueError("Ego states are required at every frame to convert scenario with SceneAPI")
 
     centroid = _compute_centroid(ego_states, map_api)
     map_elements, stop_zones, map_lane_ids = _extract_map(map_api, centroid, ego_states, map_only)
 
     if scene_api is not None and ego_states is not None:
-        dt = round(scene_api.scene_metadata.iteration_duration_s, 3)
-        if dt <= 0:
+        dt = float(scene_api.scene_metadata.iteration_duration_s)
+        if not np.isfinite(dt) or dt <= 0:
             raise ValueError(f"Invalid time step dt={dt} computed from scene metadata")
 
         all_objects, labels, tokens_to_object_id = _extract_objects(scene_api, centroid, ego_states)
+        for obj in all_objects.values():
+            _fill_missing_velocities(obj, dt)
+        dropped_labels: dict[str, int] = {}
         for oid, obj in all_objects.items():
             label = labels[oid]
             if label in mapping.AGENT_TYPE_MAP:
@@ -80,6 +85,16 @@ def extract_scenario(
             elif label in mapping.OBJECT_TYPE_MAP:
                 obj.type = mapping.OBJECT_TYPE_MAP[label]
                 objects[oid] = obj
+            else:
+                dropped_labels[label.name] = dropped_labels.get(label.name, 0) + 1
+        if dropped_labels:
+            log.warning(
+                "Scenario %s: dropped %d track(s) whose labels are in neither AGENT_TYPE_MAP "
+                "nor OBJECT_TYPE_MAP, so they are absent from the bin: %s",
+                metadata.id,
+                sum(dropped_labels.values()),
+                dropped_labels,
+            )
 
         _extract_prediction_targets(scene_api, tokens_to_object_id, agents, metadata)
 
@@ -96,7 +111,14 @@ def extract_scenario(
         objects=objects,
         metadata=metadata,
     )
-    extras = schema.ExtractionExtras(traffic_lights=traffic_lights, stop_zones=stop_zones)
+    non_junction_shoulders, junction_drivables = _extract_shoulder_context(map_api, centroid)
+    extras = schema.ExtractionExtras(
+        traffic_lights=traffic_lights,
+        stop_zones=stop_zones,
+        non_junction_shoulders=non_junction_shoulders,
+        junction_drivables=junction_drivables,
+        centroid=centroid.tolist(),
+    )
     return scenario, extras
 
 
@@ -241,13 +263,18 @@ def _extract_map(
     if map_only or map_api.map_is_per_log or ego_states is None:
         map_objs = list(map_api.get_all_map_objects_in_layers(layers))
     else:
-        corridor = shapely.LineString([(s.center_se3.x, s.center_se3.y) for s in ego_states]).buffer(SCENE_MAP_MARGIN)
+        ego_xy = [(s.center_se3.x, s.center_se3.y) for s in ego_states]
+        centerline = shapely.Point(ego_xy[0]) if len(ego_xy) == 1 else shapely.LineString(ego_xy)
+        corridor = centerline.buffer(SCENE_MAP_MARGIN)
         map_objects_by_layer = map_api.query(corridor, layers, predicate="intersects")
         map_objs = cast("list[Any]", [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])])
 
     # Lanes first — other elements reference lane IDs
+    has_lane_groups = map_objects.MapLayer.LANE_GROUP in map_api.available_map_layers
     for obj in map_objs:
         if obj.layer == map_objects.MapLayer.LANE:
+            if not _is_routable_lane(obj, has_lane_groups):
+                continue
             element = _write_map_object(obj, centroid)
             if not isinstance(element, schema.MapElement):
                 continue
@@ -259,6 +286,7 @@ def _extract_map(
 
     lane_ids = set(result.keys())
     _fix_lane_topology(result, undefined_lane, lane_ids)
+    _mark_junction_lanes(map_api, result)
 
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
     next_id = max(result.keys(), default=-1) + 1
@@ -267,7 +295,9 @@ def _extract_map(
         if element is None:
             continue
         if isinstance(element, schema.StopZone):
-            stop_zones.append(element)
+            controlled_lanes = [lane_id for lane_id in element.controlled_lanes if lane_id in lane_ids]
+            if controlled_lanes:
+                stop_zones.append(dataclasses.replace(element, controlled_lanes=controlled_lanes))
         else:
             result[next_id] = element
             next_id += 1
@@ -298,6 +328,7 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
             right_boundary=_centered_array(map_object.right_boundary_3d.array, centroid),
             left_neighbor=_optional_id_list(getattr(map_object, "left_lane_id", None)),
             right_neighbor=_optional_id_list(getattr(map_object, "right_lane_id", None)),
+            lane_group_id=_optional_int(getattr(map_object, "lane_group_id", None)),
         )
 
     if layer in (map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE):
@@ -322,13 +353,69 @@ def _write_map_object(map_object: Any, centroid: np.ndarray) -> schema.MapElemen
         puffer_type = mapping.STOP_ZONE_TYPE_MAP.get(map_object.stop_zone_type)
         if puffer_type is None:
             return None
+        intersection_id = getattr(map_object, "intersection_id", None)
+        phase_idx = getattr(map_object, "phase_idx", None)
         return schema.StopZone(
             type=puffer_type,
             polygon=_centered_array(map_object.outline_3d.array, centroid),
             controlled_lanes=map_object.lane_ids,
+            junction_id=-1 if intersection_id is None else int(intersection_id),
+            phase_idx=-1 if phase_idx is None else int(phase_idx),
         )
 
     return None
+
+
+def _extract_shoulder_context(
+    map_api: py123d_api.MapAPI, centroid: np.ndarray
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    """Centred outlines of (shoulders outside intersections, intersections + shoulders inside them), read by the
+    non-drivable-shoulder transform. A shoulder counts as inside when at least JUNCTION_SHOULDER_MIN_OVERLAP of its
+    area lies in intersection polygons."""
+    shoulders = _shoulder_surfaces(map_api)
+    if not shoulders:
+        return [], []
+    intersections: list[Any] = []
+    if map_objects.MapLayer.INTERSECTION in map_api.available_map_layers:
+        intersections = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.INTERSECTION))
+    intersection_polygons = [shapely.Polygon(obj.outline_2d.array[:, :2]).buffer(0) for obj in intersections]
+    intersection_tree = shapely.STRtree(intersection_polygons) if intersection_polygons else None
+    non_junction: list[np.ndarray] = []
+    junction: list[np.ndarray] = [_centered_array(obj.outline_3d.array, centroid) for obj in intersections]
+    for shoulder in shoulders:
+        polygon = shapely.Polygon(shoulder.outline_2d.array[:, :2]).buffer(0)
+        if polygon.is_empty:
+            continue
+        outline = _centered_array(shoulder.outline_3d.array, centroid)
+        overlap = 0.0
+        if intersection_tree is not None:
+            overlap = sum(polygon.intersection(intersection_polygons[i]).area for i in intersection_tree.query(polygon))
+        in_junction = overlap >= JUNCTION_SHOULDER_MIN_OVERLAP * polygon.area
+        (junction if in_junction else non_junction).append(outline)
+    return non_junction, junction
+
+
+def _is_routable_lane(lane: Any, has_lane_groups: bool) -> bool:
+    """Driving lanes only. py123d models shoulders as SHOULDER lanes and OpenDRIVE none/restricted lanes as
+    UNDEFINED lanes outside every lane group; neither is a lane an agent may drive or route on."""
+    if lane.lane_type == getattr(map_objects.LaneType, "SHOULDER", None):
+        return False
+    if lane.lane_type != map_objects.LaneType.UNDEFINED or not has_lane_groups:
+        return True
+    return getattr(lane, "lane_group_id", None) is not None
+
+
+def _shoulder_surfaces(map_api: py123d_api.MapAPI) -> list[Any]:
+    """Shoulder map objects: the SHOULDER layer, or lanes typed SHOULDER where py123d models shoulders as lanes."""
+    layers = map_api.available_map_layers
+    shoulder_layer = getattr(map_objects.MapLayer, "SHOULDER", None)
+    if shoulder_layer is not None and shoulder_layer in layers:
+        return list(map_api.get_all_map_objects_in_layer(shoulder_layer))
+    shoulder_type = getattr(map_objects.LaneType, "SHOULDER", None)
+    if shoulder_type is None or map_objects.MapLayer.LANE not in layers:
+        return []
+    lanes = map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE)
+    return [lane for lane in lanes if lane.lane_type == shoulder_type]  # ty: ignore[unresolved-attribute]
 
 
 def _speed_limit(speed_limit_mps: float | None) -> float:
@@ -337,6 +424,23 @@ def _speed_limit(speed_limit_mps: float | None) -> float:
 
 def _optional_id_list(value: int | None) -> list[int]:
     return [value] if value is not None else []
+
+
+def _optional_int(value: int | None) -> int | None:
+    return None if value is None else int(value)
+
+
+def _mark_junction_lanes(map_api: py123d_api.MapAPI, lanes: dict[int, schema.MapElement]) -> None:
+    """Flag lanes whose lane group belongs to an intersection (junction connectors)."""
+    if map_objects.MapLayer.LANE_GROUP not in map_api.available_map_layers:
+        return
+    for group in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE_GROUP):
+        if getattr(group, "intersection_id", None) is None:
+            continue
+        for lane_id in group.lane_ids:  # ty: ignore[unresolved-attribute]
+            lane = lanes.get(int(lane_id))
+            if lane is not None:
+                lane.in_junction = True
 
 
 def _write_detection_frame(
@@ -363,12 +467,33 @@ def _make_empty_track(episode_length: int) -> schema.Track:
         type=-1,  # placeholder until the 123D label is mapped to a puffer type
         position=np.zeros((episode_length, 3), dtype=np.float64),
         heading=np.zeros((episode_length,), dtype=np.float64),
-        velocity=np.zeros((episode_length, 2), dtype=np.float64),
+        velocity=np.full((episode_length, 2), np.nan, dtype=np.float64),
         valid=np.zeros((episode_length,), dtype=np.int32),
         length=np.zeros((episode_length,), dtype=np.float64),
         width=np.zeros((episode_length,), dtype=np.float64),
         height=np.zeros((episode_length,), dtype=np.float64),
     )
+
+
+def _fill_missing_velocities(track: schema.Track, dt: float) -> None:
+    valid_indices = np.flatnonzero(track.valid)
+    observed = np.all(np.isfinite(track.velocity), axis=1)
+    track.velocity[~track.valid.astype(bool)] = 0.0
+
+    for index in valid_indices[~observed[valid_indices]]:
+        neighbors = valid_indices[valid_indices != index]
+        previous = neighbors[neighbors < index]
+        following = neighbors[neighbors > index]
+        if len(previous) and len(following):
+            left, right = previous[-1], following[0]
+        elif len(previous):
+            left, right = previous[-1], index
+        elif len(following):
+            left, right = index, following[0]
+        else:
+            track.velocity[index] = 0.0
+            continue
+        track.velocity[index] = (track.position[right, :2] - track.position[left, :2]) / ((right - left) * dt)
 
 
 def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) -> np.ndarray:
@@ -386,10 +511,13 @@ def _compute_centroid(ego_states: list[Any] | None, map_api: py123d_api.MapAPI) 
             return positions.mean(axis=0)
 
     # Fallback: road geometry centroid
+    has_lane_groups = map_objects.MapLayer.LANE_GROUP in map_api.available_map_layers
     points = [
         coords
         for obj in map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE)
-        if (coords := obj.centerline_3d.array) is not None and len(coords) > 0  # ty: ignore[unresolved-attribute]
+        if _is_routable_lane(obj, has_lane_groups)
+        and (coords := obj.centerline_3d.array) is not None  # ty: ignore[unresolved-attribute]
+        and len(coords) > 0
     ]
     if points:
         return np.vstack(points).mean(axis=0)

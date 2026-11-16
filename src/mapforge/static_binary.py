@@ -7,7 +7,15 @@ import numpy as np
 
 from bin_factory import puffer_types
 from bin_factory.schema import MapElement, PufferScenario, ScenarioMetadata
-from bin_factory.serialize import METADATA_DATASET_BYTES, METADATA_ID_BYTES, scenario_to_binary
+from bin_factory.serialize import (
+    LANE_WIDTH_SECTION_TAG,
+    METADATA_DATASET_BYTES,
+    METADATA_ID_BYTES,
+    SPEED_ZONE_SECTION_TAG,
+    TRAFFIC_PHASE_SECTION_TAG,
+    scenario_to_binary,
+)
+from bin_factory.transforms.geometry import DEFAULT_LANE_WIDTH_M
 
 
 class StaticBinaryError(ValueError):
@@ -77,6 +85,9 @@ def static_binary_to_scenario(data: bytes, source: str = "<bytes>") -> PufferSce
         traffic_controls = _read_traffic_controls(reader, n_traffic)
         lane_graph = _read_lane_graph(reader)
         metadata = _read_metadata(reader)
+        _read_traffic_phases(reader, traffic_controls)
+        _read_lane_widths(reader, road_map)
+        _read_speed_zones(reader, road_map)
     except (struct.error, ValueError) as exc:
         if isinstance(exc, StaticBinaryError):
             raise
@@ -168,6 +179,44 @@ def _read_traffic_controls(reader: _Reader, n_traffic: int) -> list[dict]:
             }
         )
     return traffic_controls
+
+
+def _read_traffic_phases(reader: _Reader, traffic_controls: list[dict]) -> None:
+    tag_len = len(TRAFFIC_PHASE_SECTION_TAG)
+    if reader.data[reader.offset : reader.offset + tag_len] != TRAFFIC_PHASE_SECTION_TAG:
+        for tc in traffic_controls:
+            tc["junction_id"] = -1
+            tc["phase_idx"] = -1
+        return
+    reader.offset += tag_len
+    for tc in traffic_controls:
+        tc["junction_id"] = reader.i32()
+        tc["phase_idx"] = reader.i32()
+
+
+def _read_lane_widths(reader: _Reader, road_map: dict[int, MapElement]) -> None:
+    tag_len = len(LANE_WIDTH_SECTION_TAG)
+    has_section = reader.data[reader.offset : reader.offset + tag_len] == LANE_WIDTH_SECTION_TAG
+    if has_section:
+        reader.offset += tag_len
+    for element in road_map.values():
+        if not element.is_lane:
+            continue
+        n_points = len(np.asarray(element.polyline))
+        if has_section:
+            element.width = reader.f32_array(n_points).astype(np.float64)
+        else:
+            element.width = np.full(n_points, DEFAULT_LANE_WIDTH_M, dtype=np.float64)
+
+
+def _read_speed_zones(reader: _Reader, road_map: dict[int, MapElement]) -> None:
+    tag_len = len(SPEED_ZONE_SECTION_TAG)
+    has_section = reader.data[reader.offset : reader.offset + tag_len] == SPEED_ZONE_SECTION_TAG
+    if has_section:
+        reader.offset += tag_len
+    for element in road_map.values():
+        if element.is_lane:
+            element.speed_zone_idx = reader.i32() if has_section else -1
 
 
 def _read_lane_graph(reader: _Reader) -> dict | None:

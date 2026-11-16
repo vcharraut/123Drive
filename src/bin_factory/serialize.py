@@ -12,11 +12,17 @@ from bin_factory import schema
 
 METADATA_ID_BYTES = 128
 METADATA_DATASET_BYTES = 32
+# Optional tagged section after the metadata: per traffic control (junction_id, phase_idx).
+TRAFFIC_PHASE_SECTION_TAG = b"TLPHASE1"
+# Optional tagged section after the traffic phases: per lane element, N float32 per-point widths (meters).
+LANE_WIDTH_SECTION_TAG = b"LANEWID1"
+# Optional tagged section after the lane widths: per lane element, int32 speed zone index (-1 = none).
+SPEED_ZONE_SECTION_TAG = b"SPDZONE1"
 
 
 def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
     """Write a per-track trajectory block (T + xyz + heading + velocity + bbox + valid). Returns xyz."""
-    xyz = np.asarray(track.position, dtype=np.float32)
+    xyz = np.asarray(track.position, dtype="<f4")
     buf.extend(struct.pack("<i", len(xyz)))
     for col in [
         xyz[:, 0],
@@ -29,8 +35,8 @@ def _write_dynamic_states(buf: bytearray, track: schema.Track) -> np.ndarray:
         track.width,
         track.height,
     ]:
-        buf.extend(np.asarray(col, dtype=np.float32).tobytes())
-    buf.extend(np.asarray(track.valid, dtype=np.int32).tobytes())
+        buf.extend(np.asarray(col, dtype="<f4").tobytes())
+    buf.extend(np.asarray(track.valid, dtype="<i4").tobytes())
     return xyz
 
 
@@ -74,10 +80,10 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         road_type = elem.type
         xyz = elem.geometry
 
-        xyz_f = np.asarray(xyz, dtype=np.float32)
+        xyz_f = np.asarray(xyz, dtype="<f4")
         pts = np.asarray(xyz, dtype=np.float64)
         seg = np.arctan2(np.diff(pts[:, 1]), np.diff(pts[:, 0]))
-        heading = np.append(seg, seg[-1]).astype(np.float32)
+        heading = np.append(seg, seg[-1]).astype("<f4")
 
         buf.extend(struct.pack("<ii", int(eid), int(road_type)))
         buf.extend(struct.pack("<i", len(xyz_f)))
@@ -92,12 +98,12 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
                     buf.extend(struct.pack(f"<{len(lane_list)}i", *map(int, lane_list)))
             buf.extend(struct.pack("<f", elem.speed_limit_mps))
             buf.extend(struct.pack("<f", float(elem.length)))
-            buf.extend(np.asarray(elem.cum_length, dtype=np.float32).tobytes())
+            buf.extend(np.asarray(elem.cum_length, dtype="<f4").tobytes())
 
     # Traffic controls: id, type, stop line endpoints, heading, states, controlled lanes
     for tc in tcs:
         buf.extend(struct.pack("<ii", int(tc["id"]), int(tc["type"])))
-        sl = np.asarray(tc["stop_line"], dtype=np.float32)
+        sl = np.asarray(tc["stop_line"], dtype="<f4")
         buf.extend(struct.pack("<fff", *sl[0]))
         buf.extend(struct.pack("<fff", *sl[1]))
         buf.extend(struct.pack("<f", float(tc["heading"])))
@@ -116,7 +122,7 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         n = len(lg["lane_ids"])
         buf.extend(struct.pack("<i", n))
         buf.extend(struct.pack(f"<{n}i", *lg["lane_ids"]))
-        buf.extend(np.asarray(lg["distances"], dtype=np.float32).tobytes())
+        buf.extend(np.asarray(lg["distances"], dtype="<f4").tobytes())
     else:
         buf.extend(struct.pack("<i", 0))
 
@@ -132,4 +138,31 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
         if int_list:
             buf.extend(struct.pack(f"<{len(int_list)}i", *map(int, int_list)))
 
+    # Traffic control signal phases (tagged, so readers of older files without it still parse)
+    buf.extend(TRAFFIC_PHASE_SECTION_TAG)
+    for tc in tcs:
+        buf.extend(struct.pack("<ii", int(tc.get("junction_id", -1)), int(tc.get("phase_idx", -1))))
+
+    # Lane widths (tagged; lane order matches the road map section)
+    buf.extend(LANE_WIDTH_SECTION_TAG)
+    for eid, elem in road_map.items():
+        if not elem.is_lane:
+            continue
+        widths = np.asarray(elem.width if elem.width is not None else [], dtype=np.float32)
+        point_count = len(np.asarray(elem.geometry))
+        if len(widths) != point_count:
+            raise ValueError(f"lane {eid}: {len(widths)} widths for {point_count} points (run compute_lane_widths)")
+        buf.extend(widths.tobytes())
+
+    _write_speed_zone_section(buf, road_map)
+
     return bytes(buf)
+
+
+def _write_speed_zone_section(buf: bytearray, road_map: dict[int, schema.MapElement]) -> None:
+    """Tagged int32 per lane in road-map order; omitted entirely when no lane has a zone."""
+    lane_zones = [int(elem.speed_zone_idx) for elem in road_map.values() if elem.is_lane]
+    if not any(zone_idx >= 0 for zone_idx in lane_zones):
+        return
+    buf.extend(SPEED_ZONE_SECTION_TAG)
+    buf.extend(np.asarray(lane_zones, dtype=np.int32).tobytes())

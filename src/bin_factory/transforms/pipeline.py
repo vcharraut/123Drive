@@ -7,24 +7,32 @@ order — including the config-gated stages — as data. ``run`` is the single e
 (the ``process_scenario`` the docs refer to).
 
 Ordering is load-bearing:
-- ``compute_lane_lengths`` must run after ``process_polylines`` (lengths match serialized geometry),
+- ``compute_lane_widths`` and ``compute_lane_lengths`` must run after ``process_polylines``
+  (per-point values match the serialized geometry),
 - ``build_lane_graph`` needs those lengths,
+- ``compute_speed_zones`` needs final geometry (after ``process_polylines``) and source ids (before ``reindex``),
 - ``invalid_agent_overlap`` needs routes from ``process_agent_routes``,
 - ``reindex`` must run last.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
-from .geometry import interpolate_all_polygons, process_polylines, reverse_road_edges
+from .geometry import compute_lane_widths, interpolate_all_polygons, process_polylines, reverse_road_edges
 from .graph import build_lane_distance_matrix, compute_lane_lengths
 from .invalid_agents import invalid_agent_overlap
 from .reindex import reindex_scenario
 from .routes import process_agent_routes
 from .sanitize import prune_invalid_map_elements
+from .shoulder_edges import add_shoulder_edges
+from .speed_zones import compute_speed_zones
 from .traffic_controls import process_traffic_controls
 from .traffic_light_interpolation import interpolate_traffic_lights
+
+
+logger = logging.getLogger("bin_factory")
 
 
 if TYPE_CHECKING:
@@ -40,6 +48,15 @@ def _interpolate_traffic_lights(
     scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
 ) -> None:
     interpolate_traffic_lights(scenario, extras)
+
+
+def _add_shoulder_edges(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
+    added = add_shoulder_edges(
+        scenario, extras.non_junction_shoulders, extras.junction_drivables, config.ramp_shoulder_widening_m
+    )
+    logger.info("non-drivable shoulders: %d road edges added along lane boundaries", added)
 
 
 def _reverse_road_edges(
@@ -84,10 +101,22 @@ def _invalid_agent_overlap(
     invalid_agent_overlap(scenario)
 
 
+def _compute_lane_widths(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
+    compute_lane_widths(scenario)
+
+
 def _compute_lane_lengths(
     scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
 ) -> None:
     compute_lane_lengths(scenario)
+
+
+def _compute_speed_zones(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
+    compute_speed_zones(scenario, config.speed_zone_min_extent_m, config.speed_zone_opposite_gap_m)
 
 
 def _build_lane_graph(
@@ -107,6 +136,8 @@ def build_stages(config: argparse.Namespace) -> list[_Stage]:
     stages: list[_Stage] = []
     if config.interpolate_tl:
         stages.append(_interpolate_traffic_lights)
+    if config.non_drivable_shoulders:
+        stages.append(_add_shoulder_edges)
     if config.reverse_road_edges:
         stages.append(_reverse_road_edges)
     stages += [
@@ -118,7 +149,9 @@ def build_stages(config: argparse.Namespace) -> list[_Stage]:
     ]
     if config.invalid_agent_overlap:
         stages.append(_invalid_agent_overlap)
-    stages += [_compute_lane_lengths, _build_lane_graph]
+    if not config.no_speed_zones:
+        stages.append(_compute_speed_zones)
+    stages += [_compute_lane_widths, _compute_lane_lengths, _build_lane_graph]
     if not config.no_reindex:
         stages.append(_reindex_scenario)
     return stages

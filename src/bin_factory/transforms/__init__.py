@@ -1,10 +1,11 @@
-from .geometry import interpolate_all_polygons, process_polylines
+from .geometry import compute_lane_widths, interpolate_all_polygons, process_polylines
 from .graph import build_lane_distance_matrix, compute_lane_lengths
 from .invalid_agents import invalid_agent_overlap
 from .pipeline import build_stages, run
 from .reindex import reindex_scenario
 from .routes import process_agent_routes
 from .sanitize import prune_invalid_map_elements
+from .speed_zones import compute_speed_zones
 from .traffic_controls import process_traffic_controls
 from .traffic_light_interpolation import interpolate_traffic_lights
 
@@ -13,6 +14,8 @@ __all__ = [
     "build_lane_distance_matrix",
     "build_stages",
     "compute_lane_lengths",
+    "compute_lane_widths",
+    "compute_speed_zones",
     "interpolate_all_polygons",
     "interpolate_traffic_lights",
     "invalid_agent_overlap",

@@ -63,6 +63,10 @@ class MapElement:
     right_neighbor: list = dataclasses.field(default_factory=list)
     length: float = 0.0
     cum_length: np.ndarray | None = None
+    width: np.ndarray | None = None
+    lane_group_id: int | None = None  # source-map group of parallel same-direction lanes
+    in_junction: bool = False
+    speed_zone_idx: int = -1  # -1: no zone (junction lane, or zones not computed)
 
     @property
     def is_lane(self) -> bool:
@@ -98,12 +102,18 @@ class StopZone:
     type: int
     polygon: np.ndarray
     controlled_lanes: list = dataclasses.field(default_factory=list)
+    junction_id: int = -1  # -1: not part of a signalized junction cycle
+    phase_idx: int = -1
 
 
 @dataclasses.dataclass
 class ExtractionExtras:
     traffic_lights: dict = dataclasses.field(default_factory=dict)
     stop_zones: list = dataclasses.field(default_factory=list)
+    non_junction_shoulders: list = dataclasses.field(default_factory=list)  # centred (N, 3) shoulder outlines
+    # centred (N, 3) intersection + junction-shoulder outlines
+    junction_drivables: list = dataclasses.field(default_factory=list)
+    centroid: list | None = None
 
 
 @dataclasses.dataclass

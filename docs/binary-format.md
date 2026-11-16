@@ -128,3 +128,30 @@ All-pairs shortest lane-to-lane distances precomputed via Dijkstra on FREEWAY an
 | int32 × n | `objects_of_interest_ids` | |
 | int32 | `n_tracks_to_predict` | |
 | int32 × n | `tracks_to_predict_ids` | |
+
+## Tagged Sections (after metadata)
+
+Each section starts with an 8-byte ASCII tag. Readers treat a missing section as "no such information".
+
+### `TLPHASE1` — traffic light phases
+
+| Type | Field | Notes |
+|------|-------|-------|
+| char[8] | `tag` | `TLPHASE1` |
+| int32 × 2 × n_traffic_controls | `junction_id`, `phase_idx` | In traffic-control order; `-1, -1` if not part of a signalized junction cycle. Per junction `phase_idx` is compact `0..N-1`; same phase = green together, phases cycle in index order |
+
+### `LANEWID1` — lane widths
+
+| Type | Field | Notes |
+|------|-------|-------|
+| char[8] | `tag` | `LANEWID1` |
+| float32 × N per lane | `width` | Lanes (type 0–9) in road-map order, `N` = that lane's point count. Meters, left + right boundary distance |
+
+### `SPDZONE1` — speed zones
+
+Omitted when no lane has a zone (or with `--no_speed_zones`). A zone is a connected set of lanes sharing one posted limit: parallel lanes, both directions of a road, and consecutive pieces up to the next junction or limit change.
+
+| Type | Field | Notes |
+|------|-------|-------|
+| char[8] | `tag` | `SPDZONE1` |
+| int32 × n_lanes | `speed_zone_idx` | Lanes (type 0–9) in road-map order; compact `0..N-1`, `-1` = no zone (e.g. junction connectors) |

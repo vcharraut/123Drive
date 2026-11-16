@@ -31,7 +31,15 @@ scenario_id_field = "scene_uuid"
 [opendrive]
 datasets = ["opendrive"]
 reverse_road_edges = true
+non_drivable_shoulders = true
+ramp_shoulder_widening_m = 1.0  # Town04 cloverleaf loops: posts stand >= 1.7 m outside the lane line
 scenario_id_field = "location"
+
+[nurec]
+datasets = ["nurec", "nurec-2601", "nurec-2604"]
+scenario_id_field = "location"
+emit_metadata = true
+# No reverse_road_edges: NuRec boundaries already come with drivable-side-left.
 
 [wod-motion]
 datasets = ["wod-motion"]

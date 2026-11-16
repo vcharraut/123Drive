@@ -51,7 +51,7 @@ Basic use:
 uv run convert --py123d_path /path/to/123d --output ./output
 ```
 
-Output files are named from dataset + scenario identity (for example `nuplan__<scenario>.bin`).
+Output files are named `<dataset>__<scene_uuid>.bin`, or `<dataset>__<scenario_id>__<scene_uuid>.bin` when `--scenario_id_field` is not `scene_uuid` (map-only: `<dataset>__<location>.bin`).
 Mental model:
 
 ```text
@@ -99,7 +99,7 @@ Core flags:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--preset` | none | Apply a dataset preset (`av2`/`carla`/`nuplan`/`nuscenes`/`opendrive`/`wod-motion`) |
+| `--preset` | none | Apply a dataset preset (`av2`/`carla`/`nuplan`/`nurec`/`nuscenes`/`opendrive`/`wod-motion`) |
 | `--py123d_path` | `PY123D_DATA_ROOT` or required | Path to 123D dataset with `logs/` and `maps/` |
 | `--output` | `./output` | Directory for `.bin` files |
 | `--workers` | `0` | Parallel workers (`0` = 80% of CPU cores) |
@@ -107,7 +107,7 @@ Core flags:
 | `--validate_level` | `1` | Validation strictness |
 | `--log_level` | `INFO` | Root logging level (`DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`) |
 
-Failures are written to `failures.jsonl` under `--output`.
+Failures are written to `failures.jsonl` under `--output`. With `--emit_metadata`, `metadata.jsonl` gets one row per converted scenario (bin path, id, dataset, length, dt, recentring centroid).
 
 Filtering flags:
 
@@ -131,6 +131,13 @@ Geometry + route flags:
 | `--min_route_valid_points` | `0.0` | Min valid trajectory percentage for route computation (`0`-`100`) |
 | `--route_check_timestep` | `0` | Timestep that must be valid for route computation |
 | `--no_reindex` | off | Skip reindexing element IDs to contiguous `range(0, n)` |
+| `--no_speed_zones` | off | Skip the per-lane speed zone section (`SPDZONE1`) |
+| `--speed_zone_min_extent_m` | `100.0` | Merge smaller zones into a same-limit neighbour across a junction, `0` = off |
+| `--speed_zone_opposite_gap_m` | `8.0` | Max gap between opposite-direction lanes to count as one road, `0` = off |
+| `--non_drivable_shoulders` | off | Add road edges between lanes and shoulders outside junctions (shoulders become off-road) |
+| `--ramp_shoulder_widening_m` | `0.0` | With `--non_drivable_shoulders`: push ramp shoulder edges up to this far out (`0`-`5`) |
+| `--reverse_road_edges` | off | Reverse road-edge polyline order (Waymo convention) |
+| `--emit_metadata` | off | Write `metadata.jsonl` alongside the `.bin` files |
 | `--interpolate_tl` | off | Interpolate traffic light states from vehicle trajectories |
 | `--invalid_agent_overlap` | off | Zero out log-only agents whose bbox overlaps an active agent during replay |
 

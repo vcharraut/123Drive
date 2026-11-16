@@ -1,6 +1,8 @@
+import copy
 import struct
 
 import numpy as np
+import pytest
 
 from bin_factory import puffer_types, schema, serialize
 
@@ -34,6 +36,7 @@ def _lane(road_type, points, entry=(), exit_=(), speed=-1.0):
         exit_lanes=list(exit_),
         length=float(cum_length[-1]) if points else 0.0,
         cum_length=cum_length,
+        width=np.full(points, 3.0) if 0 <= int(road_type) <= 9 else None,
     )
 
 
@@ -69,6 +72,8 @@ def _build_scenario():
             "heading": 0.5,
             "states": [int(puffer_types.TLState.GREEN)] * 3,
             "controlled_lanes": [10],
+            "junction_id": 20,
+            "phase_idx": 2,
         }
     ]
     lane_graph = {"lane_ids": [10, 11], "distances": np.array([[0.0, 3.0], [np.inf, 0.0]])}
@@ -159,7 +164,21 @@ def _parse(data):
     ooi = r.ints(r.ints(1)[0])
     ttp = r.ints(r.ints(1)[0])
 
+    assert r.raw(len(serialize.TRAFFIC_PHASE_SECTION_TAG)) == serialize.TRAFFIC_PHASE_SECTION_TAG
+    phases = [tuple(r.ints(2)) for _ in range(n_tc)]
+
+    assert r.raw(len(serialize.LANE_WIDTH_SECTION_TAG)) == serialize.LANE_WIDTH_SECTION_TAG
+    widths = {lane["id"]: r.floats(lane["npts"]) for lane in lanes}
+
+    zones = None
+    if r.data[r.off : r.off + len(serialize.SPEED_ZONE_SECTION_TAG)] == serialize.SPEED_ZONE_SECTION_TAG:
+        r.raw(len(serialize.SPEED_ZONE_SECTION_TAG))
+        zones = {lane["id"]: r.ints(1)[0] for lane in lanes}
+
     return {
+        "phases": phases,
+        "widths": widths,
+        "zones": zones,
         "counts": (n_agents, n_road, n_tc, n_objects),
         "agents": agents,
         "lanes": lanes,
@@ -197,11 +216,48 @@ def test_round_trip_high_level_fields():
     assert abs(parsed["dt"] - 0.1) < 1e-6  # float32 round-trip
     assert parsed["ooi"] == [1]
     assert parsed["ttp"] == [0, 1]
+    assert parsed["phases"] == [(20, 2)]
+    assert parsed["widths"] == {10: [3.0] * 4, 11: [3.0] * 2}
 
     # The parser walks every field; ending exactly at the buffer end proves layout consistency.
     assert parsed["consumed"] == len(data)
 
 
+def test_speed_zone_section_written_only_when_a_lane_has_a_zone():
+    scenario = _build_scenario()
+    assert _parse(serialize.scenario_to_binary(scenario))["zones"] is None
+
+    scenario.map[10].speed_zone_idx = 0
+    data = serialize.scenario_to_binary(scenario)
+    parsed = _parse(data)
+    assert parsed["zones"] == {10: 0, 11: -1}
+    assert parsed["consumed"] == len(data)
+
+
+def test_lane_without_widths_is_rejected():
+    scenario = _build_scenario()
+    scenario.map[10].width = None
+    with pytest.raises(ValueError, match="compute_lane_widths"):
+        serialize.scenario_to_binary(scenario)
+
+
 def test_serialization_is_deterministic():
     scenario = _build_scenario()
     assert serialize.scenario_to_binary(scenario) == serialize.scenario_to_binary(scenario)
+
+
+def test_big_endian_inputs_serialize_identically():
+    little = _build_scenario()
+    big = copy.deepcopy(little)
+    for track in [*big.agents.values(), *big.objects.values()]:
+        for field in ("position", "heading", "velocity", "valid", "length", "width", "height"):
+            array = getattr(track, field)
+            setattr(track, field, array.astype(">i4" if field == "valid" else ">f8"))
+    for element in big.map.values():
+        key = "polyline" if element.uses_polyline else "polygon"
+        setattr(element, key, getattr(element, key).astype(">f8"))
+        if element.cum_length is not None:
+            element.cum_length = element.cum_length.astype(">f8")
+    big.lane_graph["distances"] = big.lane_graph["distances"].astype(">f8")
+
+    assert serialize.scenario_to_binary(big) == serialize.scenario_to_binary(little)

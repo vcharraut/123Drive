@@ -158,8 +158,19 @@ def _parse(data):
     (dt,) = r.floats(1)
     ooi = r.ints(r.ints(1)[0])
     ttp = r.ints(r.ints(1)[0])
+    assert r.raw(len(serialize.TRAFFIC_PHASE_SECTION_TAG)) == serialize.TRAFFIC_PHASE_SECTION_TAG
+    phases = [tuple(r.ints(2)) for _ in range(n_tc)]
+    assert r.raw(len(serialize.LANE_WIDTH_SECTION_TAG)) == serialize.LANE_WIDTH_SECTION_TAG
+    widths = {road["id"]: r.floats(road["npts"]) for road in roads if road["lane"]}
+
+    zones = None
+    if r.data[r.off : r.off + len(serialize.SPEED_ZONE_SECTION_TAG)] == serialize.SPEED_ZONE_SECTION_TAG:
+        r.raw(len(serialize.SPEED_ZONE_SECTION_TAG))
+        zones = {road["id"]: r.ints(1)[0] for road in roads if road["lane"]}
 
     return {
+        "widths": widths,
+        "zones": zones,
         "counts": (n_agents, n_road, n_tc, n_objects),
         "agents": agents,
         "roads": roads,
@@ -172,6 +183,7 @@ def _parse(data):
         "dt": dt,
         "ooi": ooi,
         "ttp": ttp,
+        "phases": phases,
         "consumed": r.off,
     }
 
