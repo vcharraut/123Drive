@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from .carla_light_stop_lines import align_carla_light_stop_lines
 from .geometry import compute_lane_widths, interpolate_all_polygons, process_polylines, reverse_road_edges
 from .graph import build_lane_distance_matrix, compute_lane_lengths
 from .invalid_agents import invalid_agent_overlap
@@ -89,6 +90,12 @@ def _process_traffic_controls(
     process_traffic_controls(scenario, extras)
 
 
+def _align_carla_light_stop_lines(
+    scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
+) -> None:
+    align_carla_light_stop_lines(scenario, extras)
+
+
 def _process_agent_routes(
     scenario: schema.PufferScenario, extras: schema.ExtractionExtras, config: argparse.Namespace
 ) -> None:
@@ -145,6 +152,10 @@ def build_stages(config: argparse.Namespace) -> list[_Stage]:
         _interpolate_polygons,
         _prune_invalid_map_elements,
         _process_traffic_controls,
+    ]
+    if config.carla_light_stop_lines:
+        stages.append(_align_carla_light_stop_lines)
+    stages += [
         _process_agent_routes,
     ]
     if config.invalid_agent_overlap:

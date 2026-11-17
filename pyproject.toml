@@ -55,7 +55,7 @@ where = ["src", "."]
 include = ["bin_factory", "bin_factory.*", "mapforge", "mapforge.*", "viz", "viz.*", "docker_tools", "docker_tools.*"]
 
 [tool.setuptools.package-data]
-bin_factory = ["presets.toml"]
+bin_factory = ["presets.toml", "data/carla_light_stop_points.json"]
 viz = ["web/static/*"]
 docker_tools = ["dockerfiles/*", "*.py"]
 

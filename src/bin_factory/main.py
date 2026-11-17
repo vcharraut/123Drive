@@ -119,6 +119,12 @@ def build_parser() -> argparse.ArgumentParser:
         "so long vehicles fit through tight ramp curves",
     )
     parser.add_argument(
+        "--carla_light_stop_lines",
+        action="store_true",
+        help="CARLA towns: put traffic-light stop lines where CARLA's leaderboard scores them (shipped trigger-volume "
+        "data), add the approach lanes to their controlled lanes and point control headings along the lanes",
+    )
+    parser.add_argument(
         "--reverse_road_edges",
         action="store_true",
         help="Reverse road-edge polyline order (Waymo convention) for nuplan/carla/opendrive",
