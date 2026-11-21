@@ -1,10 +1,12 @@
 import numpy as np
+import pytest
 
 from bin_factory import puffer_types, schema
 from bin_factory.generators.routes import (
     _is_static,
     build_route_cache,
     compute_agent_route,
+    process_agent_routes,
 )
 
 
@@ -118,3 +120,15 @@ def test_non_directional_detector_drift_is_static():
     xy[:, 0] += np.repeat(np.arange(8) * 0.3, len(base))
 
     assert _is_static(_track(xy), 0.1)
+
+
+def test_ego_with_too_little_route_ahead_is_rejected():
+    scenario = schema.PufferScenario(
+        agents={0: _track(np.column_stack([np.linspace(1, 3, 21), np.zeros(21)]))},
+        objects={},
+        polylines={1: _lane(0.0)},
+        metadata=schema.ScenarioMetadata(id="short", dataset="test", scenario_length=21, dt=0.1),
+    )
+
+    with pytest.raises(ValueError, match="Ego vehicle"):
+        process_agent_routes(scenario)
