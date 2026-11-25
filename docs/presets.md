@@ -12,7 +12,7 @@ values. Boolean flags enabled by a preset cannot currently be disabled from the 
 | `nuplan` | `nuplan` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
 | `nuplan-map` | `nuplan` | `location` | Map-only city maps; reverse road edges |
 | `nuplan-mini` | `nuplan-mini` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
-| `nurec` | `nurec-2604` | `log_name` | Start at frame 1 |
+| `nurec` | `nurec-2604` | `log_name` | Start at frame 1; infer traffic lights |
 | `nuscenes` | `nuscenes` | `scene_uuid` | Reverse road edges |
 | `opendrive` | `opendrive` | `location` | Map-only; reverse road edges; speed limits from signs |
 | `shifts` | `shifts` | `log_name` | 0.2 s timestep; reverse road edges; infer traffic lights |
@@ -25,7 +25,7 @@ static objects. Off-road shoulder edges follow
 lane boundaries; ramp widening gives vehicles more room on tight curves.
 
 NuRec scenes start at their second frame, since py123d places the first one before the first
-recorded pose.
+recorded pose. NuRec logs no light states, so all of them are inferred.
 
 Waymo Motion also preserves `objects_of_interest` and `tracks_to_predict`
 when the source provides them. Every dataset uses the same route eligibility rules.
