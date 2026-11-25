@@ -80,3 +80,25 @@ def resample_polyline(polyline: np.ndarray, max_segment_length: float) -> np.nda
 def _simplify_polyline(polyline: np.ndarray, tolerance: float) -> np.ndarray:
     # Shapely simplifies in 2D and keeps the retained vertices' z
     return np.array(shapely_geom.LineString(polyline).simplify(tolerance).coords)
+
+
+def locate_on_polyline(
+    points: np.ndarray, polyline: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return each xy point's distance to the xyz polyline, and its arc length, direction and height there."""
+    start, step = polyline[:-1], np.diff(polyline, axis=0)
+    squared = (step[:, :2] ** 2).sum(1)
+    t = np.clip(((points[:, None] - start[:, :2]) * step[:, :2]).sum(-1) / np.maximum(squared, 1e-12), 0.0, 1.0)
+    gap = np.linalg.norm(points[:, None] - (start[:, :2] + t[..., None] * step[:, :2]), axis=-1)
+    gap[:, squared <= 1e-12] = np.inf
+    segment = gap.argmin(1)
+    rows = np.arange(len(points))
+    t = t[rows, segment]
+    arc = schema.arc_length(polyline[:, :2])[segment] + t * np.sqrt(squared[segment])
+    direction = np.arctan2(step[segment, 1], step[segment, 0])
+    return gap[rows, segment], arc, direction, start[segment, 2] + t * step[segment, 2]
+
+
+def height_at(polyline: np.ndarray, point: np.ndarray) -> float:
+    """Return the polyline's height where the xy ``point`` projects onto it."""
+    return float(locate_on_polyline(np.asarray(point, dtype=np.float64)[None, :2], polyline)[3][0])

@@ -539,8 +539,7 @@ def _resample(polyline: np.ndarray, spacing: float) -> np.ndarray:
 
     Include the midpoint when the boundary is no longer than `spacing`, since endpoints often lie on polygon corners.
     """
-    steps = np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1)
-    station = np.concatenate([[0.0], np.cumsum(steps)])
+    station = schema.arc_length(polyline[:, :2])
     count = max(2, int(np.ceil(station[-1] / spacing)) + 1) if station[-1] > spacing else 3
     targets = np.linspace(0.0, station[-1], count)
     return np.column_stack([np.interp(targets, station, polyline[:, k]) for k in range(polyline.shape[1])])

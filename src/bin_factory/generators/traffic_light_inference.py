@@ -34,6 +34,7 @@ from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
 from bin_factory import puffer_types, schema
+from bin_factory.conversion.geometry import height_at, locate_on_polyline
 from bin_factory.conversion.traffic_controls import light_stop_line
 from bin_factory.log_context import log
 
@@ -103,7 +104,7 @@ def infer_traffic_lights(scenario: schema.PufferScenario, extras: schema.Extract
     slot = {lane_id: index for index, lane_id in enumerate(corridor)}
     position, heading, speed, accel, valid = _kinematics(scenario.agents, length, dt)
     lane_of, arc = _match(position, heading, valid, [_points(lanes[lane_id]) for lane_id in corridor])
-    lane_length = np.array([_arc(_points(lanes[lane_id]))[-1] for lane_id in corridor] + [np.nan])
+    lane_length = np.array([schema.arc_length(_points(lanes[lane_id])[:, :2])[-1] for lane_id in corridor] + [np.nan])
 
     window, lookback, spread = round(WINDOW_S / dt), round(LOOKBACK_S / dt), round(CROSSING_S / dt)
     for movements, pairs in structures:
@@ -207,7 +208,7 @@ def _junction_groups(lanes: dict[int, schema.RoadPolyline], signal: set[int]) ->
         if a >= b or ids[junction[b]] in first.exit_lanes or ids[junction[a]] in second.exit_lanes:
             continue
         point = shapely.get_coordinates(shapely.intersection(lines[a], lines[b]))[0]
-        if abs(_height_at(_points(first), point) - _height_at(_points(second), point)) < SAME_LEVEL_M:
+        if abs(height_at(_points(first), point) - height_at(_points(second), point)) < SAME_LEVEL_M:
             pairs.append((junction[a], junction[b]))
     labels = _components(len(ids), pairs)
     groups = collections.defaultdict(set)
@@ -264,7 +265,7 @@ def _movements(
             ]
         for phase in phases:
             members = [c for c in connectors if approach_of[entry[c]] == approach and turns[c] <= phase]
-            end_distance = {c: stop[c] - _arc(_points(lanes[c]))[-1] for c in members}
+            end_distance = {c: stop[c] - schema.arc_length(_points(lanes[c])[:, :2])[-1] for c in members}
             for lane_id in {entry[c] for c in members}:
                 end_distance.update(_upstream(lane_id, min(stop[c] for c in members if entry[c] == lane_id), lanes))
             free = [c for c in members if turns[c] == {"R"}]
@@ -294,7 +295,7 @@ def _junction_paths(
         if following:
             continue
         beyond = [path[-1:]]
-        while _arc(np.vstack(beyond))[-1] < EXIT_M:
+        while schema.arc_length(np.vstack(beyond))[-1] < EXIT_M:
             exits = [e for e in lanes[lane_id].exit_lanes if e in lanes]
             if len(exits) != 1 or exits[0] in seen:
                 break
@@ -302,7 +303,7 @@ def _junction_paths(
             seen = seen | {lane_id}
             beyond.append(_points(lanes[lane_id])[1:, :2])
         beyond = np.vstack(beyond)
-        arc = _arc(beyond)
+        arc = schema.arc_length(beyond)
         paths.append((path, np.vstack([path, beyond[1:][arc[1:] <= EXIT_M]])))
     return paths
 
@@ -313,7 +314,7 @@ def _upstream(lane_id: int, end_distance: float, lanes: dict[int, schema.RoadPol
     queue = collections.deque([lane_id])
     while queue:
         current = queue.popleft()
-        distance = found[current] + _arc(_points(lanes[current]))[-1]
+        distance = found[current] + schema.arc_length(_points(lanes[current])[:, :2])[-1]
         if distance >= REACH_M:
             continue
         for previous in lanes[current].entry_lanes:
@@ -359,7 +360,7 @@ def _match(
         if not near.any():
             continue
         points = position[near]
-        distance, s, tangent, height = _locate(points[:, :2], polyline)
+        distance, s, tangent, height = locate_on_polyline(points[:, :2], polyline)
         better = (
             (distance <= MATCH_LATERAL_M)
             & (np.abs(_wrap(heading[near] - tangent)) <= MATCH_HEADING_RAD)
@@ -621,14 +622,9 @@ def _circular_mean(angles: np.ndarray) -> float:
     return float(np.arctan2(np.sin(angles).mean(), np.cos(angles).mean()))
 
 
-def _arc(polyline: np.ndarray) -> np.ndarray:
-    """Return the 2D arc length at each point."""
-    return np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1))]
-
-
 def _end_heading(polyline: np.ndarray) -> float:
     """Return the direction of the chord over the last END_HEADING_M of a polyline."""
-    arc = _arc(polyline)
+    arc = schema.arc_length(polyline[:, :2])
     start = [np.interp(arc[-1] - END_HEADING_M, arc, polyline[:, k]) for k in range(2)]
     dx, dy = polyline[-1, :2] - start
     return float(np.arctan2(dy, dx))
@@ -649,25 +645,6 @@ def _turn_class(polyline: np.ndarray, left_hand: bool) -> str:
     if abs(angle) < TURN_RAD:
         return "S"
     return "L" if (angle > 0) != left_hand else "R"
-
-
-def _locate(points: np.ndarray, polyline: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Return each point's distance to the polyline, and the arc length, direction and height where it projects."""
-    start, step = polyline[:-1], np.diff(polyline, axis=0)
-    squared = (step[:, :2] ** 2).sum(1)
-    t = np.clip(((points[:, None] - start[:, :2]) * step[:, :2]).sum(-1) / np.maximum(squared, 1e-12), 0.0, 1.0)
-    gap = np.linalg.norm(points[:, None] - (start[:, :2] + t[..., None] * step[:, :2]), axis=-1)
-    gap[:, squared <= 1e-12] = np.inf
-    segment = gap.argmin(1)
-    rows = np.arange(len(points))
-    t = t[rows, segment]
-    arc = _arc(polyline)[segment] + t * np.sqrt(squared[segment])
-    direction = np.arctan2(step[segment, 1], step[segment, 0])
-    return gap[rows, segment], arc, direction, start[segment, 2] + t * step[segment, 2]
-
-
-def _height_at(polyline: np.ndarray, point: np.ndarray) -> float:
-    return float(_locate(np.asarray(point, dtype=np.float64)[None, :2], polyline)[3][0])
 
 
 def _points(lane: schema.RoadPolyline) -> np.ndarray:

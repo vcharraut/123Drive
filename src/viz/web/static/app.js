@@ -63,16 +63,8 @@ const AMBER = [217, 119, 6];
 const PATH_COLOR = [6, 182, 212];  // cyan/teal
 const UNKNOWN_COLOR = [124, 58, 237];
 
-// Use these types until /api/types responds.
-window.TYPES = {
-  AGENT_TYPE_NAMES: {0:'other', 1:'vehicle', 2:'pedestrian', 3:'cyclist'},
-  MAP_LAYER_NAMES: {},
-  POLYLINE_TYPE_NAMES: {},
-  TC_TYPE_NAMES: {1:'traffic_light', 2:'stop_sign', 3:'yield_sign'},
-  OBJECT_TYPE_NAMES: {1:'traffic_sign', 2:'traffic_cone', 3:'traffic_light', 4:'barrier', 5:'generic_object'},
-  TL_STATE_NAMES: {0:'unknown', 1:'red', 2:'yellow', 3:'green', 4:'off'},
-  TL_STATE_COLORS: {0:'#808080', 1:'#FF0000', 2:'#FFFF00', 3:'#00FF00', 4:'#808080'},
-};
+// Type-name and colour tables from bin_factory/puffer_types.py, loaded from /api/types before any scenario.
+window.TYPES = {};
 // py123d MapLayer values, as in bin_factory/puffer_types.py
 const MAP_LAYER = {LANE: 0, LANE_GROUP: 1, INTERSECTION: 2, CROSSWALK: 3, WALKWAY: 4, CARPARK: 5,
                    GENERIC_DRIVABLE: 6, ROAD_EDGE: 8, ROAD_LINE: 9, SPEED_BUMP: 10, SHOULDER: 12};
@@ -1398,16 +1390,11 @@ function fitView() {
 let allScenarios = [];
 let activeScenario = null;
 
-async function fetchTypes() {
-  try {
-    const resp = await fetch('/api/types');
-    if (resp.ok) Object.assign(window.TYPES, await resp.json());
-  } catch (_) { /* use fallbacks */ }
-}
-
 async function loadScenarioList() {
   try {
-    await fetchTypes();
+    const types = await fetch('/api/types');
+    if (!types.ok) throw new Error(`HTTP ${types.status}`);
+    window.TYPES = await types.json();
     const resp = await fetch('/api/scenarios');
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     allScenarios = await resp.json();

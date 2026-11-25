@@ -8,15 +8,18 @@ junction lanes. Each route lane carries the arc-length span ``[entry_s, exit_s]`
 it, in the lane's ``cum_length`` metric.
 """
 
+import dataclasses
 import itertools
 from collections import deque
-from typing import Any, cast
+from typing import cast
 
 import numpy as np
 import shapely
 from shapely import geometry as shapely_geom
 
 from bin_factory import puffer_types, schema
+from bin_factory.conversion.geometry import height_at
+from bin_factory.generators.graph import GRAPH_LANE_TYPES
 from bin_factory.log_context import log
 
 
@@ -44,8 +47,31 @@ STRAIGHT_HEADING_TOLERANCE = np.radians(10.0)  # final heading vs incoming lane 
 SIBLING_FIT_TOLERANCE = 0.5  # meters a sibling may sit farther than the matched lane from the last logged points
 MIN_STRAIGHTENING = np.radians(20.0)  # end-direction gain that swaps the last observed lane for a sibling
 
-_RouteCache = dict[str, Any]
 _Candidate = tuple[int, int, float, float]  # (point_idx, lane_id, distance, s)
+
+
+@dataclasses.dataclass(frozen=True)
+class _RouteCache:
+    """Lane geometry and connectivity shared by all agents; per-lane arrays are padded to the longest lane."""
+
+    lane_id_array: np.ndarray
+    lane_polylines: np.ndarray  # xy of ``lane_polylines_xyz``
+    lane_polylines_xyz: np.ndarray
+    lane_lengths: np.ndarray  # points per lane
+    lane_id_to_idx: dict[int, int]
+    lane_graph: dict[int, tuple[int, ...]]
+    lane_rev_graph: dict[int, list[int]]
+    junction_lanes: frozenset[int]
+    lane_end_s: dict[int, float]  # planar length per lane id, kept as a dict for the DP's inner loop
+    lane_bbox_mins: np.ndarray
+    lane_bbox_maxs: np.ndarray
+    lane_tail_dirs: np.ndarray
+    lane_segment_lengths: np.ndarray
+    lane_cum_lengths: np.ndarray  # planar
+    lane_cum_lengths_3d: np.ndarray
+    road_edges: tuple[tuple[np.ndarray, np.ndarray, np.ndarray], ...]  # (xyz polyline, xy min, xy max)
+    path_cache: dict[tuple[int, int], tuple[int, ...]] = dataclasses.field(default_factory=dict)
+    in_cost_cache: dict[int, dict[int, float]] = dataclasses.field(default_factory=dict)
 
 
 def process_agent_routes(scenario: schema.PufferScenario) -> None:
@@ -72,40 +98,33 @@ def process_agent_routes(scenario: schema.PufferScenario) -> None:
             agent_data.route = []
             continue
 
-        if is_ego:
-            route, entry_s, exit_s = _compute_agent_route(agent_id, agent_data, route_cache)
-            if not (
-                route
-                and _is_onroad_at(agent_data, 0, route_cache)
-                and _route_remaining(agent_data.position[0], route, entry_s, exit_s, route_cache) >= MIN_ROUTE_REMAINING
-                and _ends_near_route(agent_data, route, route_cache)
-            ):
-                raise ValueError(
-                    f"Ego vehicle (agent 0) has no route, under {MIN_ROUTE_REMAINING:g} m of route ahead, an off-road "
-                    f"start or a route over {MAX_END_DISTANCE:g} m from its last position in scenario "
-                    f"{scenario.metadata.id}"
-                )
-            init_t = 0
-        else:
-            onroad_t = next((t for t in range(max_check) if _is_onroad_at(agent_data, t, route_cache)), None)
-            if onroad_t is None:
-                agent_data.route = []
-                continue
-            route, entry_s, exit_s = _compute_agent_route(agent_id, agent_data, route_cache)
+        # Ego must be eligible at timestep 0, other vehicles at their first eligible timestep.
+        frames = range(min(1, max_check) if is_ego else max_check)
+        onroad_t = next((t for t in frames if _is_onroad_at(agent_data, t, route_cache)), None)
+        route, entry_s, exit_s = (
+            ([], [], []) if onroad_t is None else _compute_agent_route(agent_id, agent_data, route_cache)
+        )
+        init_t = None
+        if route and _ends_near_route(agent_data, route, route_cache):
             init_t = next(
                 (
                     t
-                    for t in range(onroad_t, max_check)
-                    if route
-                    and (t == onroad_t or _is_onroad_at(agent_data, t, route_cache))
+                    for t in frames[onroad_t:]
+                    if (t == onroad_t or _is_onroad_at(agent_data, t, route_cache))
                     and _route_remaining(agent_data.position[t], route, entry_s, exit_s, route_cache)
                     >= MIN_ROUTE_REMAINING
                 ),
                 None,
             )
-            if init_t is None or not _ends_near_route(agent_data, route, route_cache):
-                agent_data.route = []
-                continue
+        if init_t is None:
+            if is_ego:
+                raise ValueError(
+                    f"Ego vehicle (agent 0) has no route, under {MIN_ROUTE_REMAINING:g} m of route ahead, an off-road "
+                    f"start or a route over {MAX_END_DISTANCE:g} m from its last position in scenario "
+                    f"{scenario.metadata.id}"
+                )
+            agent_data.route = []
+            continue
         agent_data.route = route
         agent_data.route_entry_s = _to_cum_length(route, entry_s, route_cache)
         agent_data.route_exit_s = _to_cum_length(route, exit_s, route_cache)
@@ -177,15 +196,15 @@ def _route_remaining(
     position: np.ndarray, route: list[int], entry_s: list[float], exit_s: list[float], route_cache: _RouteCache
 ) -> float:
     """Return metres ahead of ``position``: the rest of the nearest route lane's span and all later spans."""
-    idx = np.array([route_cache["lane_id_to_idx"][lane_id] for lane_id in route])
+    idx = np.array([route_cache.lane_id_to_idx[lane_id] for lane_id in route])
     distances, closest, closest_t = _points_to_polylines_distance(
-        position[:2].reshape(1, 2), route_cache["lane_polylines"][idx], route_cache["lane_lengths"][idx]
+        position[:2].reshape(1, 2), route_cache.lane_polylines[idx], route_cache.lane_lengths[idx]
     )
     nearest = int(np.argmin(distances[0]))
     segment = closest[0, nearest]
     progress = (
-        route_cache["lane_cum_lengths"][idx[nearest], segment]
-        + closest_t[0, nearest] * route_cache["lane_segment_lengths"][idx[nearest], segment]
+        route_cache.lane_cum_lengths[idx[nearest], segment]
+        + closest_t[0, nearest] * route_cache.lane_segment_lengths[idx[nearest], segment]
     )
     return float(exit_s[nearest] - progress + sum(exit_s[nearest + 1 :]) - sum(entry_s[nearest + 1 :]))
 
@@ -193,19 +212,19 @@ def _route_remaining(
 def _ends_near_route(agent: schema.Track, route: list[int], route_cache: _RouteCache) -> bool:
     """Return True when the last valid logged position lies within ``MAX_END_DISTANCE`` of a route lane."""
     last = np.flatnonzero(agent.valid)[-1]
-    idx = np.array([route_cache["lane_id_to_idx"][lane_id] for lane_id in route])
+    idx = np.array([route_cache.lane_id_to_idx[lane_id] for lane_id in route])
     distances, _, _ = _points_to_polylines_distance(
-        agent.position[last, :2].reshape(1, 2), route_cache["lane_polylines"][idx], route_cache["lane_lengths"][idx]
+        agent.position[last, :2].reshape(1, 2), route_cache.lane_polylines[idx], route_cache.lane_lengths[idx]
     )
     return float(distances.min()) <= MAX_END_DISTANCE
 
 
 def _to_cum_length(route: list[int], s_values: list[float], route_cache: _RouteCache) -> list[float]:
     """Map planar arc lengths on each route lane to the lane's 3D ``cum_length``."""
-    idx = [route_cache["lane_id_to_idx"][lane_id] for lane_id in route]
-    n = route_cache["lane_lengths"]
+    idx = [route_cache.lane_id_to_idx[lane_id] for lane_id in route]
+    n = route_cache.lane_lengths
     return [
-        float(np.interp(s, route_cache["lane_cum_lengths"][i, : n[i]], route_cache["lane_cum_lengths_3d"][i, : n[i]]))
+        float(np.interp(s, route_cache.lane_cum_lengths[i, : n[i]], route_cache.lane_cum_lengths_3d[i, : n[i]]))
         for i, s in zip(idx, s_values, strict=True)
     ]
 
@@ -225,7 +244,7 @@ def _build_route_cache(static_map_elements: dict[int, schema.RoadPolyline]) -> _
         element_id: element
         for element_id, element in static_map_elements.items()
         if element.is_lane
-        and element.type in (puffer_types.LaneType.SURFACE_STREET, puffer_types.LaneType.FREEWAY)
+        and element.type in GRAPH_LANE_TYPES
         and element.polyline is not None
         and len(element.polyline) > 0
     }
@@ -276,28 +295,26 @@ def _build_route_cache(static_map_elements: dict[int, schema.RoadPolyline]) -> _
         if element.is_edge and element.polyline is not None and len(element.polyline) >= 2
     ]
 
-    return {
-        "lane_id_array": np.asarray(lane_ids, dtype=np.int64),
-        "lane_polylines": lane_polylines_xyz[:, :, :2],
-        "lane_polylines_xyz": lane_polylines_xyz,
-        "lane_lengths": lane_lengths,
-        "lane_id_to_idx": lane_id_to_idx,
-        "lane_graph": lane_graph,
-        "lane_rev_graph": lane_rev_graph,
-        "junction_lanes": junction_lanes,
-        "lane_end_s": {
+    return _RouteCache(
+        lane_id_array=np.asarray(lane_ids, dtype=np.int64),
+        lane_polylines=lane_polylines_xyz[:, :, :2],
+        lane_polylines_xyz=lane_polylines_xyz,
+        lane_lengths=lane_lengths,
+        lane_id_to_idx=lane_id_to_idx,
+        lane_graph=lane_graph,
+        lane_rev_graph=lane_rev_graph,
+        junction_lanes=junction_lanes,
+        lane_end_s={
             lane_id: float(lane_cum_lengths[idx, lane_lengths[idx] - 1]) for idx, lane_id in enumerate(lane_ids)
         },
-        "lane_bbox_mins": lane_bbox_mins,
-        "lane_bbox_maxs": lane_bbox_maxs,
-        "lane_tail_dirs": lane_tail_dirs,
-        "lane_segment_lengths": lane_segment_lengths,
-        "lane_cum_lengths": lane_cum_lengths,
-        "lane_cum_lengths_3d": lane_cum_lengths_3d,
-        "path_cache": {},
-        "in_cost_cache": {},
-        "road_edges": tuple((p, p[:, :2].min(axis=0), p[:, :2].max(axis=0)) for p in edge_polylines),
-    }
+        lane_bbox_mins=lane_bbox_mins,
+        lane_bbox_maxs=lane_bbox_maxs,
+        lane_tail_dirs=lane_tail_dirs,
+        lane_segment_lengths=lane_segment_lengths,
+        lane_cum_lengths=lane_cum_lengths,
+        lane_cum_lengths_3d=lane_cum_lengths_3d,
+        road_edges=tuple((p, p[:, :2].min(axis=0), p[:, :2].max(axis=0)) for p in edge_polylines),
+    )
 
 
 def _compute_agent_route(
@@ -305,7 +322,7 @@ def _compute_agent_route(
 ) -> tuple[list[int], list[float], list[float]]:
     """Return ``(route, entry_s, exit_s)`` for one vehicle, or empty lists, with planar arc lengths per route lane."""
     valid = np.asarray(agent.valid, dtype=bool)
-    if not valid.any() or len(route_cache["lane_id_array"]) == 0:
+    if not valid.any() or len(route_cache.lane_id_array) == 0:
         log.debug("agent=%d: skipping route computation (no valid frame or no lane)", agent_id)
         return [], [], []
 
@@ -314,7 +331,7 @@ def _compute_agent_route(
         log.debug("agent=%d: no GT-supported lane candidates found", agent_id)
         return [], [], []
 
-    lane_end_s = route_cache["lane_end_s"]
+    lane_end_s = route_cache.lane_end_s
     point_candidates = {candidates[0][0]: candidates for candidates in observations}
     candidate_path = _select_candidate_path(observations, int(valid.sum()), route_cache)
     route, entry_s, exit_s = [candidate_path[0][1]], [0.0], []
@@ -357,16 +374,16 @@ def _build_point_observations(
     traj_min = trajectory.min(axis=0) - ROUTE_CANDIDATE_BBOX_MARGIN
     traj_max = trajectory.max(axis=0) + ROUTE_CANDIDATE_BBOX_MARGIN
     lane_indices = np.where(
-        (route_cache["lane_bbox_maxs"][:, 0] >= traj_min[0])
-        & (route_cache["lane_bbox_mins"][:, 0] <= traj_max[0])
-        & (route_cache["lane_bbox_maxs"][:, 1] >= traj_min[1])
-        & (route_cache["lane_bbox_mins"][:, 1] <= traj_max[1]),
+        (route_cache.lane_bbox_maxs[:, 0] >= traj_min[0])
+        & (route_cache.lane_bbox_mins[:, 0] <= traj_max[0])
+        & (route_cache.lane_bbox_maxs[:, 1] >= traj_min[1])
+        & (route_cache.lane_bbox_mins[:, 1] <= traj_max[1]),
     )[0]
-    polylines = route_cache["lane_polylines"][lane_indices]
-    lane_ids = route_cache["lane_id_array"][lane_indices]
+    polylines = route_cache.lane_polylines[lane_indices]
+    lane_ids = route_cache.lane_id_array[lane_indices]
 
     distances, closest, closest_t = _points_to_polylines_distance(
-        trajectory, polylines, route_cache["lane_lengths"][lane_indices]
+        trajectory, polylines, route_cache.lane_lengths[lane_indices]
     )
     lane_axis = np.arange(len(lane_indices))[np.newaxis, :]
     seg_dirs = polylines[lane_axis, np.minimum(closest + 1, polylines.shape[1] - 1)] - polylines[lane_axis, closest]
@@ -376,11 +393,11 @@ def _build_point_observations(
     valid_mask = (
         (distances <= LANE_WIDTH_THRESHOLD)
         & (alignments > ALIGNMENT_THRESHOLD)
-        & _elevation_ok(route_cache["lane_polylines_xyz"], lane_indices, closest, closest_t, positions[:, 2:3])
+        & _elevation_ok(route_cache.lane_polylines_xyz, lane_indices, closest, closest_t, positions[:, 2:3])
     )
     projected_s = (
-        route_cache["lane_cum_lengths"][lane_indices][lane_axis, closest]
-        + closest_t * route_cache["lane_segment_lengths"][lane_indices][lane_axis, closest]
+        route_cache.lane_cum_lengths[lane_indices][lane_axis, closest]
+        + closest_t * route_cache.lane_segment_lengths[lane_indices][lane_axis, closest]
     )
 
     observations = []
@@ -412,8 +429,8 @@ def _select_candidate_path(
     prefix_min_adj: list[float] = []
     lane_last_obs: dict[int, int] = {}
     lane_s = [{candidate[1]: candidate[3] for candidate in candidates} for candidates in observations]
-    junction_lanes = route_cache["junction_lanes"]
-    lane_end_s = route_cache["lane_end_s"]
+    junction_lanes = route_cache.junction_lanes
+    lane_end_s = route_cache.lane_end_s
 
     for obs_idx, candidates in enumerate(observations):
         obs_costs: list[float] = []
@@ -484,10 +501,10 @@ def _select_candidate_path(
 
 
 def _get_incoming_transition_costs(end_lane_id: int, route_cache: _RouteCache) -> dict[int, float]:
-    cached = route_cache["in_cost_cache"].get(end_lane_id)
+    cached = route_cache.in_cost_cache.get(end_lane_id)
     if cached is not None:
         return cached
-    rev_graph = route_cache["lane_rev_graph"]
+    rev_graph = route_cache.lane_rev_graph
     costs: dict[int, float] = {end_lane_id: 0.0}
     frontier = [end_lane_id]
     for hops in range(1, MAX_TRANSITION_HOPS + 1):
@@ -501,7 +518,7 @@ def _get_incoming_transition_costs(end_lane_id: int, route_cache: _RouteCache) -
         if not next_frontier:
             break
         frontier = next_frontier
-    route_cache["in_cost_cache"][end_lane_id] = costs
+    route_cache.in_cost_cache[end_lane_id] = costs
     return costs
 
 
@@ -510,10 +527,10 @@ def _find_shortest_lane_path(start_lane_id: int, end_lane_id: int, route_cache: 
         return (start_lane_id,)
 
     cache_key = (start_lane_id, end_lane_id)
-    if cache_key in route_cache["path_cache"]:
-        return route_cache["path_cache"][cache_key]
+    if cache_key in route_cache.path_cache:
+        return route_cache.path_cache[cache_key]
 
-    lane_graph = route_cache["lane_graph"]
+    lane_graph = route_cache.lane_graph
     queue: deque[tuple[int, tuple[int, ...]]] = deque([(start_lane_id, (start_lane_id,))])
     seen = {start_lane_id}
 
@@ -525,14 +542,14 @@ def _find_shortest_lane_path(start_lane_id: int, end_lane_id: int, route_cache: 
         for exit_lane_id in lane_graph.get(lane_id, ()):
             next_path = (*path, exit_lane_id)
             if exit_lane_id == end_lane_id:
-                route_cache["path_cache"][cache_key] = next_path
+                route_cache.path_cache[cache_key] = next_path
                 return next_path
             if exit_lane_id in seen:
                 continue
             seen.add(exit_lane_id)
             queue.append((exit_lane_id, next_path))
 
-    route_cache["path_cache"][cache_key] = ()
+    route_cache.path_cache[cache_key] = ()
     return ()
 
 
@@ -550,16 +567,16 @@ def _log_end_lane(
     point within ``SIBLING_FIT_TOLERANCE`` of the picked lane, when it turns at least ``MIN_STRAIGHTENING`` less.
     """
     last = route[-1]
-    if len(route) < 2 or last not in route_cache["lane_graph"][route[-2]]:
+    if len(route) < 2 or last not in route_cache.lane_graph[route[-2]]:
         return last
     parent = route[-2]
-    parent_dir = route_cache["lane_tail_dirs"][route_cache["lane_id_to_idx"][parent]]
+    parent_dir = route_cache.lane_tail_dirs[route_cache.lane_id_to_idx[parent]]
     if np.dot(parent_dir, [np.cos(final_heading), np.sin(final_heading)]) < np.cos(STRAIGHT_HEADING_TOLERANCE):
         return last
     last_points = list(itertools.takewhile(lambda candidate: candidate[1] == last, reversed(candidate_path)))
     fitting = [
         lane_id
-        for lane_id in route_cache["lane_graph"][parent]
+        for lane_id in route_cache.lane_graph[parent]
         if all(
             any(c[1] == lane_id and c[2] <= point[2] + SIBLING_FIT_TOLERANCE for c in point_candidates[point[0]])
             for point in last_points
@@ -575,7 +592,7 @@ def _extend_route_to_dead_end(route: list[int], route_cache: _RouteCache) -> lis
     """Greedily follow the straightest unvisited exit until none remain."""
     visited = set(route)
 
-    while exit_lane_ids := [lane_id for lane_id in route_cache["lane_graph"][route[-1]] if lane_id not in visited]:
+    while exit_lane_ids := [lane_id for lane_id in route_cache.lane_graph[route[-1]] if lane_id not in visited]:
         next_lane_id = _straightest_exit(route[-1], exit_lane_ids, route_cache)
         route.append(next_lane_id)
         visited.add(next_lane_id)
@@ -593,7 +610,7 @@ def _straightest_exit(lane_id: int, exit_lane_ids: list[int], route_cache: _Rout
 
 def _end_turn(from_lane_id: int, to_lane_id: int, route_cache: _RouteCache) -> float:
     """Return the angle in radians between the end directions of two lanes."""
-    tail_dirs, lane_id_to_idx = route_cache["lane_tail_dirs"], route_cache["lane_id_to_idx"]
+    tail_dirs, lane_id_to_idx = route_cache.lane_tail_dirs, route_cache.lane_id_to_idx
     cos = float(np.dot(tail_dirs[lane_id_to_idx[from_lane_id]], tail_dirs[lane_id_to_idx[to_lane_id]]))
     return float(np.arccos(np.clip(cos, -1.0, 1.0)))
 
@@ -613,31 +630,28 @@ def _is_offroad(position: np.ndarray, heading: float, length: float, width: floa
     """Return True when no elevation-matched lane is within reach or the agent box touches a same-level road edge."""
     xy, z = position[:2], position[2]
     near_lanes = np.flatnonzero(
-        (route_cache["lane_bbox_maxs"][:, 0] >= xy[0] - OFFROAD_DISTANCE_THRESHOLD)
-        & (route_cache["lane_bbox_mins"][:, 0] <= xy[0] + OFFROAD_DISTANCE_THRESHOLD)
-        & (route_cache["lane_bbox_maxs"][:, 1] >= xy[1] - OFFROAD_DISTANCE_THRESHOLD)
-        & (route_cache["lane_bbox_mins"][:, 1] <= xy[1] + OFFROAD_DISTANCE_THRESHOLD)
+        (route_cache.lane_bbox_maxs[:, 0] >= xy[0] - OFFROAD_DISTANCE_THRESHOLD)
+        & (route_cache.lane_bbox_mins[:, 0] <= xy[0] + OFFROAD_DISTANCE_THRESHOLD)
+        & (route_cache.lane_bbox_maxs[:, 1] >= xy[1] - OFFROAD_DISTANCE_THRESHOLD)
+        & (route_cache.lane_bbox_mins[:, 1] <= xy[1] + OFFROAD_DISTANCE_THRESHOLD)
     )
     if len(near_lanes) == 0:
         return True
     min_distances, closest_indices, closest_t = _points_to_polylines_distance(
-        xy.reshape(1, 2), route_cache["lane_polylines"][near_lanes], route_cache["lane_lengths"][near_lanes]
+        xy.reshape(1, 2), route_cache.lane_polylines[near_lanes], route_cache.lane_lengths[near_lanes]
     )
-    elevation_ok = _elevation_ok(route_cache["lane_polylines_xyz"], near_lanes, closest_indices, closest_t, z)
+    elevation_ok = _elevation_ok(route_cache.lane_polylines_xyz, near_lanes, closest_indices, closest_t, z)
     if not np.any(elevation_ok) or np.min(min_distances[elevation_ok]) > OFFROAD_DISTANCE_THRESHOLD:
         return True
 
-    cos_h, sin_h = np.cos(heading), np.sin(heading)
     half_len, half_w = length / 2, width / 2
-    local_corners = np.array([[half_len, -half_w], [half_len, half_w], [-half_len, half_w], [-half_len, -half_w]])
-    rotation = np.array([[cos_h, -sin_h], [sin_h, cos_h]])
-    corners = local_corners @ rotation.T + xy
+    corners = _pair_box_corners(xy[None], np.array([heading]), np.array([length]), np.array([width]))[0]
 
     agent_poly = shapely_geom.Polygon(corners)
     bbox_min = corners.min(axis=0) - max(half_len, half_w)
     bbox_max = corners.max(axis=0) + max(half_len, half_w)
 
-    for polyline, edge_min, edge_max in route_cache["road_edges"]:
+    for polyline, edge_min, edge_max in route_cache.road_edges:
         if (
             edge_max[0] < bbox_min[0]
             or edge_min[0] > bbox_max[0]
@@ -648,9 +662,7 @@ def _is_offroad(position: np.ndarray, heading: float, length: float, width: floa
         edge_line = shapely_geom.LineString(polyline[:, :2])
         if not agent_poly.intersects(edge_line):
             continue
-        station = edge_line.project(shapely_geom.Point(xy))
-        edge_z = np.interp(station, schema.arc_length(polyline[:, :2]), polyline[:, 2])
-        if abs(z - edge_z) <= ELEVATION_THRESHOLD:
+        if abs(z - height_at(polyline, xy)) <= ELEVATION_THRESHOLD:
             return True
 
     return False

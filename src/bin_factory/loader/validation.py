@@ -10,6 +10,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.strtree import STRtree
 
 from bin_factory import puffer_types, schema
+from bin_factory.conversion.geometry import height_at
 
 
 _Z_BRIDGE_MIN = 0.5
@@ -281,15 +282,6 @@ def _validate_agent_sizes(items: dict[int, schema.Track], prefix: str, errors: l
                 errors.append(f"{prefix} {eid} has non-positive {key}")
 
 
-def _z_at_xy(polyline: np.ndarray, point: Point) -> float:
-    seg = np.linalg.norm(np.diff(polyline[:, :2], axis=0), axis=1)
-    cum = np.concatenate([[0.0], np.cumsum(seg)])
-    s = LineString(polyline[:, :2]).project(point)
-    i = int(np.clip(np.searchsorted(cum, s, side="right") - 1, 0, len(seg) - 1))
-    t = 0.0 if seg[i] == 0 else (s - cum[i]) / seg[i]
-    return polyline[i, 2] + t * (polyline[i + 1, 2] - polyline[i, 2])
-
-
 def _intersection_points(geom: BaseGeometry) -> list[Point]:
     if geom.is_empty:
         return []
@@ -318,7 +310,8 @@ def _validate_road_edge_z_overlap(map_data: dict[int, schema.RoadPolyline], erro
                 continue
             inter = lines[i].intersection(lines[j])
             for p in _intersection_points(inter):
-                dz = abs(_z_at_xy(poly_a, p) - _z_at_xy(edges[j][1], p))
+                xy = np.array([p.x, p.y])
+                dz = abs(height_at(poly_a, xy) - height_at(edges[j][1], xy))
                 if _Z_BRIDGE_MIN < dz < _Z_BRIDGE_MAX:
                     errors.append(
                         f"Map edges {eid_a} and {edges[j][0]} cross in XY with |dz|={dz:.2f}m (sub-4m bridge)"

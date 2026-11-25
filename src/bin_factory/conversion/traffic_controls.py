@@ -5,6 +5,7 @@ import numpy as np
 import shapely
 
 from bin_factory import puffer_types, schema
+from bin_factory.conversion.geometry import locate_on_polyline
 from bin_factory.log_context import log
 
 
@@ -199,7 +200,7 @@ def _stop_line_at_zone(
             continue
         edges = [shapely.points(shapely.get_coordinates(polygon)) for polygon in near]
         s = min(shapely.line_locate_point(line, points).max() for points in edges)
-        cum = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(path[:, :2], axis=0), axis=1))]
+        cum = schema.arc_length(path[:, :2])
         center = np.array([np.interp(s, cum, path[:, k]) for k in range(3)])
         ahead, behind = line.interpolate(min(s + 0.5, line.length)), line.interpolate(max(s - 0.5, 0.0))
         heading = float(np.arctan2(ahead.y - behind.y, ahead.x - behind.x))
@@ -215,14 +216,9 @@ def _heading_near(point: np.ndarray, lane_ids: list[int], lanes_by_id: dict[int,
     """
     candidates = []
     for lane_id in lane_ids:
-        polyline = np.asarray(lanes_by_id[lane_id].polyline, dtype=np.float64)[:, :2]
-        a, ab = polyline[:-1], np.diff(polyline, axis=0)
-        length_sq = (ab**2).sum(axis=1)
-        t = np.clip(((point - a) * ab).sum(axis=1) / np.maximum(length_sq, 1e-9), 0.0, 1.0)
-        degenerate = np.where(length_sq > 0, 0.0, np.inf)
-        distance = np.linalg.norm(point - (a + t[:, None] * ab), axis=1) + degenerate
-        k = int(np.argmin(distance))
-        candidates.append((float(distance[k]), float(np.arctan2(ab[k, 1], ab[k, 0]))))
+        polyline = np.asarray(lanes_by_id[lane_id].polyline, dtype=np.float64)
+        distance, _, direction, _ = locate_on_polyline(point[None], polyline)
+        candidates.append((float(distance[0]), float(direction[0])))
     return min(candidates)[1]
 
 

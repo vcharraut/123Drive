@@ -1,4 +1,5 @@
 import asyncio
+import re
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,14 @@ def test_viewer_is_self_contained_and_handles_lane_zero():
     assert "pf.source === null" in app
     assert "1000 * state.scenario.metadata.dt / state.speed" in app
     assert (STATIC / "deck.gl-9.0.0.LICENSE.txt").is_file()
+
+
+def test_types_endpoint_serves_every_table_the_viewer_reads():
+    scripts = (STATIC / "app.js").read_text() + (STATIC / "info_panel.js").read_text()
+    tables = set(re.findall(r"\b(?:[A-Z]+_)+NAMES\b|\bTL_STATE_COLORS\b", scripts))
+
+    assert tables == set(server.get_types())
+    assert all(server.get_types().values())
 
 
 def _export_request(*headers, receive=None):
