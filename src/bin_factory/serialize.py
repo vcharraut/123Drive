@@ -34,6 +34,7 @@ from typing import Any
 import numpy as np
 
 from bin_factory import schema
+from bin_factory.generators.graph import build_lane_distance_matrix
 
 
 BINARY_MAGIC = b"123DRIVE"
@@ -164,11 +165,11 @@ def _write_traffic_controls(tcs: Sequence[schema.TrafficControl]) -> bytearray:
     return _index_records(records)
 
 
-def _write_lane_graph(lane_graph: dict[str, Any] | None) -> tuple[bytearray, int]:
-    buf = bytearray()
+def _write_lane_graph(polylines: dict[int, schema.RoadPolyline]) -> tuple[bytearray, int]:
+    lane_graph = build_lane_distance_matrix(polylines)
     if not lane_graph:
-        return buf, 0
-    buf.extend(np.asarray(lane_graph["lane_ids"], dtype="<i4").tobytes())
+        return bytearray(), 0
+    buf = bytearray(np.asarray(lane_graph["lane_ids"], dtype="<i4").tobytes())
     buf.extend(np.asarray(lane_graph["distances"], dtype="<f4").tobytes())
     return buf, len(lane_graph["lane_ids"])
 
@@ -184,10 +185,9 @@ def _write_metadata(metadata: schema.ScenarioMetadata) -> bytearray:
 
 
 def _write_traffic_phases(tcs: Sequence[schema.TrafficControl]) -> bytearray:
-    buf = bytearray()
-    for tc in tcs:
-        buf.extend(struct.pack("<ii", tc.intersection_id if tc.phase_idx >= 0 else -1, tc.phase_idx))
-    return buf
+    return bytearray().join(
+        struct.pack("<ii", tc.intersection_id if tc.phase_idx >= 0 else -1, tc.phase_idx) for tc in tcs
+    )
 
 
 def _write_source(
@@ -217,7 +217,7 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
     agents, tcs, objects = scenario.agents, scenario.traffic_controls, scenario.objects
     frame_count = scenario.metadata.scenario_length
     object_frames = len(next(iter(objects.values())).position) if objects else frame_count
-    graph_buf, graph_count = _write_lane_graph(scenario.lane_graph)
+    graph_buf, graph_count = _write_lane_graph(scenario.polylines)
     sections = [
         (b"AGENTS", _write_tracks(agents, True, frame_count), len(agents), frame_count),
         (b"ROADPOLY", _write_polylines(scenario.polylines), len(scenario.polylines), 0),
@@ -241,8 +241,8 @@ def scenario_to_binary(scenario: schema.PufferScenario) -> bytes:
     return bytes(result)
 
 
-class StaticBinaryError(ValueError):
-    """Raised when a .bin payload is not a supported static map binary."""
+class BinaryFormatError(ValueError):
+    """Raised when bytes are not a well-formed binary of the supported version."""
 
 
 def read_sections(data: BufferLike) -> dict[bytes, tuple[memoryview, int, int]]:
@@ -251,11 +251,18 @@ def read_sections(data: BufferLike) -> dict[bytes, tuple[memoryview, int, int]]:
         raise ValueError("Unsupported binary format; regenerate bins with the current converter")
     end = 16 + count * DIRECTORY_ENTRY.size
     sections: dict[bytes, tuple[memoryview, int, int]] = {}
+    view = memoryview(data)
     for index in range(count):
         tag, offset, size, records, frames = DIRECTORY_ENTRY.unpack_from(data, 16 + index * DIRECTORY_ENTRY.size)
-        if offset % 8 or offset < end or offset + size > len(data) or tag.rstrip(b"\0") in sections:
+        if (
+            offset % 8
+            or offset < end
+            or offset + size > len(data)
+            or tag.rstrip(b"\0") in sections
+            or any(view[end:offset])
+        ):
             raise ValueError("Invalid binary section directory")
-        sections[tag.rstrip(b"\0")] = (memoryview(data)[offset : offset + size], records, frames)
+        sections[tag.rstrip(b"\0")] = (view[offset : offset + size], records, frames)
         end = offset + size
     if end != len(data):
         raise ValueError("Binary has trailing bytes after sections")
@@ -298,43 +305,56 @@ class _Reader:
 
     def records(self, count: int) -> list["_Reader"]:
         offsets = np.frombuffer(self.data, dtype="<u8", count=count + 1)
-        if offsets[0] != 8 * (count + 1) or offsets[-1] != len(self.data) or np.any(offsets[1:] < offsets[:-1]):
+        if (
+            offsets[0] != 8 * (count + 1)
+            or offsets[-1] != len(self.data)
+            or np.any(offsets[1:] < offsets[:-1])
+            or np.any(offsets % 8)
+        ):
             raise ValueError("Invalid binary record offsets")
         return [_Reader(self.data[int(start) : int(stop)]) for start, stop in itertools.pairwise(offsets)]
 
+    def finish(self) -> None:
+        rest = bytes(self.data[self.offset :])
+        if len(rest) >= 8 or any(rest):
+            raise ValueError("Binary record has unread bytes")
 
-def static_binary_to_scenario(data: BufferLike, source: str = "<bytes>") -> schema.PufferScenario:
+
+def binary_to_scenario(data: BufferLike, source: str = "<bytes>") -> schema.PufferScenario:
+    """Decode a scene or map-only binary into the scenario it was written from.
+
+    The writer derives polyline heading, lane cum_length and curvature, and the lane graph from the polylines,
+    so the reader skips them. Raise BinaryFormatError for another version or any layout violation,
+    including unread bytes.
+    """
     try:
         sections = read_sections(data)
-        if sections[b"AGENTS"][1]:
-            raise StaticBinaryError(f"{source} is not static: found {sections[b'AGENTS'][1]} agents")
-        polyline_data, polyline_count, _ = sections[b"ROADPOLY"]
-        polylines = _read_polylines(_Reader(polyline_data), polyline_count)
-        surface_data, surface_count, _ = sections[b"ROADSURF"]
-        surfaces = _read_surfaces(_Reader(surface_data), surface_count)
-        traffic_data, traffic_count, _ = sections[b"TRAFFIC"]
-        traffic_controls = _read_traffic_controls(_Reader(traffic_data), traffic_count)
-        object_data, object_count, object_frames = sections[b"OBJECTS"]
-        objects = _read_objects(_Reader(object_data), object_count, object_frames)
+
+        def records(tag: bytes) -> list[_Reader]:
+            section, count, _ = sections[tag]
+            return _Reader(section).records(count)
+
+        agents = _read_tracks(records(b"AGENTS"), sections[b"AGENTS"][2], has_route=True)
+        polylines = _read_polylines(records(b"ROADPOLY"))
+        surfaces = _read_surfaces(records(b"ROADSURF"))
+        traffic_controls = _read_traffic_controls(records(b"TRAFFIC"))
+        objects = _read_tracks(records(b"OBJECTS"), sections[b"OBJECTS"][2], has_route=False)
         graph_data, graph_count, _ = sections[b"LANEGRPH"]
-        lane_graph = _read_lane_graph(_Reader(graph_data), graph_count)
+        _skip_lane_graph(_Reader(graph_data), graph_count)
         metadata = _read_metadata(_Reader(sections[b"METADATA"][0]))
         if TRAFFIC_PHASE_SECTION_TAG in sections:
             _read_traffic_phases(_Reader(sections[TRAFFIC_PHASE_SECTION_TAG][0]), traffic_controls)
         if SOURCE_SECTION_TAG in sections:
-            _read_source(_Reader(sections[SOURCE_SECTION_TAG][0]), metadata, objects)
+            _read_source(_Reader(sections[SOURCE_SECTION_TAG][0]), metadata, [*agents.values(), *objects.values()])
     except (struct.error, ValueError, KeyError) as exc:
-        if isinstance(exc, StaticBinaryError):
-            raise
-        raise StaticBinaryError(f"{source}: {exc}") from exc
+        raise BinaryFormatError(f"{source}: {exc}") from exc
 
     return schema.PufferScenario(
-        agents={},
+        agents=agents,
         objects=objects,
         polylines=polylines,
         surfaces=surfaces,
         traffic_controls=traffic_controls,
-        lane_graph=lane_graph,
         metadata=metadata,
     )
 
@@ -346,60 +366,56 @@ def _read_xyz(record: _Reader, n_points: int, flags: int) -> np.ndarray:
     return np.column_stack([x, y, z]).astype(np.float64)
 
 
-def _read_polylines(reader: _Reader, count: int) -> dict[int, schema.RoadPolyline]:
+def _read_polylines(records: list[_Reader]) -> dict[int, schema.RoadPolyline]:
     polylines = {}
-    for record in reader.records(count):
+    for record in records:
         element_id, layer, road_type, n_points, flags = (record.i32() for _ in range(5))
         element = schema.RoadPolyline(layer=layer, type=road_type, polyline=_read_xyz(record, n_points, flags))
         record.f32_array(n_points)  # heading is recomputed when serializing
         if element.is_lane:
-            element.entry_lanes = record.int_list()
-            element.exit_lanes = record.int_list()
-            element.left_neighbor = record.int_list()
-            element.right_neighbor = record.int_list()
+            element.entry_lanes, element.exit_lanes, element.left_neighbor, element.right_neighbor = (
+                record.int_list() for _ in range(4)
+            )
             element.speed_limit_mps = record.f32()
-            element.cum_length = record.f32_array(n_points).astype(np.float64)
-            element.length = float(element.cum_length[-1])
-            record.f32_array(n_points)  # curvature is recomputed when serializing
+            record.f32_array(2 * n_points)  # cum_length derives from the polyline, curvature is recomputed
+        record.finish()
         polylines[element_id] = element
     return polylines
 
 
-def _read_surfaces(reader: _Reader, count: int) -> dict[int, schema.RoadSurface]:
+def _read_surfaces(records: list[_Reader]) -> dict[int, schema.RoadSurface]:
     surfaces = {}
-    for record in reader.records(count):
+    for record in records:
         element_id, layer, n_points, flags = (record.i32() for _ in range(4))
         surfaces[element_id] = schema.RoadSurface(layer=layer, polygon=_read_xyz(record, n_points, flags))
+        record.finish()
     return surfaces
 
 
-def _read_traffic_controls(reader: _Reader, n_traffic: int) -> list[schema.TrafficControl]:
+def _read_traffic_controls(records: list[_Reader]) -> list[schema.TrafficControl]:
     traffic_controls = []
-    for record in reader.records(n_traffic):
-        control_id = record.i32()
-        control_type = record.i32()
-        stop_line = record.f32_array(6).reshape(2, 3).astype(np.float64)
-        heading = record.f32()
-        states = record.int_list()
-        controlled_lanes = record.int_list()
+    for record in records:  # keyword arguments evaluate in order, so they read the record's fields in turn
         traffic_controls.append(
             schema.TrafficControl(
-                id=control_id,
-                type=control_type,
-                stop_line=stop_line,
-                heading=heading,
-                states=states,
-                controlled_lanes=controlled_lanes,
+                id=record.i32(),
+                type=record.i32(),
+                stop_line=record.f32_array(6).reshape(2, 3).astype(np.float64),
+                heading=record.f32(),
+                states=record.int_list(),
+                controlled_lanes=record.int_list(),
             )
         )
+        record.finish()
     return traffic_controls
 
 
-def _read_objects(reader: _Reader, n_objects: int, frame_count: int) -> dict[int, schema.Track]:
-    objects = {}
-    for record in reader.records(n_objects):
-        object_id, object_type, first, n_stored, flags = (record.i32() for _ in range(5))
+def _read_tracks(records: list[_Reader], frame_count: int, has_route: bool) -> dict[int, schema.Track]:
+    tracks = {}
+    for record in records:
+        track_id, track_type, first, n_stored, flags = (record.i32() for _ in range(5))
         n_frames = record.i32() if flags & 16 else frame_count
+        if first < 0 or n_stored < 0 or first + n_stored > n_frames:
+            raise ValueError("Invalid track span")
         channels: dict[str, Any] = {}
         for index, (name, width) in enumerate(_TRACK_FIELDS):
             values = np.zeros((width, n_frames), dtype=np.float64)
@@ -414,44 +430,45 @@ def _read_objects(reader: _Reader, n_objects: int, frame_count: int) -> dict[int
             channels[name] = values.T.copy() if width > 1 else values[0]
         valid = np.zeros(n_frames, dtype=np.int32)
         valid[first : first + n_stored] = np.frombuffer(record.data, dtype="u1", count=n_stored, offset=record.offset)
-        objects[object_id] = schema.Track(type=object_type, valid=valid, **channels)
-    return objects
+        record.offset = (record.offset + n_stored + 3) & ~3
+        track = schema.Track(type=track_type, valid=valid, **channels)
+        if has_route:
+            track.route = record.int_list()
+            track.route_entry_s = record.f32_array(len(track.route)).astype(np.float64).tolist()
+            track.route_exit_s = record.f32_array(len(track.route)).astype(np.float64).tolist()
+        record.finish()
+        tracks[track_id] = track
+    return tracks
 
 
 def _read_traffic_phases(reader: _Reader, traffic_controls: list[schema.TrafficControl]) -> None:
     for traffic_control in traffic_controls:
         traffic_control.intersection_id = reader.i32()
         traffic_control.phase_idx = reader.i32()
+    reader.finish()
 
 
-def _read_lane_graph(reader: _Reader, n_lanes: int) -> dict[str, Any] | None:
-    if n_lanes == 0:
-        return None
-    lane_ids = reader.i32_array(n_lanes).tolist()
-    distances = reader.f32_array(n_lanes * n_lanes).reshape(n_lanes, n_lanes)
-    return {"lane_ids": lane_ids, "distances": distances}
+def _skip_lane_graph(reader: _Reader, n_lanes: int) -> None:
+    reader.i32_array(n_lanes)
+    reader.f32_array(n_lanes * n_lanes)
+    reader.finish()
 
 
 def _read_metadata(reader: _Reader) -> schema.ScenarioMetadata:
-    scenario_id = reader.string()
-    dataset = reader.string()
-    location = reader.string()
-    scenario_length = reader.i32()
-    dt = reader.f32()
-    objects_of_interest = reader.int_list()
-    tracks_to_predict = reader.int_list()
-    return schema.ScenarioMetadata(
-        id=scenario_id,
-        dataset=dataset,
-        location=location,
-        scenario_length=scenario_length,
-        dt=dt,
-        objects_of_interest=objects_of_interest,
-        tracks_to_predict=tracks_to_predict,
+    metadata = schema.ScenarioMetadata(
+        id=reader.string(),
+        dataset=reader.string(),
+        location=reader.string(),
+        scenario_length=reader.i32(),
+        dt=reader.f32(),
+        objects_of_interest=reader.int_list(),
+        tracks_to_predict=reader.int_list(),
     )
+    reader.finish()
+    return metadata
 
 
-def _read_source(reader: _Reader, metadata: schema.ScenarioMetadata, objects: dict[int, schema.Track]) -> None:
+def _read_source(reader: _Reader, metadata: schema.ScenarioMetadata, tracks: list[schema.Track]) -> None:
     metadata.origin_xyz = struct.unpack_from("<3d", reader.data)
     reader.offset = 24
     metadata.map_has_z = bool(reader.i32())
@@ -462,5 +479,6 @@ def _read_source(reader: _Reader, metadata: schema.ScenarioMetadata, objects: di
     reader.offset += 8 * count
     for name in _SOURCE_STRINGS:
         setattr(metadata, name, reader.string())
-    for track in objects.values():
+    for track in tracks:
         track.source_id = reader.string()
+    reader.finish()

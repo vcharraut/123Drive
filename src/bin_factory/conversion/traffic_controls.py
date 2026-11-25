@@ -16,52 +16,22 @@ ZONE_MAX_GAP = 1.5  # metres between a light's approach path and a stop zone of 
 def process_traffic_controls(scenario: schema.PufferScenario, extras: schema.ExtractionExtras) -> None:
     lanes_by_id = {eid: edata for eid, edata in scenario.polylines.items() if edata.is_lane}
     light_zones = [zone for zone in extras.stop_zones if zone.type == puffer_types.TCType.TRAFFIC_LIGHT]
-    light_controls, covered_lanes = _build_traffic_light_controls(extras.traffic_lights, lanes_by_id, light_zones)
-    next_id = max((tc.id for tc in light_controls), default=-1) + 1
-    zone_controls = _build_stop_zone_controls(
-        extras.stop_zones,
-        lanes_by_id,
-        covered_lanes,
-        scenario.metadata.scenario_length,
-        next_id,
-    )
-    scenario.traffic_controls = group_facing_phases(light_controls + zone_controls)
-
-
-def _build_traffic_light_controls(
-    traffic_lights: dict[int, schema.TrafficLightTrack],
-    lanes_by_id: dict[int, schema.RoadPolyline],
-    light_zones: list[schema.StopZone],
-) -> tuple[list[schema.TrafficControl], set[int]]:
     controls: list[schema.TrafficControl] = []
-    covered_lanes: set[int] = set()
 
-    for element_id, traffic_light in traffic_lights.items():
+    # Logged lights first: each controls its lane
+    for element_id, traffic_light in extras.traffic_lights.items():
         controlled_lane_id = traffic_light.controlled_lane
         if (controlled_lane := lanes_by_id.get(controlled_lane_id)) is None:
-            log.debug(
-                "lane=%s tl=%s: controlled lane not in map, skipping",
-                controlled_lane_id,
-                element_id,
-            )
+            log.debug("lane=%s tl=%s: controlled lane not in map, skipping", controlled_lane_id, element_id)
             continue
         if controlled_lane.type == puffer_types.LaneType.BIKE_LANE:
-            log.debug(
-                "lane=%s tl=%s: controlled lane is a bike lane, skipping",
-                controlled_lane_id,
-                element_id,
-            )
+            log.debug("lane=%s tl=%s: controlled lane is a bike lane, skipping", controlled_lane_id, element_id)
             continue
         try:
-            heading = _compute_heading_from_incoming_lanes(controlled_lane, lanes_by_id)
-            stop_line = _stop_line_from_position(heading, controlled_lane_id, lanes_by_id)
-            at_zone = stop_line_at_zone(controlled_lane, lanes_by_id, light_zones)
-            if at_zone is not None:
-                heading, stop_line = at_zone
+            heading, stop_line = light_stop_line(controlled_lane, lanes_by_id, light_zones)
         except ValueError as exc:
             log.warning("lane=%s tl=%s: malformed traffic light, skipping: %s", controlled_lane_id, element_id, exc)
             continue
-
         controls.append(
             schema.TrafficControl(
                 id=int(element_id),
@@ -72,46 +42,37 @@ def _build_traffic_light_controls(
                 states=traffic_light.states,
             ),
         )
-        covered_lanes.add(controlled_lane_id)
 
-    return controls, covered_lanes
-
-
-def _build_stop_zone_controls(
-    stop_zones: list[schema.StopZone],
-    lanes_by_id: dict[int, schema.RoadPolyline],
-    covered_lanes: set[int],
-    scenario_length: int,
-    next_id: int,
-) -> list[schema.TrafficControl]:
-    controls: list[schema.TrafficControl] = []
-    light_lanes = set(covered_lanes)
-
-    for element_data in stop_zones:
+    # Then stop zones, on the lanes no control covers yet
+    light_lanes = {control.controlled_lanes[0] for control in controls}
+    covered_lanes = set(light_lanes)
+    next_id = max((tc.id for tc in controls), default=-1) + 1
+    for element_data in extras.stop_zones:
         stop_zone_type = element_data.type
+        is_light = stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT
         # PY123D-REPORT[nuplan]: TL stop polygons reference the approach lanes while TL detections reference the
         # connectors after them, so each signalized approach came out twice with the polygon copy stuck at UNKNOWN.
         # Drop approach lanes whose successor already carries a light. Skip lanes that already have a control so
-        # overlapping nuPlan TL polygons and WOMD stop signs do not duplicate controls.
+        # overlapping nuPlan TL polygons and WOMD stop signs do not duplicate controls. A light leaves out bike
+        # lanes, as logged lights do.
         controlled_lanes = [
             lid
             for lid in element_data.controlled_lanes
             if lid not in covered_lanes
             and not (
-                stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT
-                and light_lanes.intersection(lanes_by_id[lid].exit_lanes)
+                is_light
+                and (
+                    lanes_by_id[lid].type == puffer_types.LaneType.BIKE_LANE
+                    or light_lanes.intersection(lanes_by_id[lid].exit_lanes)
+                )
             )
         ]
         if not controlled_lanes:
             continue
 
         controlled_lane_id = controlled_lanes[0]
-        if lanes_by_id.get(controlled_lane_id) is None:
-            log.debug(
-                "lane=%s: controlled lane for stop zone (type=%s) not in map, skipping",
-                controlled_lane_id,
-                stop_zone_type,
-            )
+        if controlled_lane_id not in lanes_by_id:
+            log.debug("lane=%s: stop zone (type=%s) lane not in map, skipping", controlled_lane_id, stop_zone_type)
             continue
         try:
             # The zone may lie on the controlled lanes or on the lanes entering them.
@@ -122,11 +83,6 @@ def _build_stop_zone_controls(
             log.warning("lane=%s: malformed stop zone, skipping: %s", controlled_lane_id, exc)
             continue
 
-        states = (
-            [puffer_types.TLState.UNKNOWN] * scenario_length
-            if stop_zone_type == puffer_types.TCType.TRAFFIC_LIGHT
-            else []
-        )
         controls.append(
             schema.TrafficControl(
                 id=next_id,
@@ -134,7 +90,7 @@ def _build_stop_zone_controls(
                 controlled_lanes=controlled_lanes,
                 stop_line=stop_line,
                 heading=heading,
-                states=states,
+                states=[puffer_types.TLState.UNKNOWN] * scenario.metadata.scenario_length if is_light else [],
                 intersection_id=element_data.intersection_id,
                 phase_idx=element_data.phase_idx if element_data.intersection_id >= 0 else -1,
             ),
@@ -142,7 +98,7 @@ def _build_stop_zone_controls(
         covered_lanes.update(controlled_lanes)
         next_id += 1
 
-    return controls
+    scenario.traffic_controls = group_facing_phases(controls)
 
 
 def group_facing_phases(controls: list[schema.TrafficControl]) -> list[schema.TrafficControl]:
@@ -174,22 +130,53 @@ def group_facing_phases(controls: list[schema.TrafficControl]) -> list[schema.Tr
     return grouped
 
 
-def _stop_line_from_position(heading: float, lane_id: int, lanes_by_id: dict[int, schema.RoadPolyline]) -> np.ndarray:
-    lane = lanes_by_id.get(lane_id)
-    if lane is None:
-        raise ValueError("controlled lane is missing")
-    polyline = np.asarray(lane.polyline, dtype=np.float64)
-    if polyline.ndim != 2 or len(polyline) == 0:
-        raise ValueError("controlled lane polyline is empty")
-    center = polyline[0]
-    left_boundary = np.asarray(lane.left_boundary if lane.left_boundary is not None else [], dtype=np.float64)
-    right_boundary = np.asarray(lane.right_boundary if lane.right_boundary is not None else [], dtype=np.float64)
-    width = _lane_width_from_boundaries(left_boundary, right_boundary)
+def light_stop_line(
+    lane: schema.RoadPolyline, lanes_by_id: dict[int, schema.RoadPolyline], light_zones: list[schema.StopZone]
+) -> tuple[float, np.ndarray]:
+    """Return the heading and stop line of a light on ``lane``: at its approach's stop zone, else across its start."""
+    at_start = _stop_line_at_start(lane, lanes_by_id)
+    return _stop_line_at_zone(lane, lanes_by_id, light_zones) or at_start
+
+
+def _cross_line(lane: schema.RoadPolyline, center: np.ndarray, heading: float) -> np.ndarray:
+    """Return a line through ``center`` across ``lane``'s width, perpendicular to ``heading``."""
+    left = np.asarray(lane.left_boundary if lane.left_boundary is not None else [], dtype=np.float64)
+    right = np.asarray(lane.right_boundary if lane.right_boundary is not None else [], dtype=np.float64)
+    width = (
+        float(np.linalg.norm(right[0] - left[0])) if left.ndim == right.ndim == 2 and len(left) and len(right) else 0.0
+    )
+    if not np.isfinite(width) or width <= 0:
+        width = 3.5
     half_width = (width / 2) * np.array([-np.sin(heading), np.cos(heading), 0.0])
     return np.array([center - half_width, center + half_width], dtype=np.float64)
 
 
-def stop_line_at_zone(
+def _stop_line_at_start(
+    lane: schema.RoadPolyline, lanes_by_id: dict[int, schema.RoadPolyline]
+) -> tuple[float, np.ndarray]:
+    """Return the mean heading of the lanes entering ``lane`` and a stop line across its start."""
+    headings = []
+    for entry_id in lane.entry_lanes:
+        entry_lane = lanes_by_id.get(entry_id)
+        polyline = np.asarray(entry_lane.polyline if entry_lane is not None else [], dtype=np.float64)
+        if polyline.ndim == 2 and len(polyline) >= 2:
+            dxy = polyline[-1] - polyline[-2]
+            headings.append(np.arctan2(dxy[1], dxy[0]))
+
+    polyline = np.asarray(lane.polyline, dtype=np.float64)
+    if headings:
+        heading = float(np.arctan2(np.mean(np.sin(headings)), np.mean(np.cos(headings))))
+    elif polyline.ndim == 2 and len(polyline) >= 2:
+        dxy = polyline[1] - polyline[0]
+        heading = float(np.arctan2(dxy[1], dxy[0]))
+    else:
+        raise ValueError("lane polyline needs at least two points")
+    if polyline.ndim != 2 or len(polyline) == 0:
+        raise ValueError("controlled lane polyline is empty")
+    return heading, _cross_line(lane, polyline[0], heading)
+
+
+def _stop_line_at_zone(
     lane: schema.RoadPolyline, lanes_by_id: dict[int, schema.RoadPolyline], light_zones: list[schema.StopZone]
 ) -> tuple[float, np.ndarray] | None:
     """Return the heading and stop line at a traffic-light stop zone of the light's approach, if one lies on its path.
@@ -216,10 +203,7 @@ def stop_line_at_zone(
         center = np.array([np.interp(s, cum, path[:, k]) for k in range(3)])
         ahead, behind = line.interpolate(min(s + 0.5, line.length)), line.interpolate(max(s - 0.5, 0.0))
         heading = float(np.arctan2(ahead.y - behind.y, ahead.x - behind.x))
-        left = np.asarray(lane.left_boundary if lane.left_boundary is not None else [], dtype=np.float64)
-        right = np.asarray(lane.right_boundary if lane.right_boundary is not None else [], dtype=np.float64)
-        half_width = (_lane_width_from_boundaries(left, right) / 2) * np.array([-np.sin(heading), np.cos(heading), 0.0])
-        return heading, np.array([center - half_width, center + half_width], dtype=np.float64)
+        return heading, _cross_line(lane, center, heading)
     return None
 
 
@@ -242,46 +226,11 @@ def _heading_near(point: np.ndarray, lane_ids: list[int], lanes_by_id: dict[int,
     return min(candidates)[1]
 
 
-def _compute_heading_from_incoming_lanes(
-    lane: schema.RoadPolyline, lanes_by_id: dict[int, schema.RoadPolyline]
-) -> float:
-    headings = []
-    for entry_id in lane.entry_lanes:
-        entry_lane = lanes_by_id.get(entry_id)
-        if entry_lane is None:
-            continue
-        polyline = np.asarray(entry_lane.polyline, dtype=np.float64)
-        if polyline.ndim != 2 or len(polyline) < 2:
-            continue
-        dxy = polyline[-1] - polyline[-2]
-        headings.append(np.arctan2(dxy[1], dxy[0]))
-
-    if not headings:
-        polyline = np.asarray(lane.polyline, dtype=np.float64)
-        if polyline.ndim != 2 or len(polyline) < 2:
-            raise ValueError("lane polyline needs at least two points")
-        dxy = polyline[1] - polyline[0]
-        return float(np.arctan2(dxy[1], dxy[0]))
-
-    return float(np.arctan2(np.mean(np.sin(headings)), np.mean(np.cos(headings))))
-
-
-def _lane_width_from_boundaries(left_boundary: np.ndarray, right_boundary: np.ndarray) -> float:
-    if left_boundary.ndim != 2 or right_boundary.ndim != 2:
-        return 3.5
-    if len(left_boundary) == 0 or len(right_boundary) == 0:
-        return 3.5
-    width = float(np.linalg.norm(right_boundary[0] - left_boundary[0]))
-    if not np.isfinite(width) or width <= 0:
-        return 3.5
-    return width
-
-
 def _stop_line_from_polygon(polygon: np.ndarray, heading: float) -> np.ndarray:
     polygon = np.asarray(polygon, dtype=np.float64)
     if polygon.ndim != 2 or len(polygon) < 2:
         raise ValueError("stop zone polygon needs at least two points")
-    if len(polygon) > 1 and np.allclose(polygon[0], polygon[-1]):
+    if np.allclose(polygon[0], polygon[-1]):
         polygon = polygon[:-1]
     if len(polygon) < 2:
         raise ValueError("stop zone polygon collapses to fewer than two points")

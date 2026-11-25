@@ -10,8 +10,8 @@ import pathlib
 import numpy as np
 import pytest
 
-from bin_factory import loader, main, puffer_types, schema, serialize
-from bin_factory.preparation import prepare_scenario
+from bin_factory import loader, puffer_types, schema, serialize
+from bin_factory.preparation import ConversionSettings, prepare_scenario
 from mapforge import affine, static_binary
 from mapforge.static_binary import StaticBinaryError
 
@@ -22,18 +22,29 @@ MAP_LOCATIONS = ["Town02", "Town10HD"]
 
 def _opendrive_static_bytes(location):
     """Map-only conversion of one opendrive map -> serialized static .bin bytes."""
-    config = main.build_parser().parse_args(["--py123d_path", str(DATA_ROOT)])
-    config.map_only = True
-    config.validate_level = 2
     maps = loader.discover_scenes(py123d_data_root=str(DATA_ROOT), workers=1, map_only=True, datasets=["opendrive"])
     scene = next(m for m in maps if m.location == location)
-    return serialize.scenario_to_binary(prepare_scenario(scene, config))
+    return serialize.scenario_to_binary(prepare_scenario(scene, ConversionSettings(validate_level=2)))
 
 
 @pytest.fixture(scope="module")
 def opendrive_bins():
     """{location: static .bin bytes} built once for the whole module."""
     return {loc: _opendrive_static_bytes(loc) for loc in MAP_LOCATIONS}
+
+
+@pytest.fixture
+def town02(opendrive_bins):
+    """A fresh scenario read from the Town02 static binary."""
+    return static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
+
+
+def _input_dir(tmp_path, opendrive_bins, locations):
+    input_dir = tmp_path / "in"
+    input_dir.mkdir()
+    for loc in locations:
+        (input_dir / f"opendrive__{loc}.bin").write_bytes(opendrive_bins[loc])
+    return input_dir
 
 
 def _geometries(scenario):
@@ -80,24 +91,18 @@ def _box_corners(x, y, heading, length, width):
 
 
 @pytest.mark.parametrize("location", MAP_LOCATIONS)
-def test_read_static_scenario_is_map_only(opendrive_bins, location):
+def test_read_static_scenario_is_map_only_with_whole_geometry(opendrive_bins, location):
     scenario = static_binary.static_binary_to_scenario(opendrive_bins[location])
     assert scenario.agents == {}
     assert scenario.objects == {}
     assert len(scenario.polylines) > 0
     assert scenario.metadata.id == location
     assert scenario.metadata.dataset == "opendrive"
-
-
-@pytest.mark.parametrize("location", MAP_LOCATIONS)
-def test_read_preserves_geometry_to_float32(opendrive_bins, location):
-    scenario = static_binary.static_binary_to_scenario(opendrive_bins[location])
     # The reader keeps element ids and shapes; geometry survives to float32 precision.
     for element in scenario.polylines.values():
         assert element.polyline is not None
         assert len(element.polyline) >= 2
     for surface in scenario.surfaces.values():
-        assert surface.polygon is not None
         assert len(surface.polygon) >= 3
 
 
@@ -109,21 +114,15 @@ def test_read_serialize_is_idempotent(opendrive_bins, location):
     assert once == twice
 
 
-def test_read_rejects_binary_with_agents():
-    scenario = schema.PufferScenario(
-        agents={},
-        objects={},
-        polylines={},
-        metadata=schema.ScenarioMetadata(id="", dataset="", scenario_length=0, dt=0.0),
-    )
-    data = bytearray(serialize.scenario_to_binary(scenario))
-    data[40:44] = (1).to_bytes(4, "little")
-    with pytest.raises(StaticBinaryError, match="not static"):
-        static_binary.static_binary_to_scenario(data)
+def test_read_rejects_binary_with_agents(town02):
+    scenario = _with_object(town02)
+    scenario.agents, scenario.objects = scenario.objects, {}
+    with pytest.raises(StaticBinaryError, match="not static: found 1 agents"):
+        static_binary.static_binary_to_scenario(serialize.scenario_to_binary(scenario))
 
 
-def test_read_keeps_objects(opendrive_bins):
-    data = serialize.scenario_to_binary(_with_object(static_binary.static_binary_to_scenario(opendrive_bins["Town02"])))
+def test_read_keeps_objects(town02):
+    data = serialize.scenario_to_binary(_with_object(town02))
     track = static_binary.static_binary_to_scenario(data).objects[7]
     assert track.type == int(puffer_types.ObjectType.BARRIER)
     assert np.allclose(track.position, [[10.0, 20.0, 1.5]])
@@ -134,20 +133,20 @@ def test_read_keeps_objects(opendrive_bins):
 
 
 def test_read_rejects_trailing_bytes(opendrive_bins):
-    with pytest.raises(StaticBinaryError, match="trailing bytes"):
+    with pytest.raises(serialize.BinaryFormatError, match="trailing bytes"):
         static_binary.static_binary_to_scenario(opendrive_bins["Town02"] + b"\x00")
 
 
 def test_read_rejects_truncated_payload(opendrive_bins):
-    with pytest.raises(StaticBinaryError):
+    with pytest.raises(serialize.BinaryFormatError):
         static_binary.static_binary_to_scenario(opendrive_bins["Town02"][:-8])
 
 
 # Write static binaries
 
 
-def test_write_round_trips_and_requires_explicit_overwrite(opendrive_bins, tmp_path):
-    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
+def test_write_round_trips_and_requires_explicit_overwrite(town02, tmp_path):
+    scenario = town02
     out = tmp_path / "out.bin"
     static_binary.write_static_scenario(scenario, out)
     assert list(_geometries(static_binary.static_binary_to_scenario(out.read_bytes()))) == list(_geometries(scenario))
@@ -156,11 +155,10 @@ def test_write_round_trips_and_requires_explicit_overwrite(opendrive_bins, tmp_p
     static_binary.write_static_scenario(scenario, out, overwrite=True)  # explicit overwrite is allowed
 
 
-def test_write_rejects_non_static(opendrive_bins, tmp_path):
-    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
-    scenario.agents = dict(_with_object(scenario).objects)
+def test_write_rejects_non_static(town02, tmp_path):
+    town02.agents = dict(_with_object(town02).objects)
     with pytest.raises(StaticBinaryError):
-        static_binary.write_static_scenario(scenario, tmp_path / "bad.bin")
+        static_binary.write_static_scenario(town02, tmp_path / "bad.bin")
 
 
 # Select transforms
@@ -187,20 +185,16 @@ def test_select_transforms_unknown_raises():
 # Apply affine transforms
 
 
-def test_apply_affine_rejects_bad_matrix_shape(opendrive_bins):
-    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
-    with pytest.raises(ValueError, match="shape"):
-        affine.apply_affine_transform(scenario, np.eye(3), np.zeros(2))
+@pytest.mark.parametrize(
+    ("matrix", "centroid", "match"), [(np.eye(3), np.zeros(2), "shape"), (np.eye(2), np.zeros(3), "Centroid")]
+)
+def test_apply_affine_rejects_bad_matrix_or_centroid_shape(town02, matrix, centroid, match):
+    with pytest.raises(ValueError, match=match):
+        affine.apply_affine_transform(town02, matrix, centroid)
 
 
-def test_apply_affine_rejects_bad_centroid_shape(opendrive_bins):
-    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
-    with pytest.raises(ValueError, match="Centroid"):
-        affine.apply_affine_transform(scenario, np.eye(2), np.zeros(3))
-
-
-def test_flip_mirrors_x_about_centroid(opendrive_bins):
-    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
+def test_flip_mirrors_x_about_centroid(town02):
+    scenario = town02
     reference = copy.deepcopy(scenario)
     centroid = _centroid(scenario)
     affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["flip"]["FlipX"], centroid)
@@ -216,8 +210,8 @@ def test_flip_mirrors_x_about_centroid(opendrive_bins):
         assert np.allclose(geometry[:, 1], ref[:, 1], atol=1e-3)
 
 
-def test_scale_grows_extent_and_resamples(opendrive_bins):
-    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
+def test_scale_grows_extent_and_resamples(town02):
+    scenario = town02
     reference = copy.deepcopy(scenario)
     centroid = _centroid(scenario)
     before_extent = np.ptp(_all_xy(reference), axis=0)
@@ -232,8 +226,8 @@ def test_scale_grows_extent_and_resamples(opendrive_bins):
     assert after_points > before_points
 
 
-def test_traffic_control_heading_rotates_under_flip(opendrive_bins):
-    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
+def test_traffic_control_heading_rotates_under_flip(town02):
+    scenario = town02
     assert scenario.traffic_controls, "opendrive fixture should carry traffic controls"
     reference = copy.deepcopy(scenario)
     centroid = _centroid(scenario)
@@ -246,8 +240,8 @@ def test_traffic_control_heading_rotates_under_flip(opendrive_bins):
         assert tc.heading == pytest.approx(float(np.arctan2(rotated[1], rotated[0])))
 
 
-def test_flip_mirrors_objects(opendrive_bins):
-    scenario = _with_object(static_binary.static_binary_to_scenario(opendrive_bins["Town02"]))
+def test_flip_mirrors_objects(town02):
+    scenario = _with_object(town02)
     centroid = _centroid(scenario)
     affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["flip"]["FlipX"], centroid)
     track = scenario.objects[7]
@@ -258,10 +252,10 @@ def test_flip_mirrors_objects(opendrive_bins):
 
 
 @pytest.mark.parametrize("name", ["ShXP", "Sc10", "ScY10"])
-def test_affine_object_box_encloses_mapped_footprint(opendrive_bins, name):
+def test_affine_object_box_encloses_mapped_footprint(town02, name):
     group = next(g for g in affine.TRANSFORM_GROUPS.values() if name in g)
     matrix = np.asarray(group[name], dtype=np.float64)
-    scenario = _with_object(static_binary.static_binary_to_scenario(opendrive_bins["Town02"]))
+    scenario = _with_object(town02)
     centroid = _centroid(scenario)
     mapped = (_box_corners(10.0, 20.0, 0.3, 4.0, 1.0) - centroid) @ matrix.T + centroid
     affine.apply_affine_transform(scenario, matrix, centroid)
@@ -276,26 +270,11 @@ def test_affine_object_box_encloses_mapped_footprint(opendrive_bins, name):
     assert np.allclose((local @ n).mean(), 0.0, atol=1e-9)
 
 
-def test_apply_affine_rebuilds_lane_graph(opendrive_bins):
-    scenario = static_binary.static_binary_to_scenario(opendrive_bins["Town02"])
-    assert scenario.lane_graph is not None
-    lane_ids = list(scenario.lane_graph["lane_ids"])
-    affine.apply_affine_transform(scenario, affine.TRANSFORM_GROUPS["scale"]["ScX10"], _centroid(scenario))
-    # Stretching global X changes inter-lane distances but not the lane set.
-    assert scenario.lane_graph is not None
-    assert list(scenario.lane_graph["lane_ids"]) == lane_ids
-    assert scenario.lane_graph["distances"].shape == (len(lane_ids), len(lane_ids))
-
-
 # Augment maps
 
 
 def test_augment_maps_writes_original_plus_variants(opendrive_bins, tmp_path):
-    input_dir = tmp_path / "in"
-    input_dir.mkdir()
-    for loc in MAP_LOCATIONS:
-        (input_dir / f"opendrive__{loc}.bin").write_bytes(opendrive_bins[loc])
-
+    input_dir = _input_dir(tmp_path, opendrive_bins, MAP_LOCATIONS)
     output_dir = tmp_path / "out"
     catalog = affine.select_transforms(["flip"])  # one transform -> one variant per map
     written = affine.augment_maps(input_dir, output_dir, catalog)
@@ -316,9 +295,7 @@ def test_augment_maps_empty_input_raises(tmp_path):
 
 
 def test_augment_maps_requires_explicit_overwrite(opendrive_bins, tmp_path):
-    input_dir = tmp_path / "in"
-    input_dir.mkdir()
-    (input_dir / "opendrive__Town02.bin").write_bytes(opendrive_bins["Town02"])
+    input_dir = _input_dir(tmp_path, opendrive_bins, ["Town02"])
     output_dir = tmp_path / "out"
     catalog = affine.select_transforms(["flip"])
     affine.augment_maps(input_dir, output_dir, catalog)
@@ -333,9 +310,7 @@ def test_augment_maps_requires_explicit_overwrite(opendrive_bins, tmp_path):
 
 
 def test_main_cli_generates_binaries(opendrive_bins, tmp_path, monkeypatch):
-    input_dir = tmp_path / "in"
-    input_dir.mkdir()
-    (input_dir / "opendrive__Town02.bin").write_bytes(opendrive_bins["Town02"])
+    input_dir = _input_dir(tmp_path, opendrive_bins, ["Town02"])
     output_dir = tmp_path / "out"
 
     argv = ["mapforge", "--groups", "flip", "--input_dir", str(input_dir), "--output_dir", str(output_dir)]

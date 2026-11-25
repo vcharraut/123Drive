@@ -14,7 +14,6 @@ from shapely.ops import split, substring
 
 from bin_factory.conversion.geometry import interpolate_all_polygons, process_polylines
 from bin_factory.conversion.traffic_controls import group_facing_phases
-from bin_factory.generators import build_lane_distance_matrix, compute_lane_lengths
 from bin_factory.puffer_types import LaneType, MapLayer, RoadEdgeType, RoadLineType, TCType
 from bin_factory.schema import PufferScenario, RoadPolyline, RoadSurface, ScenarioMetadata, TrafficControl
 from mapforge.static_binary import write_static_scenario
@@ -884,31 +883,15 @@ def generate_town(size: float = 500.0, seed: int = 0) -> PufferScenario:
     islands = shapely.union_all(islands, grid_size=0.001)
     surface_geometry, pavement, kerb_markings = streetscape(lines, half, typed, roads, junction_pavement, islands, rng)
     markings += [(RoadLineType.SOLID_WHITE, line) for line in kerb_markings]
-    first = len(polylines)
-    polylines.update(
-        {
-            first + i: RoadPolyline(layer=MapLayer.ROAD_LINE, type=line_type, polyline=xyz(line.coords))
-            for i, (line_type, line) in enumerate(markings)
-        }
-    )
+    for i, (line_type, line) in enumerate(markings, len(polylines)):
+        polylines[i] = RoadPolyline(layer=MapLayer.ROAD_LINE, type=line_type, polyline=xyz(line.coords))
     # Reverse clockwise exteriors and counterclockwise holes to keep drivable space on the left.
     polygons = shapely.orient_polygons(shapely.set_precision(pavement, 0.001), exterior_cw=True)
     rings = [ring for p in shapely.get_parts(polygons) for ring in [p.exterior, *p.interiors]]
-    first = len(polylines)
-    polylines.update(
-        {
-            first + i: RoadPolyline(
-                layer=MapLayer.ROAD_EDGE,
-                type=(
-                    RoadEdgeType.ROAD_EDGE_MEDIAN
-                    if ring.is_ccw and Polygon(ring).intersects(islands)
-                    else RoadEdgeType.ROAD_EDGE_BOUNDARY
-                ),
-                polyline=xyz(ring.coords[::-1]),
-            )
-            for i, ring in enumerate(rings)
-        }
-    )
+    for i, ring in enumerate(rings, len(polylines)):
+        median = ring.is_ccw and Polygon(ring).intersects(islands)
+        edge_type = RoadEdgeType.ROAD_EDGE_MEDIAN if median else RoadEdgeType.ROAD_EDGE_BOUNDARY
+        polylines[i] = RoadPolyline(layer=MapLayer.ROAD_EDGE, type=edge_type, polyline=xyz(ring.coords[::-1]))
     first = len(polylines)
     pieces = [(layer, p) for layer, geometry in surface_geometry for p in surface_parts(geometry)]
     surfaces = {
@@ -930,7 +913,6 @@ def generate_town(size: float = 500.0, seed: int = 0) -> PufferScenario:
     )
     process_polylines(scenario)
     interpolate_all_polygons(scenario, tolerance=0.1)
-    compute_lane_lengths(scenario)
     rules = intersection_rules(nodes, edges, outward, major, stroke, records, polylines, roundabouts, profile, rng)
     phases = {}
     for kind, node, phase in rules.values():
@@ -969,7 +951,6 @@ def generate_town(size: float = 500.0, seed: int = 0) -> PufferScenario:
             )
         )
     scenario.traffic_controls = group_facing_phases(controls)
-    scenario.lane_graph = build_lane_distance_matrix(polylines)
     return scenario
 
 

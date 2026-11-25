@@ -117,15 +117,14 @@ ${routeRow}      <details><summary>Trajectory</summary>
     const tcType = data.type || 1;
     const typeName = TC_TYPE_NAMES[tcType] || `type_${tcType}`;
     const controlled = safeIdList(data.controlled_lanes);
+    const optionalId = (value) => (value === undefined || value < 0 ? '—' : escapeHtml(value));
 
     let html = `
       <div class="info-row"><span class="info-label">ID</span><span class="info-val">${escapeHtml(data.id)}</span></div>
       <div class="info-row"><span class="info-label">Type</span><span class="info-val">${escapeHtml(typeName)}</span></div>
       <div class="info-row"><span class="info-label">Stop line</span><span class="info-val">(${data.stop_line[0][0].toFixed(1)},${data.stop_line[0][1].toFixed(1)}) → (${data.stop_line[1][0].toFixed(1)},${data.stop_line[1][1].toFixed(1)})</span></div>
       <div class="info-row"><span class="info-label">Heading</span><span class="info-val">${(data.heading * 180 / Math.PI).toFixed(1)}°</span></div>
-      <div class="info-row"><span class="info-label">Lanes</span><span class="info-val" style="font-size:9px">${controlled}</span></div>`;
-    const optionalId = (value) => (value === undefined || value < 0 ? '—' : escapeHtml(value));
-    html += `
+      <div class="info-row"><span class="info-label">Lanes</span><span class="info-val" style="font-size:9px">${controlled}</span></div>
       <div class="info-row"><span class="info-label">Junction</span><span class="info-val">${optionalId(data.junction_id)}</span></div>
       <div class="info-row"><span class="info-label">Phase</span><span class="info-val">${optionalId(data.phase_idx)}</span></div>`;
 
@@ -135,14 +134,9 @@ ${routeRow}      <details><summary>Trajectory</summary>
       const stateName = TL_STATE_NAMES[stateNow] || 'unknown';
       const colStr = TL_STATE_COLORS[stateNow] || '#808080';
 
-      let prev = -1;
-      const transitions = data.states.reduce((acc, s, i) => {
-        if (s !== prev) {
-          acc.push({t: i, state: s});
-          prev = s;
-        }
-        return acc;
-      }, []);
+      const transitions = data.states
+        .map((s, i) => ({t: i, state: s}))
+        .filter(({t: i, state: s}) => s !== (i ? data.states[i - 1] : -1));
 
       const transRows = transitions.map(tr =>
         `<tr><td>${tr.t}</td><td>${escapeHtml(TL_STATE_NAMES[tr.state] || tr.state)}</td></tr>`).join('');

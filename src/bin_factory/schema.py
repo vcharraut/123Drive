@@ -8,6 +8,15 @@ from bin_factory import puffer_types
 MAP_REF_KEYS = ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor")
 
 
+def arc_length(polyline: np.ndarray) -> np.ndarray:
+    """Return cumulative arc length per point, from 0 to total length, using all coordinate columns."""
+    polyline = np.asarray(polyline)
+    if len(polyline) < 2:
+        return np.zeros(len(polyline), dtype=np.float64)
+    seg = np.linalg.norm(np.diff(polyline, axis=0), axis=1)
+    return np.concatenate([[0.0], np.cumsum(seg)]).astype(np.float64)
+
+
 def remap_element_refs(element: "RoadPolyline", id_map: dict[int, int]) -> "RoadPolyline":
     """Copy a RoadPolyline with every MAP_REF_KEYS id remapped through ``id_map`` and unknown ids dropped."""
     return dataclasses.replace(
@@ -71,9 +80,18 @@ class RoadPolyline:
     right_boundary: np.ndarray | None = None
     left_neighbor: list = dataclasses.field(default_factory=list)
     right_neighbor: list = dataclasses.field(default_factory=list)
-    length: float = 0.0
-    cum_length: np.ndarray | None = None
     in_junction: bool = False
+    intersection_id: int = -1  # map element id of the lane's intersection, -1 if none or unknown; not serialized
+
+    @property
+    def cum_length(self) -> np.ndarray:
+        """3D arc length at each point, derived from the polyline: the metric of route spans."""
+        return arc_length(self.polyline if self.polyline is not None else np.zeros((0, 3)))
+
+    @property
+    def length(self) -> float:
+        cum_length = self.cum_length
+        return float(cum_length[-1]) if len(cum_length) else 0.0
 
     @property
     def is_lane(self) -> bool:
@@ -132,4 +150,3 @@ class PufferScenario:
     metadata: ScenarioMetadata
     surfaces: dict[int, RoadSurface] = dataclasses.field(default_factory=dict)  # same id space as polylines
     traffic_controls: list[TrafficControl] = dataclasses.field(default_factory=list)
-    lane_graph: dict | None = None

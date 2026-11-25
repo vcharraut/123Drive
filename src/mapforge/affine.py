@@ -7,8 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from bin_factory.conversion.geometry import resample_polyline
-from bin_factory.generators import build_lane_distance_matrix, compute_lane_lengths
-from bin_factory.schema import PufferScenario, RoadPolyline, RoadSurface, Track, TrafficControl
+from bin_factory.schema import PufferScenario, RoadPolyline
 from mapforge import static_binary
 
 
@@ -127,65 +126,40 @@ def apply_affine_transform(
     resample_points = float(np.max(np.linalg.svd(matrix, compute_uv=False))) > 1.0 + SINGULAR_VALUE_TOLERANCE
     mirrored = bool(np.linalg.det(matrix) < 0)
     for element in [*scenario.polylines.values(), *scenario.surfaces.values()]:
-        _transform_map_element(element, matrix, centroid, mirrored, resample_points)
+        # A reflection turns every lane's left neighbour into its right one
+        if mirrored and isinstance(element, RoadPolyline):
+            element.left_neighbor, element.right_neighbor = element.right_neighbor, element.left_neighbor
+        key = "polyline" if isinstance(element, RoadPolyline) else "polygon"
+        xyz = np.asarray(getattr(element, key), dtype=np.float64)
+        transformed = _transform_xyz(xyz, matrix, centroid)
+        if resample_points:
+            # Road edges keep their converted spacing when --edge_max_segment_length is below 10 m
+            max_length = MAX_AUGMENTED_SEGMENT_LENGTH
+            if isinstance(element, RoadPolyline) and element.is_edge:
+                max_length = min(max_length, float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).max()))
+            transformed = resample_polyline(transformed, max_length)
+        setattr(element, key, transformed)
+
     for traffic_control in scenario.traffic_controls:
-        _transform_traffic_control(traffic_control, matrix, centroid)
+        traffic_control.stop_line = _transform_xyz(
+            np.asarray(traffic_control.stop_line, dtype=np.float64), matrix, centroid
+        )
+        control_heading = float(traffic_control.heading)
+        rotated = matrix @ np.array([np.cos(control_heading), np.sin(control_heading)], dtype=np.float64)
+        traffic_control.heading = float(np.arctan2(rotated[1], rotated[0]))
+
     for track in scenario.objects.values():
-        _transform_object_track(track, matrix, centroid)
-
-    compute_lane_lengths(scenario)
-    scenario.lane_graph = build_lane_distance_matrix(scenario.polylines)
-
-
-def _transform_map_element(
-    element: RoadPolyline | RoadSurface,
-    matrix: np.ndarray,
-    centroid: np.ndarray,
-    mirrored: bool,
-    resample_points: bool,
-) -> None:
-    # A reflection turns every lane's left neighbour into its right one
-    if mirrored and isinstance(element, RoadPolyline):
-        element.left_neighbor, element.right_neighbor = element.right_neighbor, element.left_neighbor
-    key = "polyline" if isinstance(element, RoadPolyline) else "polygon"
-    xyz = np.asarray(getattr(element, key), dtype=np.float64)
-    transformed = _transform_xyz(xyz, matrix, centroid)
-    if resample_points:
-        # Road edges keep their converted spacing when --edge_max_segment_length is below 10 m
-        max_length = MAX_AUGMENTED_SEGMENT_LENGTH
-        if isinstance(element, RoadPolyline) and element.is_edge:
-            max_length = min(max_length, float(np.linalg.norm(np.diff(xyz, axis=0), axis=1).max()))
-        transformed = resample_polyline(transformed, max_length)
-    setattr(element, key, transformed)
-
-
-def _transform_traffic_control(
-    traffic_control: TrafficControl,
-    matrix: np.ndarray,
-    centroid: np.ndarray,
-) -> None:
-    traffic_control.stop_line = _transform_xyz(
-        np.asarray(traffic_control.stop_line, dtype=np.float64),
-        matrix,
-        centroid,
-    )
-    heading = float(traffic_control.heading)
-    rotated = matrix @ np.array([np.cos(heading), np.sin(heading)], dtype=np.float64)
-    traffic_control.heading = float(np.arctan2(rotated[1], rotated[0]))
-
-
-def _transform_object_track(track: Track, matrix: np.ndarray, centroid: np.ndarray) -> None:
-    # The mapped box is a parallelogram, so keep the rectangle along the mapped heading that encloses it
-    heading = np.asarray(track.heading, dtype=np.float64)
-    along = np.stack([np.cos(heading), np.sin(heading)], axis=1) @ matrix.T
-    across = np.stack([-np.sin(heading), np.cos(heading)], axis=1) @ matrix.T
-    along_norm = np.linalg.norm(along, axis=1)
-    overhang = np.abs(np.sum(across * along, axis=1)) / along_norm
-    track.position = _transform_xyz(np.asarray(track.position, dtype=np.float64), matrix, centroid)
-    track.velocity = np.asarray(track.velocity, dtype=np.float64) @ matrix.T
-    track.heading = np.arctan2(along[:, 1], along[:, 0])
-    track.length = along_norm * track.length + overhang * track.width
-    track.width = abs(np.linalg.det(matrix)) / along_norm * track.width
+        # The mapped box is a parallelogram, so keep the rectangle along the mapped heading that encloses it
+        heading = np.asarray(track.heading, dtype=np.float64)
+        along = np.stack([np.cos(heading), np.sin(heading)], axis=1) @ matrix.T
+        across = np.stack([-np.sin(heading), np.cos(heading)], axis=1) @ matrix.T
+        along_norm = np.linalg.norm(along, axis=1)
+        overhang = np.abs(np.sum(across * along, axis=1)) / along_norm
+        track.position = _transform_xyz(np.asarray(track.position, dtype=np.float64), matrix, centroid)
+        track.velocity = np.asarray(track.velocity, dtype=np.float64) @ matrix.T
+        track.heading = np.arctan2(along[:, 1], along[:, 0])
+        track.length = along_norm * track.length + overhang * track.width
+        track.width = abs(np.linalg.det(matrix)) / along_norm * track.width
 
 
 def _transform_xyz(xyz: np.ndarray, matrix: np.ndarray, centroid: np.ndarray) -> np.ndarray:
@@ -194,7 +168,8 @@ def _transform_xyz(xyz: np.ndarray, matrix: np.ndarray, centroid: np.ndarray) ->
     return transformed
 
 
-def build_parser() -> argparse.ArgumentParser:
+def main() -> int:
+    logging.basicConfig(format="%(levelname)s %(name)s: %(message)s", level=logging.INFO)
     parser = argparse.ArgumentParser(description="Generate affine-augmented static map binaries")
     parser.add_argument(
         "--groups",
@@ -203,34 +178,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Transform groups to run (default: all)",
     )
-    parser.add_argument(
-        "--input_dir",
-        type=Path,
-        required=True,
-        help="Directory containing static map .bin files",
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=Path,
-        required=True,
-        help="Directory for augmented .bin files",
-    )
+    parser.add_argument("--input_dir", type=Path, required=True, help="Directory containing static map .bin files")
+    parser.add_argument("--output_dir", type=Path, required=True, help="Directory for augmented .bin files")
     parser.add_argument("--overwrite", action="store_true", help="Replace existing output files")
-    return parser
-
-
-def main() -> int:
-    logging.basicConfig(format="%(levelname)s %(name)s: %(message)s", level=logging.INFO)
-    args = build_parser().parse_args()
+    args = parser.parse_args()
     if not args.input_dir.is_dir():
         raise FileNotFoundError(f"Input directory does not exist: {args.input_dir}")
     catalog = select_transforms(args.groups)
-    written = augment_maps(
-        input_dir=args.input_dir,
-        output_dir=args.output_dir,
-        catalog=catalog,
-        overwrite=args.overwrite,
-    )
+    written = augment_maps(args.input_dir, args.output_dir, catalog, overwrite=args.overwrite)
     logger.info(
         "Generated %d map binaries: %d transforms/map across groups %s",
         len(written),

@@ -3,7 +3,6 @@ from scipy import sparse as scipy_sparse
 from scipy.sparse import csgraph as scipy_csgraph
 
 from bin_factory import puffer_types, schema
-from bin_factory.conversion.geometry import arc_length
 
 
 GRAPH_LANE_TYPES = {puffer_types.LaneType.FREEWAY, puffer_types.LaneType.SURFACE_STREET}
@@ -44,16 +43,3 @@ def build_lane_distance_matrix(map_elements: dict[int, schema.RoadPolyline]) -> 
     dist_matrix = scipy_csgraph.dijkstra(graph, directed=True).astype(np.float64)
 
     return {"lane_ids": lane_ids, "distances": dist_matrix}
-
-
-def compute_lane_lengths(scenario: schema.PufferScenario) -> None:
-    """Set each lane's total length and cumulative arc length per point.
-
-    Run after ``geometry.process_polylines`` so lengths match the serialized geometry.
-    """
-    for elem in scenario.polylines.values():
-        if not elem.is_lane or elem.polyline is None:
-            continue
-        cum = arc_length(elem.polyline)
-        elem.cum_length = cum
-        elem.length = float(cum[-1]) if len(cum) else 0.0

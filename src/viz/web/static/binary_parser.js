@@ -80,16 +80,12 @@ window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true}
         result.set(stored, first);
         return result;
       };
-      const x = pad(f32arr(n), Float32Array);
-      const y = pad(f32arr(n), Float32Array);
-      const z = flags & 8 ? new Float32Array(T) : pad(f32arr(n), Float32Array);
-      const heading = pad(f32arr(n), Float32Array);
-      const vx = pad(f32arr(n), Float32Array);
-      const vy = pad(f32arr(n), Float32Array);
-      const dimensions = [0, 1, 2].map(bit => {
-        if (!(flags & (1 << bit))) return pad(f32arr(n), Float32Array);
-        return new Float32Array(T).fill(f32(), first, first + n);
-      });
+      const channel = () => pad(f32arr(n), Float32Array);
+      const x = channel(), y = channel();
+      const z = flags & 8 ? new Float32Array(T) : channel();
+      const heading = channel(), vx = channel(), vy = channel();
+      // Flag bits 0..2 store length, width, and height as one value when constant
+      const dimensions = [0, 1, 2].map(bit => (flags & (1 << bit) ? new Float32Array(T).fill(f32(), first, first + n) : channel()));
       const valid = pad(new Uint8Array(buffer, off, n), Uint8Array);
       off = Math.ceil((off + n) / 4) * 4;
       const track = {
@@ -112,10 +108,7 @@ window.parsePufferBinary = function parsePufferBinary(buffer, {laneGraph = true}
       let entry_lanes = [], exit_lanes = [], left_neighbors = [], right_neighbors = [];
       let speed_limit = 0, length = 0, cum_length = [], curvature = [];
       if (layer === 0) {  // py123d MapLayer.LANE
-        entry_lanes = intList();
-        exit_lanes = intList();
-        left_neighbors = intList();
-        right_neighbors = intList();
+        [entry_lanes, exit_lanes, left_neighbors, right_neighbors] = [intList(), intList(), intList(), intList()];
         speed_limit = f32();
         cum_length = f32arr(S);
         length = cum_length[S - 1];

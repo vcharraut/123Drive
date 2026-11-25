@@ -111,8 +111,8 @@ def test_controls_are_finite_and_carry_no_light_states(scenario):
 
 def test_town_round_trips(scenario):
     assert all(np.isfinite(p.polyline).all() for p in scenario.polylines.values())
-    once = serialize.scenario_to_binary(serialize.static_binary_to_scenario(serialize.scenario_to_binary(scenario)))
-    assert serialize.scenario_to_binary(serialize.static_binary_to_scenario(once)) == once
+    once = serialize.scenario_to_binary(serialize.binary_to_scenario(serialize.scenario_to_binary(scenario)))
+    assert serialize.scenario_to_binary(serialize.binary_to_scenario(once)) == once
 
 
 def test_generation_is_repeatable():

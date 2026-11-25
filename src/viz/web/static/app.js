@@ -1,7 +1,7 @@
 /* deck.gl viewer renderer. */
 'use strict';
 
-const {DeckGL, OrthographicView, OrbitView, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer, PathStyleExtension, LinearInterpolator, COORDINATE_SYSTEM} = window.deck;
+const {DeckGL, OrthographicView, OrbitView, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer, PathStyleExtension} = window.deck;
 
 // Constants
 const SCROLL_ZOOM_SPEED = 0.012;
@@ -13,12 +13,14 @@ const DEFAULT_3D_ROTATION_X = 30;
 const CHASE_CAM_PITCH = 20;
 const CHASE_CAM_ZOOM = 4.2;
 const CHASE_CAM_OFFSET = 8;
+const DRAG_THRESHOLD_PX = 4;
 
 // Theme
 const CLEAR_COLORS = {
   dark:  [0.031, 0.047, 0.071, 1],   // #080C12
   light: [0.941, 0.949, 0.961, 1],   // #F0F2F5
 };
+const savedTheme = localStorage.getItem('puffer-viz-theme') || 'dark';
 
 function getTheme() {
   return document.body.getAttribute('data-theme') || 'dark';
@@ -28,30 +30,16 @@ function setTheme(theme) {
   document.body.setAttribute('data-theme', theme);
   document.body.style.colorScheme = theme;
   localStorage.setItem('puffer-viz-theme', theme);
-  const btn = document.getElementById('btn-theme');
-  if (btn) btn.textContent = theme === 'dark' ? '\u2600' : '\u263E';
-  if (typeof deckgl !== 'undefined') {
-    deckgl.setProps({ parameters: { clearColor: CLEAR_COLORS[theme] } });
-  }
+  document.getElementById('btn-theme').textContent = theme === 'dark' ? '☀' : '☾';
+  deckgl.setProps({parameters: {clearColor: CLEAR_COLORS[theme]}});
 }
-
-// Restore saved theme or default to dark
-const savedTheme = localStorage.getItem('puffer-viz-theme') || 'dark';
-if (savedTheme === 'light') document.body.setAttribute('data-theme', 'light');
-document.body.style.colorScheme = savedTheme;
 
 // Flip Y axis: data uses Y-up (north) but OrthographicView uses Y-down (screen).
 // Only applied in 2D; 3D uses identity to preserve chirality (driving side).
 const FLIP_Y = [1, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const {
-  escapeHtml,
-  safeIdList,
-  getObjectsOfInterest,
-  setAppStatus,
-  getRoadChevrons,
-  getVehicleCorners,
-  getHeadingArrow,
+  escapeHtml, safeIdList, getObjectsOfInterest, setAppStatus, getRoadChevrons, getVehicleCorners, getHeadingArrow,
   sceneBounds,
 } = window.VizHelpers;
 const {renderElementInfoHtml} = window.VizInfoPanel;
@@ -64,18 +52,16 @@ const AGENT_COLORS = {
   2: [5,  150, 105],    // pedestrian, emerald-600
   3: [217, 119,  6],    // cyclist, amber-600
 };
-const OBJECT_COLORS = {
-  1: [220, 38, 38],
-  2: [234, 88, 12],
-  3: [22, 163, 74],
-  4: [71, 85, 105],
-  5: [8, 145, 178],
-};
+const OBJECT_COLORS = {1: [220, 38, 38], 2: [234, 88, 12], 3: [22, 163, 74], 4: [71, 85, 105], 5: [8, 145, 178]};
 const EGO_COLOR = [220, 38, 38]; // red-600
 const ROUTELESS_COLOR = [148, 163, 184]; // slate-400
-const ROUTE_COLOR = [116, 136, 160, 88];
 const BROWN = [139, 90, 43];
-const EGO_ROUTE_COLOR = [220, 38, 38, 96];
+const BLUE = [26, 115, 232];
+const GREEN = [16, 185, 129];
+const RED = [239, 68, 68];
+const AMBER = [217, 119, 6];
+const PATH_COLOR = [6, 182, 212];  // cyan/teal
+const UNKNOWN_COLOR = [124, 58, 237];
 
 // Use these types until /api/types responds.
 window.TYPES = {
@@ -90,33 +76,33 @@ window.TYPES = {
 // py123d MapLayer values, as in bin_factory/puffer_types.py
 const MAP_LAYER = {LANE: 0, LANE_GROUP: 1, INTERSECTION: 2, CROSSWALK: 3, WALKWAY: 4, CARPARK: 5,
                    GENERIC_DRIVABLE: 6, ROAD_EDGE: 8, ROAD_LINE: 9, SPEED_BUMP: 10, SHOULDER: 12};
-const TC_TYPE_COLORS = {2:[220,38,38], 3:[234,179,8]};
 
-// RGB versions of TL_STATE_COLORS for deck.gl layers
-function hexToRgb(hex) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return [r, g, b];
-}
+// RGB version of TL_STATE_COLORS for deck.gl layers
 function getTlStateColorRgb(state) {
   const hex = window.TYPES.TL_STATE_COLORS[state] || '#808080';
-  return hexToRgb(hex);
+  return [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
 }
-
 
 const RECORDING_FPS = 30;
 const RECORDING_GRID_STEP = 24;
 const RECORDING_VIDEO_BITS_PER_SECOND = 16_000_000;
-const RECORDING_MIME_TYPES = [
-  'video/webm;codecs=vp9',
-  'video/webm;codecs=vp8',
-  'video/webm',
-];
+const RECORDING_MIME_TYPES = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
 
 const EMPTY_DETAIL_HTML = '<span class="empty-state">Click an element to inspect.</span>';
 
+function infoRow(label, value) {
+  return `<div class="info-row"><span class="info-label">${label}</span><span class="info-val">${value}</span></div>`;
+}
+
 // State
+
+function newPathFinder(active = false) {
+  return {active, source: null, dest: null, path: null};
+}
+
+function newRuler(active = false) {
+  return {active, p1: null, p2: null, distance: null};
+}
 
 const state = {
   scenario: null,
@@ -127,8 +113,8 @@ const state = {
   followEgo: false,
   layers: { scatter_roads: false },  // checkbox layers are seeded from #layer-toggles
   selected: null,
-  pathFinder: { active: false, source: null, dest: null, path: null, distance: null },
-  ruler: { active: false, p1: null, p2: null, distance: null },
+  pathFinder: newPathFinder(),
+  ruler: newRuler(),
   staticLayerCache: null,
   staticLayerCacheKey: null,
   playTimer: null,
@@ -136,53 +122,24 @@ const state = {
   suppressNextCanvasClick: false,
   scenarioFilename: null,
   recording: {
-    status: 'idle',
-    recorder: null,
-    chunks: [],
-    mimeType: '',
-    canvas: null,
-    ctx: null,
-    stream: null,
-    tickId: null,
-    widthCss: 0,
-    heightCss: 0,
-    exportName: null,
-    capturePending: false,
-    cachedBgColor: '#080C12',
-    cachedGridColor: 'rgba(242,113,141,.04)',
+    status: 'idle', recorder: null, chunks: [], mimeType: '', canvas: null, ctx: null, stream: null, tickId: null,
+    widthCss: 0, heightCss: 0, exportName: null, capturePending: false,
+    cachedBgColor: '#080C12', cachedGridColor: 'rgba(242,113,141,.04)',
   },
 };
 
-const dragState = {
-  pointerId: null,
-  mode: null,
-  startScreen: null,
-  startGround: null,
-  startTarget: null,
-  startRotationX: 0,
-  startRotationOrbit: 0,
-  moved: false,
+const IDLE_DRAG = {
+  pointerId: null, mode: null, startScreen: null, startGround: null, startTarget: null,
+  startRotationX: 0, startRotationOrbit: 0, moved: false,
 };
-
-const DRAG_THRESHOLD_PX = 4;
+const dragState = {...IDLE_DRAG};
 
 // Recording
 
-function getDeckCanvas() {
-  return deckContainer.querySelector('canvas');
-}
-
-function supportsRecording() {
-  return typeof window.MediaRecorder !== 'undefined';
-}
-
-function isRecording() {
-  return state.recording.status === 'recording';
-}
-
-function isRecordingBusy() {
-  return state.recording.status !== 'idle';
-}
+function getDeckCanvas() { return deckContainer.querySelector('canvas'); }
+function supportsRecording() { return typeof window.MediaRecorder !== 'undefined'; }
+function isRecording() { return state.recording.status === 'recording'; }
+function isRecordingBusy() { return state.recording.status !== 'idle'; }
 
 function getScenarioExportName(filename) {
   const base = String(filename || 'scenario')
@@ -191,12 +148,6 @@ function getScenarioExportName(filename) {
     .replace(/[^A-Za-z0-9._-]+/g, '_')
     .replace(/^_+|_+$/g, '');
   return base || 'scenario';
-}
-
-function getRecordingLabel() {
-  if (state.recording.status === 'recording') return 'STOP';
-  if (state.recording.status === 'encoding') return 'ENC';
-  return 'REC';
 }
 
 function getRecordingTitle() {
@@ -209,69 +160,53 @@ function getRecordingTitle() {
 }
 
 function updateRecordingUi() {
-  if (!btnRec) return;
-  btnRec.textContent = getRecordingLabel();
+  btnRec.textContent = {recording: 'STOP', encoding: 'ENC'}[state.recording.status] || 'REC';
   btnRec.title = getRecordingTitle();
-  btnRec.disabled = (
-    !supportsRecording()
-    || !state.scenario
-    || state.scenario.metadata.scenario_length <= 1
-    || state.recording.status === 'encoding'
-  );
+  btnRec.disabled = !supportsRecording() || !state.scenario || state.scenario.metadata.scenario_length <= 1
+    || state.recording.status === 'encoding';
   btnRec.classList.toggle('active', state.recording.status === 'recording');
 }
 
 function resetRecordingRuntime() {
-  if (state.recording.tickId) clearInterval(state.recording.tickId);
-  if (state.recording.stream) {
-    state.recording.stream.getTracks().forEach(track => track.stop());
-  }
-  state.recording.recorder = null;
-  state.recording.canvas = null;
-  state.recording.ctx = null;
-  state.recording.stream = null;
-  state.recording.tickId = null;
-  state.recording.widthCss = 0;
-  state.recording.heightCss = 0;
-  state.recording.capturePending = false;
+  const rec = state.recording;
+  if (rec.tickId) clearInterval(rec.tickId);
+  if (rec.stream) rec.stream.getTracks().forEach(track => track.stop());
+  Object.assign(rec, {
+    recorder: null, canvas: null, ctx: null, stream: null, tickId: null, widthCss: 0, heightCss: 0, capturePending: false,
+  });
 }
 
 function resetRecordingState() {
   resetRecordingRuntime();
-  state.recording.status = 'idle';
-  state.recording.chunks = [];
-  state.recording.mimeType = '';
-  state.recording.exportName = null;
+  Object.assign(state.recording, {status: 'idle', chunks: [], mimeType: '', exportName: null});
   updateRecordingUi();
 }
 
-function pickRecordingMimeType() {
-  if (typeof window.MediaRecorder.isTypeSupported !== 'function') return '';
-  const pick = RECORDING_MIME_TYPES.find(type => window.MediaRecorder.isTypeSupported(type));
-  return pick || '';
-}
-
 function resizeRecordingCanvas() {
+  const rec = state.recording;
   const rect = canvasContainer.getBoundingClientRect();
   const widthCss = Math.max(Math.round(rect.width), 1);
   const heightCss = Math.max(Math.round(rect.height), 1);
-  if (
-    state.recording.widthCss === widthCss &&
-    state.recording.heightCss === heightCss &&
-    state.recording.canvas
-  ) return;
-
+  if (rec.widthCss === widthCss && rec.heightCss === heightCss && rec.canvas) return;
   const dpr = Math.max(window.devicePixelRatio || 1, 1);
-  const canvas = state.recording.canvas;
-  canvas.width = Math.max(Math.round(widthCss * dpr), 1);
-  canvas.height = Math.max(Math.round(heightCss * dpr), 1);
-  const ctx = state.recording.ctx;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  state.recording.widthCss = widthCss;
-  state.recording.heightCss = heightCss;
+  rec.canvas.width = Math.max(Math.round(widthCss * dpr), 1);
+  rec.canvas.height = Math.max(Math.round(heightCss * dpr), 1);
+  rec.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  rec.widthCss = widthCss;
+  rec.heightCss = heightCss;
 }
 
-function drawRecordingGrid(ctx, width, height) {
+function drawRecordingFrame() {
+  if (!isRecording()) return;
+  resizeRecordingCanvas();
+  const deckCanvas = getDeckCanvas();
+  if (!deckCanvas) return;
+
+  const {ctx, widthCss: width, heightCss: height} = state.recording;
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = state.recording.cachedBgColor;
+  ctx.fillRect(0, 0, width, height);
+  // Background grid, as the canvas container draws it behind the deck canvas
   ctx.strokeStyle = state.recording.cachedGridColor;
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -284,21 +219,6 @@ function drawRecordingGrid(ctx, width, height) {
     ctx.lineTo(width, y + 0.5);
   }
   ctx.stroke();
-}
-
-function drawRecordingFrame() {
-  if (!isRecording()) return;
-  resizeRecordingCanvas();
-  const deckCanvas = getDeckCanvas();
-  if (!deckCanvas) return;
-
-  const ctx = state.recording.ctx;
-  const width = state.recording.widthCss;
-  const height = state.recording.heightCss;
-  ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = state.recording.cachedBgColor;
-  ctx.fillRect(0, 0, width, height);
-  drawRecordingGrid(ctx, width, height);
   ctx.drawImage(deckCanvas, 0, 0, width, height);
 }
 
@@ -314,15 +234,6 @@ function handleAfterRender() {
   drawRecordingFrame();
 }
 
-function triggerRecordingDownload(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
 async function uploadRecording(blob, exportName) {
   const resp = await fetch(`/api/export/mp4?name=${encodeURIComponent(exportName)}`, {
     method: 'POST',
@@ -332,8 +243,7 @@ async function uploadRecording(blob, exportName) {
   if (!resp.ok) {
     let detail = `HTTP ${resp.status}`;
     try {
-      const payload = await resp.json();
-      detail = payload.detail || detail;
+      detail = (await resp.json()).detail || detail;
     } catch (_) {
       const text = await resp.text();
       if (text) detail = text;
@@ -345,13 +255,15 @@ async function uploadRecording(blob, exportName) {
 
 async function startRecording() {
   if (isRecordingBusy() || !state.scenario || !supportsRecording()) return;
-  const deckCanvas = getDeckCanvas();
-  if (!deckCanvas) {
+  if (!getDeckCanvas()) {
     setAppStatus('Deck canvas unavailable for recording', 'error');
     return;
   }
 
-  const mimeType = pickRecordingMimeType();
+  const {isTypeSupported} = window.MediaRecorder;
+  const mimeType = typeof isTypeSupported === 'function'
+    ? RECORDING_MIME_TYPES.find(type => window.MediaRecorder.isTypeSupported(type)) || ''
+    : '';
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   if (!ctx) {
@@ -359,27 +271,21 @@ async function startRecording() {
     return;
   }
 
-  state.recording.status = 'recording';
-  state.recording.recorder = null;
-  state.recording.chunks = [];
-  state.recording.mimeType = mimeType;
-  state.recording.canvas = canvas;
-  state.recording.ctx = ctx;
-  state.recording.exportName = getScenarioExportName(state.scenarioFilename);
-  const bodyStyles = getComputedStyle(document.body);
-  const containerStyles = getComputedStyle(canvasContainer);
-  state.recording.cachedGridColor = bodyStyles.getPropertyValue('--grid-color').trim() || 'rgba(242,113,141,.04)';
-  state.recording.cachedBgColor = containerStyles.backgroundColor || '#080C12';
+  Object.assign(state.recording, {
+    status: 'recording', recorder: null, chunks: [], mimeType, canvas, ctx,
+    exportName: getScenarioExportName(state.scenarioFilename),
+    cachedGridColor: getComputedStyle(document.body).getPropertyValue('--grid-color').trim() || 'rgba(242,113,141,.04)',
+    cachedBgColor: getComputedStyle(canvasContainer).backgroundColor || '#080C12',
+  });
   resizeRecordingCanvas();
   try {
     const stream = canvas.captureStream(RECORDING_FPS);
     state.recording.stream = stream;
     const [videoTrack] = stream.getVideoTracks();
     if (videoTrack && 'contentHint' in videoTrack) videoTrack.contentHint = 'detail';
-    const recorderOptions = mimeType
-      ? {mimeType, videoBitsPerSecond: RECORDING_VIDEO_BITS_PER_SECOND}
-      : {videoBitsPerSecond: RECORDING_VIDEO_BITS_PER_SECOND};
-    const recorder = new MediaRecorder(stream, recorderOptions);
+    const recorder = new MediaRecorder(stream, {
+      ...(mimeType ? {mimeType} : {}), videoBitsPerSecond: RECORDING_VIDEO_BITS_PER_SECOND,
+    });
     recorder.addEventListener('dataavailable', event => {
       if (event.data && event.data.size > 0) state.recording.chunks.push(event.data);
     });
@@ -398,13 +304,12 @@ async function startRecording() {
 
 async function stopRecording(statusMessage = 'Encoding mp4…') {
   if (!isRecording()) return;
-  const recorder = state.recording.recorder;
+  const {recorder, exportName} = state.recording;
   if (!recorder) {
     resetRecordingState();
     setAppStatus('Recording failed: recorder unavailable', 'error');
     return;
   }
-  const exportName = state.recording.exportName;
   const stopped = new Promise((resolve, reject) => {
     recorder.addEventListener('stop', resolve, {once: true});
     recorder.addEventListener('error', event => reject(event.error || new Error('Recording failed')), {once: true});
@@ -423,8 +328,12 @@ async function stopRecording(statusMessage = 'Encoding mp4…') {
     const blob = new Blob(state.recording.chunks, {type: state.recording.mimeType || 'video/webm'});
     if (!blob.size) throw new Error('Recording is empty');
     resetRecordingRuntime();
-    const mp4 = await uploadRecording(blob, exportName);
-    triggerRecordingDownload(mp4, `${exportName}.mp4`);
+    const url = URL.createObjectURL(await uploadRecording(blob, exportName));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${exportName}.mp4`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
     resetRecordingState();
     setAppStatus(`Saved ${exportName}.mp4`, 'ok');
   } catch (err) {
@@ -434,23 +343,14 @@ async function stopRecording(statusMessage = 'Encoding mp4…') {
 }
 
 async function toggleRecording() {
-  if (state.recording.status === 'recording') {
-    await stopRecording();
-    return;
-  }
-  if (state.recording.status === 'idle') {
-    await startRecording();
-  }
+  if (state.recording.status === 'recording') await stopRecording();
+  else if (state.recording.status === 'idle') await startRecording();
 }
 
 // Geometry
 
-function hasFiniteZ(point) {
-  return point != null && point.length > 2 && Number.isFinite(point[2]);
-}
-
-function getPointZ(point, fallback = 0) {
-  return hasFiniteZ(point) ? point[2] : fallback;
+function getPointZ(point) {
+  return point != null && point.length > 2 && Number.isFinite(point[2]) ? point[2] : 0;
 }
 
 function toViewPoint(point, zOffset = 0) {
@@ -458,8 +358,8 @@ function toViewPoint(point, zOffset = 0) {
   return [point[0], point[1]];
 }
 
-function toViewPath(points, zOffset = 0) {
-  return points.map(point => toViewPoint(point, zOffset));
+function toViewPath(points) {
+  return points.map(point => toViewPoint(point));
 }
 
 const toXY = d => toViewPath(d.xyz);
@@ -487,12 +387,6 @@ function getSceneMetrics(scenario) {
   return scenario.__sceneMetrics;
 }
 
-function getSceneFocusTarget(scenario) {
-  const bounds = getSceneMetrics(scenario);
-  if (!bounds) return [0, 0, 0];
-  return [bounds.cx, bounds.cy, bounds.cz];
-}
-
 function niceStep(value) {
   if (!Number.isFinite(value) || value <= 0) return 1;
   const magnitude = 10 ** Math.floor(Math.log10(value));
@@ -501,31 +395,6 @@ function niceStep(value) {
   if (normalized <= 2) return 2 * magnitude;
   if (normalized <= 5) return 5 * magnitude;
   return 10 * magnitude;
-}
-
-function formatAxisLabel(value, step) {
-  if (step < 1) return value.toFixed(1);
-  return value.toFixed(0);
-}
-
-function getSceneAxisSpec(scenario) {
-  const bounds = getSceneMetrics(scenario);
-  if (!bounds) return null;
-  const xSpan = Math.max(bounds.xmax - bounds.xmin, 1);
-  const ySpan = Math.max(bounds.ymax - bounds.ymin, 1);
-  const zSpan = bounds.zmax - bounds.zmin;
-  const baseSpan = Math.max(xSpan, ySpan, 10);
-  const axisHeight = zSpan > 1e-3 ? zSpan : Math.max(10, baseSpan * 0.15);
-  const margin = baseSpan * 0.06;
-  const foot = Math.max(baseSpan * 0.04, 4);
-  const tickStep = niceStep(axisHeight / 4);
-  return {
-    origin: [bounds.xmin - margin, bounds.ymin - margin, bounds.zmin],
-    axisHeight,
-    foot,
-    tickStep,
-    topZ: bounds.zmin + axisHeight,
-  };
 }
 
 function getEgoState(scenario, t) {
@@ -588,28 +457,20 @@ function reconstructPath(scenario, srcId, dstId) {
   const path = [srcId];
   let curIdx = srcIdx;
   let curId = srcId;
-  const MAX_HOPS = lg.n;
-  let hops = 0;
-  while (curId !== dstId) {
-    if (++hops > MAX_HOPS) return null;
+  for (let hops = 1; curId !== dstId; hops++) {
+    if (hops > lg.n) return null;
     const lane = roadMap.get(curId);
     if (!lane) return null;
-    const exits = (lane.exit_lanes || []).filter(eid => idToIdx.has(eid));
-    const next = exits.find(eid => {
-      const eidx = idToIdx.get(eid);
-      return Math.abs(lane.length + dist(eidx, dstIdx) - dist(curIdx, dstIdx)) < 0.01;
-    });
+    // The next lane is the exit that lies on a shortest path
+    const next = (lane.exit_lanes || []).find(
+      eid => idToIdx.has(eid) && Math.abs(lane.length + dist(idToIdx.get(eid), dstIdx) - dist(curIdx, dstIdx)) < 0.01,
+    );
     if (next === undefined) return null;
     path.push(next);
     curIdx = idToIdx.get(next);
     curId = next;
   }
   return { laneIds: path, distance: totalDist };
-}
-
-function getAgentRouteStart(agent) {
-  const firstValid = agent.valid.findIndex(Boolean);
-  return firstValid >= 0 ? agent.xyz[firstValid] : agent.xyz[0];
 }
 
 function cropPathToStart(path, startPos) {
@@ -636,7 +497,8 @@ function cropPathByS(path, cum, s0, s1) {
 }
 
 function getAgentRouteSegments(agent, roadMap) {
-  const startPos = getAgentRouteStart(agent);
+  const firstValid = agent.valid.findIndex(Boolean);
+  const startPos = firstValid >= 0 ? agent.xyz[firstValid] : agent.xyz[0];
   const route = Array.isArray(agent.route) ? agent.route : [];
   return route
     .map((laneId, routeIdx) => ({road: roadMap.get(laneId), routeIdx}))
@@ -648,8 +510,7 @@ function getAgentRouteSegments(agent, roadMap) {
         agent.route_entry_s[routeIdx],
         agent.route_exit_s[routeIdx],
       );
-      const croppedPath = idx === 0 ? cropPathToStart(path, startPos) : path;
-      return {path: croppedPath, laneId: road.id, agentId: agent.id};
+      return {path: idx === 0 ? cropPathToStart(path, startPos) : path, laneId: road.id, agentId: agent.id};
     })
     .filter(seg => seg.path.length > 1);
 }
@@ -670,11 +531,18 @@ const CONTROLLER_2D = {
 const CONTROLLER_3D = false;
 
 function instantViewState(vs) {
-  const next = {...vs};
-  delete next.transitionDuration;
-  delete next.transitionInterpolator;
-  delete next.transitionEasing;
+  const {transitionDuration, transitionInterpolator, transitionEasing, ...next} = vs;
   return next;
+}
+
+// The 3D chase view looking along the ego's heading
+function egoOrbitViewState(ego, extra) {
+  return {
+    ...instantViewState(state.viewState),
+    target: [ego.x, ego.y, ego.z],
+    rotationOrbit: -(ego.heading * 180 / Math.PI) + 90,
+    ...extra,
+  };
 }
 
 function convertTargetForViewMode(target, fromMode, toMode) {
@@ -688,24 +556,9 @@ function isPrimaryPointerEvent(event) {
   return button == null || button === 0;
 }
 
-function consumeSuppressedCanvasClick() {
-  if (!state.suppressNextCanvasClick) return false;
-  state.suppressNextCanvasClick = false;
-  return true;
-}
-
-function updateFollowEgoUi() {
-  document.getElementById('btn-follow').classList.toggle('active', state.followEgo);
-}
-
 function setFollowEgo(enabled) {
   state.followEgo = enabled;
-  updateFollowEgoUi();
-}
-
-function disableFollowEgo() {
-  if (!state.followEgo) return;
-  setFollowEgo(false);
+  document.getElementById('btn-follow').classList.toggle('active', state.followEgo);
 }
 
 function syncCanvasCursor() {
@@ -727,35 +580,28 @@ function reset3DDrag(event) {
     deckContainer.releasePointerCapture(dragState.pointerId);
   }
   state.suppressNextCanvasClick = false;
-  dragState.pointerId = null;
-  dragState.mode = null;
-  dragState.startScreen = null;
-  dragState.startGround = null;
-  dragState.startTarget = null;
-  dragState.startRotationX = 0;
-  dragState.startRotationOrbit = 0;
-  dragState.moved = false;
+  Object.assign(dragState, IDLE_DRAG);
   syncCanvasCursor();
 }
 
 function begin3DDrag(event) {
-  if (state.viewMode !== '3d') return;
-  if (event.button !== 0 && event.button !== 2) return;
+  if (state.viewMode !== '3d' || (event.button !== 0 && event.button !== 2)) return;
 
   const mode = event.button === 0 ? 'pan' : 'rotate';
   const startScreen = getCanvasPosition(event);
   const viewport = getMainViewport();
-
-  dragState.pointerId = event.pointerId;
-  dragState.mode = mode;
-  dragState.startScreen = startScreen;
-  dragState.startGround = mode === 'pan' && viewport
-    ? viewport.unproject(startScreen, {targetZ: state.viewState.target?.[2] || 0})
-    : null;
-  dragState.startTarget = [...(state.viewState.target || [0, 0, 0])];
-  dragState.startRotationX = state.viewState.rotationX || 0;
-  dragState.startRotationOrbit = state.viewState.rotationOrbit || 0;
-  dragState.moved = false;
+  Object.assign(dragState, {
+    pointerId: event.pointerId,
+    mode,
+    startScreen,
+    startGround: mode === 'pan' && viewport
+      ? viewport.unproject(startScreen, {targetZ: state.viewState.target?.[2] || 0})
+      : null,
+    startTarget: [...(state.viewState.target || [0, 0, 0])],
+    startRotationX: state.viewState.rotationX || 0,
+    startRotationOrbit: state.viewState.rotationOrbit || 0,
+    moved: false,
+  });
 
   deckContainer.setPointerCapture?.(event.pointerId);
   syncCanvasCursor();
@@ -763,17 +609,16 @@ function begin3DDrag(event) {
 }
 
 function update3DDrag(event) {
-  if (state.viewMode !== '3d') return;
-  if (dragState.pointerId == null || dragState.pointerId !== event.pointerId) return;
+  if (state.viewMode !== '3d' || dragState.pointerId == null || dragState.pointerId !== event.pointerId) return;
   if (!dragState.mode || !dragState.startScreen) return;
 
   const pos = getCanvasPosition(event);
   const dx = pos[0] - dragState.startScreen[0];
   const dy = pos[1] - dragState.startScreen[1];
-  if (!dragState.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
   if (!dragState.moved) {
+    if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
     dragState.moved = true;
-    if (dragState.mode === 'pan') disableFollowEgo();
+    if (dragState.mode === 'pan') setFollowEgo(false);
   }
 
   if (dragState.mode === 'pan') {
@@ -821,73 +666,88 @@ function handle3DWheel(event) {
   }));
 }
 
-function handleSelectableClick(event, cb, coordinate) {
-  if (consumeSuppressedCanvasClick()) return true;
+// Whether the click is spent: the click ending a pan, a non-primary button, or a ruler point.
+function consumeClick(event, coordinate) {
+  if (state.suppressNextCanvasClick) {
+    state.suppressNextCanvasClick = false;
+    return true;
+  }
   if (!isPrimaryPointerEvent(event)) return true;
   if (state.ruler.active && coordinate) {
     handleRulerClick(coordinate);
     return true;
   }
-  cb();
+  return false;
+}
+
+function handleSelectableClick(event, cb, coordinate) {
+  if (!consumeClick(event, coordinate)) cb();
   return true;
+}
+
+// Layer props that select the picked element: getItem maps deck's pick info to the element.
+function clickable(type, getItem) {
+  return {
+    pickable: true,
+    onClick: (info, event) => (
+      info.object ? handleSelectableClick(event, () => selectElement(type, getItem(info)), info.coordinate) : false
+    ),
+  };
+}
+
+const ROUNDED = {jointRounded: true, capRounded: true};
+
+function dashed(dashArray) {
+  return {getDashArray: dashArray, dashJustified: true, extensions: [new PathStyleExtension({ dash: true })]};
+}
+
+// Paths of width `width` in pixels, each datum in its own color
+function colorPaths(id, data, width, props = {}) {
+  return new PathLayer({id, data, getPath: toPath, getColor: d => d.color, getWidth: width, widthUnits: 'pixels', ...props});
+}
+
+// Whole road polylines in one color
+function roadHighlight(id, data, color, width) {
+  return new PathLayer({id, data, getPath: toXY, getColor: color, getWidth: width, widthUnits: 'pixels', ...ROUNDED});
 }
 
 function build3DAxisLayers(scenario) {
   if (state.viewMode !== '3d') return [];
-  const spec = getSceneAxisSpec(scenario);
-  if (!spec) return [];
-
-  const [ox, oy, oz] = spec.origin;
+  const bounds = getSceneMetrics(scenario);
+  if (!bounds) return [];
+  const zSpan = bounds.zmax - bounds.zmin;
+  const baseSpan = Math.max(bounds.xmax - bounds.xmin, bounds.ymax - bounds.ymin, 10);
+  const axisHeight = zSpan > 1e-3 ? zSpan : Math.max(10, baseSpan * 0.15);
+  const margin = baseSpan * 0.06;
+  const foot = Math.max(baseSpan * 0.04, 4);
+  const tickStep = niceStep(axisHeight / 4);
+  const [ox, oy, oz] = [bounds.xmin - margin, bounds.ymin - margin, bounds.zmin];
+  const topZ = bounds.zmin + axisHeight;
   const zColor = [245, 158, 11, 230];
   const xColor = [96, 165, 250, 170];
   const yColor = [74, 222, 128, 170];
 
   const axisLines = [
-    {path: [[ox, oy, oz], [ox, oy, spec.topZ]], color: zColor},
-    {path: [[ox, oy, oz], [ox + spec.foot, oy, oz]], color: xColor},
-    {path: [[ox, oy, oz], [ox, oy + spec.foot, oz]], color: yColor},
+    {path: [[ox, oy, oz], [ox, oy, topZ]], color: zColor},
+    {path: [[ox, oy, oz], [ox + foot, oy, oz]], color: xColor},
+    {path: [[ox, oy, oz], [ox, oy + foot, oz]], color: yColor},
   ];
-
   const tickLines = [];
   const labels = [
-    {position: [ox, oy, spec.topZ + spec.foot * 0.25], text: 'Z', color: zColor},
-    {position: [ox + spec.foot * 1.15, oy, oz], text: 'X', color: xColor},
-    {position: [ox, oy + spec.foot * 1.15, oz], text: 'Y', color: yColor},
+    {position: [ox, oy, topZ + foot * 0.25], text: 'Z', color: zColor},
+    {position: [ox + foot * 1.15, oy, oz], text: 'X', color: xColor},
+    {position: [ox, oy + foot * 1.15, oz], text: 'Y', color: yColor},
   ];
-
-  for (let z = oz; z <= spec.topZ + spec.tickStep * 0.5; z += spec.tickStep) {
-    const tickZ = Math.min(z, spec.topZ);
-    tickLines.push({
-      path: [[ox, oy, tickZ], [ox + spec.foot * 0.45, oy, tickZ]],
-      color: zColor,
-    });
-    labels.push({
-      position: [ox + spec.foot * 0.65, oy, tickZ],
-      text: formatAxisLabel(tickZ, spec.tickStep),
-      color: zColor,
-    });
-    if (tickZ === spec.topZ) break;
+  for (let z = oz; z <= topZ + tickStep * 0.5; z += tickStep) {
+    const tickZ = Math.min(z, topZ);
+    tickLines.push({path: [[ox, oy, tickZ], [ox + foot * 0.45, oy, tickZ]], color: zColor});
+    labels.push({position: [ox + foot * 0.65, oy, tickZ], text: tickZ.toFixed(tickStep < 1 ? 1 : 0), color: zColor});
+    if (tickZ === topZ) break;
   }
 
   return [
-    new PathLayer({
-      id: 'scene-axis-lines',
-      data: axisLines,
-      getPath: toPath,
-      getColor: d => d.color,
-      getWidth: 2,
-      widthUnits: 'pixels',
-      capRounded: true,
-    }),
-    new PathLayer({
-      id: 'scene-axis-ticks',
-      data: tickLines,
-      getPath: toPath,
-      getColor: d => d.color,
-      getWidth: 1.5,
-      widthUnits: 'pixels',
-      capRounded: true,
-    }),
+    colorPaths('scene-axis-lines', axisLines, 2, {capRounded: true}),
+    colorPaths('scene-axis-ticks', tickLines, 1.5, {capRounded: true}),
     new TextLayer({
       id: 'scene-axis-labels',
       data: labels,
@@ -917,21 +777,12 @@ const deckgl = new DeckGL({
   parameters: { clearColor: CLEAR_COLORS[getTheme()] },
   onViewStateChange: ({viewState}) => {
     // Clamp rotationX to avoid flipping upside down in 3D
-    if (state.viewMode === '3d') {
-      viewState.rotationX = Math.max(0, Math.min(80, viewState.rotationX));
-    }
-    if (state.followEgo) {
-      // Follow-ego locks target; let user control zoom + pitch (not orbit in 3D chase cam)
-      const keep = {zoom: viewState.zoom};
-      if (state.viewMode === '3d') {
-        keep.rotationX = viewState.rotationX;
-      }
-      state.viewState = {...state.viewState, ...keep};
-      deckgl.setProps({viewState: state.viewState});
-    } else {
-      state.viewState = viewState;
-      deckgl.setProps({viewState});
-    }
+    if (state.viewMode === '3d') viewState.rotationX = Math.max(0, Math.min(MAX_PITCH_ANGLE, viewState.rotationX));
+    // Follow-ego locks target; let user control zoom + pitch (not orbit in 3D chase cam)
+    state.viewState = state.followEgo
+      ? {...state.viewState, zoom: viewState.zoom, ...(state.viewMode === '3d' ? {rotationX: viewState.rotationX} : {})}
+      : viewState;
+    deckgl.setProps({viewState: state.viewState});
     updateZoomDisplay(viewState.zoom);
   },
   onAfterRender: handleAfterRender,
@@ -955,10 +806,6 @@ function getStaticLayers(scenario, layerFlags) {
 
   const roads = scenario.road_polylines;
   const layers = [];
-  const onClick = (cb) => ({
-    pickable: true,
-    onClick: (info, event) => info.object ? handleSelectableClick(event, () => cb(info.object), info.coordinate) : false,
-  });
 
   // Path widths use pixels.
   const pxPath = (id, data, color, width, dashed = false) => new PathLayer({
@@ -972,80 +819,65 @@ function getStaticLayers(scenario, layerFlags) {
     getDashArray: dashed ? [8, 5] : [0, 0],
     dashJustified: true,
     extensions: dashed ? [new PathStyleExtension({ dash: true })] : [],
-    ...onClick(obj => selectElement('road', obj)),
+    ...clickable('road', info => info.object),
   });
 
   // Draw one dot per vertex, plus heading arrows for polylines (surfaces store no heading).
   const scatterRoads = (id, data, color, radius = 2) => {
     const pts = data.flatMap(road => road.xyz.map((p, i) => ({pos: p, heading: road.heading?.[i], road})));
-
-    const scatterLayer = new ScatterplotLayer({
-      id, data: pts,
-      getPosition: d => toViewPoint(d.pos),
-      getFillColor: color,
-      getRadius: radius, radiusUnits: 'pixels',
-      pickable: true,
-      onClick: (info, event) => info.object
-        ? handleSelectableClick(event, () => selectElement('road', info.object.road), info.coordinate)
-        : false,
-    });
-
     const arrowData = pts
       .filter(d => Number.isFinite(d.heading))
       .map(d => ({path: getHeadingPath(d.pos[0], d.pos[1], d.heading, 1.0, d.pos[2] || 0)}));
-
-    const arrowLayer = new PathLayer({
-      id: `${id}-arrows`, data: arrowData,
-      getPath: toPath,
-      getColor: [...color.slice(0, 3), 160],
-      getWidth: 1, widthUnits: 'pixels',
-      capRounded: true,
-    });
-
-    return [scatterLayer, arrowLayer];
+    return [
+      new ScatterplotLayer({
+        id, data: pts,
+        getPosition: d => toViewPoint(d.pos),
+        getFillColor: color,
+        getRadius: radius, radiusUnits: 'pixels',
+        ...clickable('road', info => info.object.road),
+      }),
+      new PathLayer({
+        id: `${id}-arrows`, data: arrowData,
+        getPath: toPath,
+        getColor: [...color.slice(0, 3), 160],
+        getWidth: 1, widthUnits: 'pixels',
+        capRounded: true,
+      }),
+    ];
   };
 
-  // Dispatch to lines or scatter depending on flag.
-  // Prefix id so deck.gl sees a new layer (not an in-place type change) when toggling.
-  const roadLayer = (id, data, color, width, dashed = false) =>
-    layerFlags.scatter_roads
+  // Draw lines or dots depending on the flag. Prefix the id so deck.gl sees a new layer, not an in-place type change.
+  const addRoads = (id, data, color, width, dashed = false) => {
+    if (!data.length) return;
+    layers.push(layerFlags.scatter_roads
       ? scatterRoads(`sc-${id}`, data, color, Math.max(2, width))
-      : pxPath(id, data, color, width, dashed);
+      : pxPath(id, data, color, width, dashed));
+  };
 
   // Lanes; type 0 is py123d LaneType.UNDEFINED
   if (layerFlags.lanes) {
     const lanes = roads.filter(r => r.layer === MAP_LAYER.LANE);
-    const knownLanes = lanes.filter(r => r.type !== 0);
-    const unknownLanes = lanes.filter(r => r.type === 0);
-    if (knownLanes.length) layers.push(roadLayer('lanes-known', knownLanes, [205,210,215], 1));
-    if (layerFlags.unknowns && unknownLanes.length) layers.push(roadLayer('lanes-unknown', unknownLanes, [124, 58, 237], 1, true));
+    addRoads('lanes-known', lanes.filter(r => r.type !== 0), [205,210,215], 1);
+    if (layerFlags.unknowns) addRoads('lanes-unknown', lanes.filter(r => r.type === 0), UNKNOWN_COLOR, 1, true);
   }
 
   // Road lines, by py123d RoadLineType; a line that starts dashed is drawn dashed
   if (layerFlags.road_lines) {
     const lines = roads.filter(r => r.layer === MAP_LAYER.ROAD_LINE);
-    const whiteSolid  = lines.filter(r => [7,11,12].includes(r.type));
-    const whiteDashed = lines.filter(r => [3,4,9].includes(r.type));
-    const yellowSolid = lines.filter(r => [6,10].includes(r.type));
-    const yellowDash  = lines.filter(r => [2,5,8,13].includes(r.type));
-    const unknown     = lines.filter(r => [0,1].includes(r.type));
-    const rest        = lines.filter(r => ![0,1,2,3,4,5,6,7,8,9,10,11,12,13].includes(r.type));
-
-    if (whiteSolid.length)  layers.push(roadLayer('rl-white-solid',  whiteSolid,  [160,165,170], 1));
-    if (whiteDashed.length) layers.push(roadLayer('rl-white-dashed', whiteDashed, [160,165,170], 1, true));
-    if (yellowSolid.length) layers.push(roadLayer('rl-yellow-solid', yellowSolid, [180, 120,  0], 1));
-    if (yellowDash.length)  layers.push(roadLayer('rl-yellow-dashed',yellowDash,  [180, 120,  0], 1, true));
-    if (layerFlags.unknowns && unknown.length) layers.push(roadLayer('rl-unknown', unknown, [124, 58, 237], 1, true));
-    if (rest.length)        layers.push(roadLayer('rl-rest',         rest,        [160,165,170], 1));
+    const ofTypes = types => lines.filter(r => types.includes(r.type));
+    addRoads('rl-white-solid', ofTypes([7, 11, 12]), [160,165,170], 1);
+    addRoads('rl-white-dashed', ofTypes([3, 4, 9]), [160,165,170], 1, true);
+    addRoads('rl-yellow-solid', ofTypes([6, 10]), [180, 120,  0], 1);
+    addRoads('rl-yellow-dashed', ofTypes([2, 5, 8, 13]), [180, 120,  0], 1, true);
+    if (layerFlags.unknowns) addRoads('rl-unknown', ofTypes([0, 1]), UNKNOWN_COLOR, 1, true);
+    addRoads('rl-rest', lines.filter(r => !(r.type >= 0 && r.type <= 13)), [160,165,170], 1);
   }
 
   // Road edges; type 0 is py123d RoadEdgeType.UNKNOWN
   if (layerFlags.road_edges) {
     const edges = roads.filter(r => r.layer === MAP_LAYER.ROAD_EDGE);
-    const knownEdges   = edges.filter(r => r.type !== 0);
-    const unknownEdges = edges.filter(r => r.type === 0);
-    if (knownEdges.length)   layers.push(roadLayer('edges-known',   knownEdges,   [80, 90, 100], 1.5));
-    if (layerFlags.unknowns && unknownEdges.length) layers.push(roadLayer('edges-unknown', unknownEdges, [124, 58, 237], 1.5));
+    addRoads('edges-known', edges.filter(r => r.type !== 0), [80, 90, 100], 1.5);
+    if (layerFlags.unknowns) addRoads('edges-unknown', edges.filter(r => r.type === 0), UNKNOWN_COLOR, 1.5);
   }
 
   // Surface outlines
@@ -1059,11 +891,8 @@ function getStaticLayers(scenario, layerFlags) {
     ['generic_drivable', MAP_LAYER.GENERIC_DRIVABLE, 'generic-drivable', [100,116,139]],
     ['shoulders',        MAP_LAYER.SHOULDER,         'shoulders',        [161,98,7]],
   ]) {
-    if (!layerFlags[flag]) continue;
-    const elements = scenario.road_surfaces.filter(r => r.layer === layer);
-    if (elements.length) layers.push(roadLayer(id, elements, color, 2));
+    if (layerFlags[flag]) addRoads(id, scenario.road_surfaces.filter(r => r.layer === layer), color, 2);
   }
-
 
   state.staticLayerCache = layers;
   state.staticLayerCacheKey = cacheKey;
@@ -1074,99 +903,46 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
   const egoId = getEgoAgentId(scenario);
   const ttp = new Set(scenario.metadata.tracks_to_predict || []);
   const objects = scenario.objects || [];
+  const is3d = state.viewMode === '3d';
   const layers = [];
 
   if (layerFlags.objects && objects.length) {
     if (layerFlags.trajectories) {
-      const objectHistData = objects.flatMap(o => {
-        if (!o.xyz.length) return [];
-        const color = [...getObjectDisplayColor(o), 180];
-        return buildValidSegments(o.xyz, o.valid, 0, t + 1, color);
-      });
-
-      if (objectHistData.length) layers.push(new PathLayer({
-        id: 'object-traj-history', data: objectHistData,
-        getPath: toPath, getColor: d => d.color,
-        getWidth: 1.25, widthUnits: 'pixels',
-        jointRounded: true, capRounded: true,
-      }));
-
-      const objectFutureData = objects.flatMap(o => {
-        if (!o.xyz.length || t >= o.xyz.length - 1) return [];
-        const color = [...getObjectDisplayColor(o), 80];
-        return buildValidSegments(o.xyz, o.valid, t, o.xyz.length, color);
-      });
-
-      if (objectFutureData.length) layers.push(new PathLayer({
-        id: 'object-traj-future', data: objectFutureData,
-        getPath: toPath, getColor: d => d.color,
-        getWidth: 1, widthUnits: 'pixels',
-        jointRounded: true, capRounded: true,
-        getDashArray: [4, 4], dashJustified: true,
-        extensions: [new PathStyleExtension({ dash: true })],
-      }));
+      const history = objects.flatMap(o => (
+        o.xyz.length ? buildValidSegments(o.xyz, o.valid, 0, t + 1, [...getObjectDisplayColor(o), 180]) : []
+      ));
+      if (history.length) layers.push(colorPaths('object-traj-history', history, 1.25, ROUNDED));
+      const future = objects.flatMap(o => (
+        !o.xyz.length || t >= o.xyz.length - 1
+          ? []
+          : buildValidSegments(o.xyz, o.valid, t, o.xyz.length, [...getObjectDisplayColor(o), 80])
+      ));
+      if (future.length) layers.push(colorPaths('object-traj-future', future, 1, {...ROUNDED, ...dashed([4, 4])}));
     }
 
     const validObjects = objects.filter(o => t < o.valid.length && o.valid[t]);
-
-    if (state.viewMode === '2d') {
-      const boxData = validObjects.map(o => ({
-        corners: getVehiclePolygon(o.xyz[t][0], o.xyz[t][1], o.heading[t], o.length[t] || 1.0, o.width[t] || 1.0),
-        color: getObjectDisplayColor(o),
-      }));
-      if (boxData.length) layers.push(new PolygonLayer({
-        id: 'objects-2d', data: boxData,
-        getPolygon: d => d.corners,
-        getFillColor: d => [...d.color, 170],
-        getLineColor: d => [...d.color, 255],
-        getLineWidth: 1, lineWidthUnits: 'pixels',
-        stroked: true, filled: true, extruded: false,
-        pickable: true, onClick: (info, event) => info.object
-          ? handleSelectableClick(event, () => selectElement('object', validObjects[info.index]), info.coordinate)
-          : false,
-      }));
-    } else {
-      const boxData3d = validObjects.map(o => ({
-        corners: getVehiclePolygon(
-          o.xyz[t][0],
-          o.xyz[t][1],
-          o.heading[t],
-          o.length[t] || 1.0,
-          o.width[t] || 1.0,
-          getEntityZ(o, t),
-        ),
-        height: o.height[t] || 1.0,
-        color: getObjectDisplayColor(o),
-      }));
-      if (boxData3d.length) layers.push(new PolygonLayer({
-        id: 'objects-3d', data: boxData3d,
-        getPolygon: d => d.corners,
-        getFillColor: d => [...d.color, 170],
-        getLineColor: d => [...d.color, 255],
-        getElevation: d => d.height,
-        stroked: true, filled: true, extruded: true,
-        pickable: true, onClick: (info, event) => info.object
-          ? handleSelectableClick(event, () => selectElement('object', validObjects[info.index]), info.coordinate)
-          : false,
-      }));
-    }
-
-    const arrowData = validObjects.map(o => ({
-      path: getHeadingPath(
-        o.xyz[t][0],
-        o.xyz[t][1],
-        o.heading[t],
-        Math.max(o.length[t] || 1.0, 0.8),
-        getEntityZ(o, t),
+    const boxes = validObjects.map(o => ({
+      corners: getVehiclePolygon(
+        o.xyz[t][0], o.xyz[t][1], o.heading[t], o.length[t] || 1.0, o.width[t] || 1.0, getEntityZ(o, t),
       ),
+      height: o.height[t] || 1.0,
+      color: getObjectDisplayColor(o),
+    }));
+    if (boxes.length) layers.push(new PolygonLayer({
+      id: `objects-${is3d ? '3d' : '2d'}`, data: boxes,
+      getPolygon: d => d.corners,
+      getFillColor: d => [...d.color, 170],
+      getLineColor: d => [...d.color, 255],
+      ...(is3d ? {getElevation: d => d.height} : {getLineWidth: 1, lineWidthUnits: 'pixels'}),
+      stroked: true, filled: true, extruded: is3d,
+      ...clickable('object', info => validObjects[info.index]),
+    }));
+
+    const arrows = validObjects.map(o => ({
+      path: getHeadingPath(o.xyz[t][0], o.xyz[t][1], o.heading[t], Math.max(o.length[t] || 1.0, 0.8), getEntityZ(o, t)),
       color: [...getObjectDisplayColor(o), 220],
     }));
-    if (arrowData.length) layers.push(new PathLayer({
-      id: 'object-arrows', data: arrowData,
-      getPath: toPath, getColor: d => d.color,
-      getWidth: 1, widthUnits: 'pixels',
-      capRounded: true,
-    }));
+    if (arrows.length) layers.push(colorPaths('object-arrows', arrows, 1, {capRounded: true}));
   }
 
   if (layerFlags.agents) {
@@ -1174,92 +950,48 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
     if (layerFlags.trajectories) {
       const HIST_WINDOW = 20;
       const FUT_WINDOW  = 30;
-
-      const histData = scenario.agents.flatMap(a => {
-        if (!a.xyz.length) return [];
-        const color = [...getAgentDisplayColor(a, egoId), 200];
-        return buildValidSegments(a.xyz, a.valid, Math.max(0, t - HIST_WINDOW), t + 1, color);
-      });
-
-      if (histData.length) layers.push(new PathLayer({
-        id: 'traj-history', data: histData,
-        getPath: toPath, getColor: d => d.color,
-        getWidth: 1.5, widthUnits: 'pixels',
-        jointRounded: true, capRounded: true,
-      }));
-
-      const futData = scenario.agents.flatMap(a => {
-        if (!a.xyz.length || t >= a.xyz.length - 1) return [];
-        const color = [...getAgentDisplayColor(a, egoId), 90];
-        return buildValidSegments(a.xyz, a.valid, t, Math.min(a.xyz.length, t + FUT_WINDOW + 1), color);
-      });
-
-      if (futData.length) layers.push(new PathLayer({
-        id: 'traj-future', data: futData,
-        getPath: toPath, getColor: d => d.color,
-        getWidth: 1, widthUnits: 'pixels',
-        jointRounded: true, capRounded: true,
-        getDashArray: [6, 4], dashJustified: true,
-        extensions: [new PathStyleExtension({ dash: true })],
-      }));
+      const history = scenario.agents.flatMap(a => (
+        a.xyz.length
+          ? buildValidSegments(a.xyz, a.valid, Math.max(0, t - HIST_WINDOW), t + 1, [...getAgentDisplayColor(a, egoId), 200])
+          : []
+      ));
+      if (history.length) layers.push(colorPaths('traj-history', history, 1.5, ROUNDED));
+      const future = scenario.agents.flatMap(a => (
+        !a.xyz.length || t >= a.xyz.length - 1
+          ? []
+          : buildValidSegments(
+            a.xyz, a.valid, t, Math.min(a.xyz.length, t + FUT_WINDOW + 1), [...getAgentDisplayColor(a, egoId), 90],
+          )
+      ));
+      if (future.length) layers.push(colorPaths('traj-future', future, 1, {...ROUNDED, ...dashed([6, 4])}));
     }
 
-    // Agent boxes
+    // Agent boxes, extruded in 3D
     const validAgents = scenario.agents.filter(a => t < a.valid.length && a.valid[t]);
-
-    if (state.viewMode === '2d') {
-      const boxData = validAgents.map(a => {
-        const color = getAgentDisplayColor(a, egoId);
-        const x = a.xyz[t][0], y = a.xyz[t][1];
-        const h = a.heading[t], l = a.length[t] || 4.5, w = a.width[t] || 2;
-        return {corners: getVehiclePolygon(x, y, h, l, w), color, id: a.id};
-      });
-      if (boxData.length) layers.push(new PolygonLayer({
-        id: 'agents-2d', data: boxData,
-        getPolygon: d => d.corners,
-        getFillColor: d => [...d.color, 200],
-        getLineColor: [255,255,255,230],
-        getLineWidth: 1, lineWidthUnits: 'pixels',
-        stroked: true, filled: true, extruded: false,
-        pickable: true, onClick: (info, event) => info.object
-          ? handleSelectableClick(event, () => selectElement('agent', validAgents[info.index]), info.coordinate)
-          : false,
-      }));
-    } else {
-      // 3D extruded boxes
-      const boxData3d = validAgents.map(a => {
-        const color = getAgentDisplayColor(a, egoId);
-        const x = a.xyz[t][0], y = a.xyz[t][1], z = a.xyz[t][2] || 0;
-        const h = a.heading[t], l = a.length[t] || 4.5, w = a.width[t] || 2, ht = a.height[t] || 1.5;
-        return {corners: getVehiclePolygon(x, y, h, l, w, z), height: ht, z, color, id: a.id, _agent: a};
-      });
-      if (boxData3d.length) layers.push(new PolygonLayer({
-        id: 'agents-3d', data: boxData3d,
-        getPolygon: d => d.corners,
-        getFillColor: d => [...d.color, 200],
-        getLineColor: [0,0,0,200],
-        getElevation: d => d.height,
-        stroked: true, filled: true, extruded: true,
-        pickable: true, onClick: (info, event) => info.object
-          ? handleSelectableClick(event, () => selectElement('agent', validAgents[info.index]), info.coordinate)
-          : false,
-      }));
-    }
+    const boxes = validAgents.map(a => ({
+      corners: getVehiclePolygon(
+        a.xyz[t][0], a.xyz[t][1], a.heading[t], a.length[t] || 4.5, a.width[t] || 2, a.xyz[t][2] || 0,
+      ),
+      height: a.height[t] || 1.5,
+      color: getAgentDisplayColor(a, egoId),
+    }));
+    if (boxes.length) layers.push(new PolygonLayer({
+      id: `agents-${is3d ? '3d' : '2d'}`, data: boxes,
+      getPolygon: d => d.corners,
+      getFillColor: d => [...d.color, 200],
+      ...(is3d
+        ? {getLineColor: [0,0,0,200], getElevation: d => d.height}
+        : {getLineColor: [255,255,255,230], getLineWidth: 1, lineWidthUnits: 'pixels'}),
+      stroked: true, filled: true, extruded: is3d,
+      ...clickable('agent', info => validAgents[info.index]),
+    }));
 
     // Heading arrows
-    const arrowData = validAgents.map(a => {
-      const x = a.xyz[t][0], y = a.xyz[t][1];
-      return {
-        path: getHeadingPath(x, y, a.heading[t], a.length[t] || 4.5, getEntityZ(a, t)),
-        color: [...getAgentDisplayColor(a, egoId), 230],
-      };
-    });
-    if (arrowData.length) layers.push(new PathLayer({
-      id: 'agent-arrows', data: arrowData,
-      getPath: toPath, getColor: d => d.color,
-      getWidth: 1, widthUnits: 'pixels',
-      capRounded: true,
+    const arrows = validAgents.map(a => ({
+      path: getHeadingPath(a.xyz[t][0], a.xyz[t][1], a.heading[t], a.length[t] || 4.5, getEntityZ(a, t)),
+      color: [...getAgentDisplayColor(a, egoId), 230],
     }));
+    if (arrows.length) layers.push(colorPaths('agent-arrows', arrows, 1, {capRounded: true}));
 
     // Agent IDs
     if (layerFlags.agent_ids) {
@@ -1292,258 +1024,128 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
 
   // Draw traffic controls as stop lines.
   if (layerFlags.traffic_controls && scenario.traffic_control_elements.length) {
-    const tlElems = scenario.traffic_control_elements.filter(tc => (tc.type || 1) === 1);
-    const signElems = scenario.traffic_control_elements.filter(tc => (tc.type || 1) !== 1);
+    const stopLine = tc => tc.stop_line.map(p => [p[0], p[1], getPointZ(p)]);
+    const lights = scenario.traffic_control_elements.filter(tc => (tc.type || 1) === 1);
+    const signs = scenario.traffic_control_elements.filter(tc => (tc.type || 1) !== 1);
 
     // Traffic-light stop lines change color with their state.
-    if (tlElems.length) {
-      const tlData = tlElems.map(tl => {
+    if (lights.length) {
+      const data = lights.map(tl => {
         const s = tl.states.length && t < tl.states.length ? tl.states[t] : 4;
-        return {
-          path: [
-            [tl.stop_line[0][0], tl.stop_line[0][1], getPointZ(tl.stop_line[0])],
-            [tl.stop_line[1][0], tl.stop_line[1][1], getPointZ(tl.stop_line[1])],
-          ],
-          color: getTlStateColorRgb(s),
-          state: s,
-          tl,
-        };
+        return {path: stopLine(tl), color: [...getTlStateColorRgb(s), 230], tl};
       });
-      layers.push(new PathLayer({
-        id: 'traffic-lights', data: tlData,
-        getPath: toPath,
-        getColor: d => [...d.color, 230],
-        getWidth: 3, widthUnits: 'pixels',
-        capRounded: true,
-        pickable: true, onClick: (info, event) => info.object
-          ? handleSelectableClick(event, () => selectElement('traffic_control', info.object.tl), info.coordinate)
-          : false,
+      layers.push(colorPaths('traffic-lights', data, 3, {
+        capRounded: true, ...clickable('traffic_control', info => info.object.tl),
       }));
     }
 
     // Stop and yield signs use striped stop lines.
-    if (signElems.length) {
+    if (signs.length) {
       const SIGN_COLORS = {2: [[220,38,38], [30,30,30]], 3: [[234,160,8], [30,30,30]]};
       const NUM_STRIPES = 8;
-      const stripeSegments = signElems.flatMap(tc => {
-        const a = [tc.stop_line[0][0], tc.stop_line[0][1], getPointZ(tc.stop_line[0])];
-        const b = [tc.stop_line[1][0], tc.stop_line[1][1], getPointZ(tc.stop_line[1])];
+      const stripes = signs.flatMap(tc => {
+        const [a, b] = stopLine(tc);
+        const at = f => a.map((v, k) => v + (b[k] - v) * f);
         const colors = SIGN_COLORS[tc.type] || [[128,128,128],[30,30,30]];
-        return Array.from({length: NUM_STRIPES}, (_, i) => {
-          const t0 = i / NUM_STRIPES, t1 = (i + 1) / NUM_STRIPES;
-          const p0 = [
-            a[0] + (b[0] - a[0]) * t0,
-            a[1] + (b[1] - a[1]) * t0,
-            a[2] + (b[2] - a[2]) * t0,
-          ];
-          const p1 = [
-            a[0] + (b[0] - a[0]) * t1,
-            a[1] + (b[1] - a[1]) * t1,
-            a[2] + (b[2] - a[2]) * t1,
-          ];
-          return {path: [p0, p1], color: [...colors[i % 2], 230], tc};
-        });
+        return Array.from({length: NUM_STRIPES}, (_, i) => ({
+          path: [at(i / NUM_STRIPES), at((i + 1) / NUM_STRIPES)], color: [...colors[i % 2], 230], tc,
+        }));
       });
-      layers.push(new PathLayer({
-        id: 'traffic-signs', data: stripeSegments,
-        getPath: toPath,
-        getColor: d => d.color,
-        getWidth: 3, widthUnits: 'pixels',
-        pickable: true, onClick: (info, event) => info.object
-          ? handleSelectableClick(event, () => selectElement('traffic_control', info.object.tc), info.coordinate)
-          : false,
-      }));
+      layers.push(colorPaths('traffic-signs', stripes, 3, clickable('traffic_control', info => info.object.tc)));
     }
   }
 
-  // Selection highlights
-  if (selected) {
-    const BLUE  = [26, 115, 232];
-    const GREEN = [16, 185, 129];
-    const AMBER = [217, 119, 6];
-
-    const roadMap = buildRoadMap(scenario.road_polylines);
-
-    const selPathLayer = (id, data, color, width) => new PathLayer({
-      id, data, getPath: toXY,
-      getColor: color, getWidth: width, widthUnits: 'pixels',
-      jointRounded: true, capRounded: true,
-    });
-
-    if (selected.type === 'road') {
-      const elem = selected.data;
-      const entryElems = (elem.entry_lanes || []).map(id => roadMap.get(id)).filter(Boolean);
-      const exitElems  = (elem.exit_lanes  || []).map(id => roadMap.get(id)).filter(Boolean);
-
-      // Main segment, bright blue
-      layers.push(selPathLayer('sel-main', [elem], [...BLUE, 255], 3));
-
-      // Entry lanes, green
-      if (entryElems.length)
-        layers.push(selPathLayer('sel-entry', entryElems, [...GREEN, 200], 2));
-
-      // Exit lanes, amber
-      if (exitElems.length)
-        layers.push(selPathLayer('sel-exit', exitElems, [...AMBER, 200], 2));
-
-      // Heading chevrons on selected + connected lanes
-      const chevronData = [elem, ...entryElems, ...exitElems]
-        .flatMap(e => getRoadChevrons(e.xyz));
-      if (chevronData.length) layers.push(new PathLayer({
-        id: 'sel-chevrons', data: chevronData,
-        getPath: toPath, getColor: [...BLUE, 220],
-        getWidth: 1.5, widthUnits: 'pixels',
-        jointRounded: true, capRounded: true,
-      }));
-
-    } else if (selected.type === 'agent' || selected.type === 'object') {
-      const item = selected.data;
-      const isAgent = selected.type === 'agent';
-      const color = isAgent ? getAgentDisplayColor(item, getEgoAgentId(scenario)) : BLUE;
-      const historySegments = buildValidSegments(
-        item.xyz, item.valid, 0, Math.min(t + 1, item.xyz.length), [...color, 255],
-      );
-      const futureSegments = buildValidSegments(item.xyz, item.valid, t, item.xyz.length, [...color, 180]);
-
-      if (isAgent) {
-        const routeSegments = getAgentRouteSegments(item, roadMap);
-        if (routeSegments.length) layers.push(new PathLayer({
-          id: 'sel-agent-route', data: routeSegments,
-          getPath: toPath,
-          getColor: [...BROWN, 200],
-          getWidth: 2, widthUnits: 'pixels',
-          jointRounded: true, capRounded: true,
-        }));
-      }
-
-      if (historySegments.length) {
-        layers.push(new PathLayer({
-          id: `sel-${selected.type}-history`, data: historySegments,
-          getPath: toPath,
-          getColor: d => d.color,
-          getWidth: 2.5, widthUnits: 'pixels',
-          jointRounded: true, capRounded: true,
-        }));
-      }
-
-      if (futureSegments.length) {
-        layers.push(new PathLayer({
-          id: `sel-${selected.type}-future`, data: futureSegments,
-          getPath: toPath,
-          getColor: d => d.color,
-          getWidth: 2.5, widthUnits: 'pixels',
-          getDashArray: [6, 4], dashJustified: true,
-          extensions: [new PathStyleExtension({ dash: true })],
-          jointRounded: true, capRounded: true,
-        }));
-      }
-
-      if (t < item.xyz.length && item.valid[t]) {
-        const [length, width, height] = isAgent ? [4.5, 2, 1.5] : [1.0, 1.0, 1.0];
-        const corners = getVehiclePolygon(
-          item.xyz[t][0], item.xyz[t][1], item.heading[t],
-          item.length[t] || length, item.width[t] || width,
-          getEntityZ(item, t),
-        );
-        layers.push(new PolygonLayer({
-          id: `sel-${selected.type}`,
-          data: [{corners, height: item.height[t] || height}],
-          getPolygon: d => d.corners,
-          getElevation: d => d.height,
-          getFillColor: [...color, 55],
-          getLineColor: [...color, 255],
-          getLineWidth: 3, lineWidthUnits: 'pixels',
-          stroked: true, filled: true,
-          extruded: state.viewMode === '3d',
-        }));
-      }
-
-    } else if (selected.type === 'traffic_control') {
-      const tl = selected.data;
-
-      // Stop line highlight
-      layers.push(new PathLayer({
-        id: 'sel-tl', data: [tl],
-        getPath: d => toViewPath(d.stop_line),
-        getColor: [...BLUE, 255],
-        getWidth: 5, widthUnits: 'pixels',
-        capRounded: true,
-      }));
-
-      // Controlled lanes
-      const ctrlElems = (tl.controlled_lanes || []).map(id => roadMap.get(id)).filter(Boolean);
-      if (ctrlElems.length) {
-        layers.push(selPathLayer('sel-tl-lanes', ctrlElems, [...BLUE, 200], 2.5));
-        // Chevrons on controlled lanes too
-        const chevronData = ctrlElems.flatMap(e => getRoadChevrons(e.xyz));
-        if (chevronData.length) layers.push(new PathLayer({
-          id: 'sel-tl-chevrons', data: chevronData,
-          getPath: toPath, getColor: [...BLUE, 200],
-          getWidth: 1.5, widthUnits: 'pixels',
-          jointRounded: true, capRounded: true,
-        }));
-      }
-    }
-  }
-
-  // Path finder highlights
+  // Selection and path finder highlights
   const pf = state.pathFinder;
-  if (pf.active || pf.path) {
-    const pfRoadMap = buildRoadMap(scenario.road_polylines);
-    const SRC_COLOR  = [16, 185, 129]; // green
-    const DST_COLOR  = [239, 68, 68];  // red
-    const PATH_COLOR = [6, 182, 212];  // cyan/teal
+  const roadMap = selected || pf.active || pf.path ? buildRoadMap(scenario.road_polylines) : null;
+  const roadsById = ids => (ids || []).map(id => roadMap.get(id)).filter(Boolean);
+  const addChevrons = (id, roads, color) => {
+    const data = roads.flatMap(e => getRoadChevrons(e.xyz));
+    if (data.length) layers.push(new PathLayer({
+      id, data, getPath: toPath, getColor: color, getWidth: 1.5, widthUnits: 'pixels', ...ROUNDED,
+    }));
+  };
+  if (selected?.type === 'road') {
+    const elem = selected.data;
+    const entryElems = roadsById(elem.entry_lanes);
+    const exitElems = roadsById(elem.exit_lanes);
+    layers.push(roadHighlight('sel-main', [elem], [...BLUE, 255], 3));
+    if (entryElems.length) layers.push(roadHighlight('sel-entry', entryElems, [...GREEN, 200], 2));
+    if (exitElems.length) layers.push(roadHighlight('sel-exit', exitElems, [...AMBER, 200], 2));
+    addChevrons('sel-chevrons', [elem, ...entryElems, ...exitElems], [...BLUE, 220]);
+  } else if (selected?.type === 'agent' || selected?.type === 'object') {
+    const item = selected.data;
+    const isAgent = selected.type === 'agent';
+    const color = isAgent ? getAgentDisplayColor(item, egoId) : BLUE;
+    if (isAgent) {
+      const routeSegments = getAgentRouteSegments(item, roadMap);
+      if (routeSegments.length) layers.push(new PathLayer({
+        id: 'sel-agent-route', data: routeSegments,
+        getPath: toPath, getColor: [...BROWN, 200], getWidth: 2, widthUnits: 'pixels', ...ROUNDED,
+      }));
+    }
+    const history = buildValidSegments(item.xyz, item.valid, 0, Math.min(t + 1, item.xyz.length), [...color, 255]);
+    const future = buildValidSegments(item.xyz, item.valid, t, item.xyz.length, [...color, 180]);
+    if (history.length) layers.push(colorPaths(`sel-${selected.type}-history`, history, 2.5, ROUNDED));
+    if (future.length) {
+      layers.push(colorPaths(`sel-${selected.type}-future`, future, 2.5, {...dashed([6, 4]), ...ROUNDED}));
+    }
 
-    if (pf.source !== null) {
-      const srcElem = pfRoadMap.get(pf.source);
-      if (srcElem) layers.push(new PathLayer({
-        id: 'pf-source', data: [srcElem], getPath: toXY,
-        getColor: [...SRC_COLOR, 255], getWidth: 3, widthUnits: 'pixels',
-        jointRounded: true, capRounded: true,
+    if (t < item.xyz.length && item.valid[t]) {
+      const [length, width, height] = isAgent ? [4.5, 2, 1.5] : [1.0, 1.0, 1.0];
+      const corners = getVehiclePolygon(
+        item.xyz[t][0], item.xyz[t][1], item.heading[t],
+        item.length[t] || length, item.width[t] || width,
+        getEntityZ(item, t),
+      );
+      layers.push(new PolygonLayer({
+        id: `sel-${selected.type}`,
+        data: [{corners, height: item.height[t] || height}],
+        getPolygon: d => d.corners,
+        getElevation: d => d.height,
+        getFillColor: [...color, 55],
+        getLineColor: [...color, 255],
+        getLineWidth: 3, lineWidthUnits: 'pixels',
+        stroked: true, filled: true,
+        extruded: is3d,
       }));
     }
-    if (pf.dest !== null) {
-      const dstElem = pfRoadMap.get(pf.dest);
-      if (dstElem) layers.push(new PathLayer({
-        id: 'pf-dest', data: [dstElem], getPath: toXY,
-        getColor: [...DST_COLOR, 255], getWidth: 3, widthUnits: 'pixels',
-        jointRounded: true, capRounded: true,
-      }));
+  } else if (selected?.type === 'traffic_control') {
+    const tl = selected.data;
+    layers.push(new PathLayer({
+      id: 'sel-tl', data: [tl],
+      getPath: d => toViewPath(d.stop_line), getColor: [...BLUE, 255], getWidth: 5, widthUnits: 'pixels',
+      capRounded: true,
+    }));
+    const ctrlElems = roadsById(tl.controlled_lanes);
+    if (ctrlElems.length) {
+      layers.push(roadHighlight('sel-tl-lanes', ctrlElems, [...BLUE, 200], 2.5));
+      addChevrons('sel-tl-chevrons', ctrlElems, [...BLUE, 200]);
     }
+  }
+
+  if (pf.active || pf.path) {
+    if (pf.source !== null && roadMap.has(pf.source)) {
+      layers.push(roadHighlight('pf-source', [roadMap.get(pf.source)], [...GREEN, 255], 3));
+    }
+    if (pf.dest !== null && roadMap.has(pf.dest)) layers.push(roadHighlight('pf-dest', [roadMap.get(pf.dest)], [...RED, 255], 3));
     if (pf.path) {
-      const pathElems = pf.path.laneIds
-        .filter(id => id !== pf.source && id !== pf.dest)
-        .map(id => pfRoadMap.get(id))
-        .filter(Boolean);
-      if (pathElems.length) layers.push(new PathLayer({
-        id: 'pf-path', data: pathElems, getPath: toXY,
-        getColor: [...PATH_COLOR, 230], getWidth: 2.5, widthUnits: 'pixels',
-        jointRounded: true, capRounded: true,
-      }));
+      const pathElems = roadsById(pf.path.laneIds.filter(id => id !== pf.source && id !== pf.dest));
+      if (pathElems.length) layers.push(roadHighlight('pf-path', pathElems, [...PATH_COLOR, 230], 2.5));
 
       // Connector lines between consecutive path lanes
       const connectors = [];
-      const allIds = pf.path.laneIds;
-      for (let i = 0; i < allIds.length - 1; i++) {
-        const cur = pfRoadMap.get(allIds[i]);
-        const nxt = pfRoadMap.get(allIds[i + 1]);
+      const ids = pf.path.laneIds;
+      for (let i = 0; i < ids.length - 1; i++) {
+        const cur = roadMap.get(ids[i]);
+        const nxt = roadMap.get(ids[i + 1]);
         if (cur && nxt && cur.xyz.length && nxt.xyz.length) {
-          const lastPt = cur.xyz[cur.xyz.length - 1];
-          const firstPt = nxt.xyz[0];
-          connectors.push({
-            path: [
-              [lastPt[0], lastPt[1], getPointZ(lastPt)],
-              [firstPt[0], firstPt[1], getPointZ(firstPt)],
-            ],
-          });
+          connectors.push({path: [cur.xyz[cur.xyz.length - 1], nxt.xyz[0]].map(p => [p[0], p[1], getPointZ(p)])});
         }
       }
       if (connectors.length) layers.push(new PathLayer({
-        id: 'pf-connectors', data: connectors,
-        getPath: toPath,
-        getColor: [...PATH_COLOR, 150], getWidth: 1.5, widthUnits: 'pixels',
-        getDashArray: [4, 3], dashJustified: true,
-        extensions: [new PathStyleExtension({ dash: true })],
+        id: 'pf-connectors', data: connectors, getPath: toPath,
+        getColor: [...PATH_COLOR, 150], getWidth: 1.5, widthUnits: 'pixels', ...dashed([4, 3]),
       }));
     }
   }
@@ -1551,14 +1153,9 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
   // Ruler highlights
   const rl = state.ruler;
   if (rl.active || rl.p1) {
-    const P1_COLOR = [16, 185, 129];   // green
-    const P2_COLOR = [239, 68, 68];    // red
-    const LINE_COLOR = [245, 158, 11]; // amber
-
     const dots = [];
-    if (rl.p1) dots.push({ position: rl.p1, color: [...P1_COLOR, 255] });
-    if (rl.p2) dots.push({ position: rl.p2, color: [...P2_COLOR, 255] });
-
+    if (rl.p1) dots.push({ position: rl.p1, color: [...GREEN, 255] });
+    if (rl.p2) dots.push({ position: rl.p2, color: [...RED, 255] });
     if (dots.length) layers.push(new ScatterplotLayer({
       id: 'ruler-dots', data: dots,
       getPosition: d => d.position,
@@ -1570,13 +1167,11 @@ function getDynamicLayers(scenario, t, layerFlags, selected) {
       layers.push(new PathLayer({
         id: 'ruler-line', data: [{ path: [rl.p1, rl.p2] }],
         getPath: toPath,
-        getColor: [...LINE_COLOR, 220], getWidth: 2, widthUnits: 'pixels',
-        getDashArray: [6, 4], dashJustified: true,
-        extensions: [new PathStyleExtension({ dash: true })],
+        getColor: [245, 158, 11, 220], getWidth: 2, widthUnits: 'pixels', ...dashed([6, 4]),
       }));
 
       const mid = [(rl.p1[0] + rl.p2[0]) / 2, (rl.p1[1] + rl.p2[1]) / 2];
-      if (state.viewMode === '3d') mid.push((getPointZ(rl.p1) + getPointZ(rl.p2)) / 2);
+      if (is3d) mid.push((getPointZ(rl.p1) + getPointZ(rl.p2)) / 2);
       layers.push(new TextLayer({
         id: 'ruler-label', data: [{ position: mid, text: `${rl.distance.toFixed(2)} m` }],
         getPosition: d => d.position,
@@ -1601,38 +1196,20 @@ function render() {
   if (!state.scenario) return;
   const s = state.scenario;
   const t = state.timestep;
-  const staticL = getStaticLayers(s, state.layers);
-  const dynL = getDynamicLayers(s, t, state.layers, state.selected);
-  const axisL = build3DAxisLayers(s);
-  const mm = state.viewMode === '2d' ? FLIP_Y : IDENTITY;
-  const allLayers = [staticL, axisL, dynL].flat(2).map(
-    l => l.clone({modelMatrix: mm})
-  );
-  deckgl.setProps({layers: allLayers});
+  const modelMatrix = state.viewMode === '2d' ? FLIP_Y : IDENTITY;
+  const layers = [getStaticLayers(s, state.layers), build3DAxisLayers(s), getDynamicLayers(s, t, state.layers, state.selected)];
+  deckgl.setProps({layers: layers.flat(2).map(l => l.clone({modelMatrix}))});
 
-  if (state.followEgo) {
-    const ego = getEgoState(s, t);
-    if (ego) {
-      let vs;
-      if (state.viewMode === '2d') {
-        vs = {...state.viewState, target: [ego.x, -ego.y, 0], transitionDuration: 80};
-      } else {
-        const headingDeg = ego.heading * 180 / Math.PI;
-        const ahead = CHASE_CAM_OFFSET;
-        vs = {
-          ...state.viewState,
-          target: [
-            ego.x + ahead * Math.cos(ego.heading),
-            ego.y + ahead * Math.sin(ego.heading),
-            ego.z,
-          ],
-          rotationOrbit: -headingDeg + 90,
-          transitionDuration: 60,
-        };
-      }
-      state.viewState = vs;
-      deckgl.setProps({viewState: vs});
-    }
+  const ego = state.followEgo ? getEgoState(s, t) : null;
+  if (ego && state.viewMode === '2d') {
+    setViewState({...state.viewState, target: [ego.x, -ego.y, 0], transitionDuration: 80});
+  } else if (ego) {
+    setViewState({
+      ...state.viewState,
+      target: [ego.x + CHASE_CAM_OFFSET * Math.cos(ego.heading), ego.y + CHASE_CAM_OFFSET * Math.sin(ego.heading), ego.z],
+      rotationOrbit: -(ego.heading * 180 / Math.PI) + 90,
+      transitionDuration: 60,
+    });
   }
   updateZoomDisplay(state.viewState.zoom);
 
@@ -1641,16 +1218,8 @@ function render() {
   document.getElementById('timeline').value = t;
   document.getElementById('timeline').max = finalTimestep;
 
-  // Update info panel if agent selected (position changes per timestep)
-  if (state.selected && state.selected.type === 'agent') {
-    renderElementInfo(state.selected.type, state.selected.data);
-  }
-  if (state.selected && state.selected.type === 'object') {
-    renderElementInfo(state.selected.type, state.selected.data);
-  }
-  if (state.selected && state.selected.type === 'traffic_control') {
-    renderElementInfo(state.selected.type, state.selected.data);
-  }
+  // Agent, object and traffic-control details change with the timestep
+  if (state.selected && state.selected.type !== 'road') renderElementInfo(state.selected.type, state.selected.data);
 }
 
 // Selection and info panel
@@ -1659,42 +1228,26 @@ function handlePathFinderClick(laneId) {
   const pf = state.pathFinder;
   const el = document.getElementById('element-detail');
 
-  if (pf.source === null) {
-    // Set source
-    pf.source = laneId;
-    pf.dest = null;
-    pf.path = null;
-    pf.distance = null;
-    el.innerHTML = `<div class="info-row"><span class="info-label">Path Finder</span><span class="info-val">Source: ${laneId}</span></div>
-      <div class="info-row"><span class="info-label">Status</span><span class="info-val">Click destination lane</span></div>`;
+  if (pf.source === null || pf.dest !== null) {
+    // Set the source, starting over after a completed search
+    Object.assign(pf, {source: laneId, dest: null, path: null});
+    el.innerHTML = infoRow('Path Finder', `Source: ${laneId}`) + infoRow('Status', 'Click destination lane');
     setAppStatus('Path Finder: click destination lane', 'info');
-  } else if (pf.dest === null) {
+  } else {
     // Set destination and compute
     pf.dest = laneId;
-    const result = reconstructPath(state.scenario, pf.source, pf.dest);
-    if (result) {
-      pf.path = result;
-      pf.distance = result.distance;
-      el.innerHTML = `<div class="info-row"><span class="info-label">Path Finder</span><span class="info-val">${pf.source} → ${pf.dest}</span></div>
-        <div class="info-row"><span class="info-label">Distance</span><span class="info-val">${result.distance.toFixed(1)} m</span></div>
-        <div class="info-row"><span class="info-label">Lanes</span><span class="info-val">${result.laneIds.length} (${result.laneIds.join(' → ')})</span></div>`;
-      setAppStatus(`Path: ${result.distance.toFixed(1)} m, ${result.laneIds.length} lanes`, 'ok');
+    pf.path = reconstructPath(state.scenario, pf.source, pf.dest);
+    const header = infoRow('Path Finder', `${pf.source} → ${pf.dest}`);
+    if (pf.path) {
+      const {distance, laneIds} = pf.path;
+      el.innerHTML = header + infoRow('Distance', `${distance.toFixed(1)} m`)
+        + infoRow('Lanes', `${laneIds.length} (${laneIds.join(' → ')})`);
+      setAppStatus(`Path: ${distance.toFixed(1)} m, ${laneIds.length} lanes`, 'ok');
     } else {
-      pf.path = null;
-      pf.distance = null;
-      el.innerHTML = `<div class="info-row"><span class="info-label">Path Finder</span><span class="info-val">${pf.source} → ${pf.dest}</span></div>
-        <div class="info-row"><span class="info-label">Status</span><span class="info-val" style="color:var(--red)">No path found</span></div>`;
+      el.innerHTML = header + '<div class="info-row"><span class="info-label">Status</span>'
+        + '<span class="info-val" style="color:var(--red)">No path found</span></div>';
       setAppStatus('Path Finder: no path between these lanes', 'error');
     }
-  } else {
-    // Reset for the new source.
-    pf.source = laneId;
-    pf.dest = null;
-    pf.path = null;
-    pf.distance = null;
-    el.innerHTML = `<div class="info-row"><span class="info-label">Path Finder</span><span class="info-val">Source: ${laneId}</span></div>
-      <div class="info-row"><span class="info-label">Status</span><span class="info-val">Click destination lane</span></div>`;
-    setAppStatus('Path Finder: click destination lane', 'info');
   }
   render();
 }
@@ -1718,61 +1271,31 @@ function handleRulerClick(coordinate) {
     ? [coordinate[0], -coordinate[1]]
     : [coordinate[0], coordinate[1], coordinate[2] || 0];
 
-  if (!r.p1) {
-    r.p1 = pt;
-    r.p2 = null;
-    r.distance = null;
-    el.innerHTML = `<div class="info-row"><span class="info-label">Ruler</span><span class="info-val">P1: (${pt[0].toFixed(1)}, ${pt[1].toFixed(1)})</span></div>
-      <div class="info-row"><span class="info-label">Status</span><span class="info-val">Click second point</span></div>`;
+  if (!r.p1 || r.p2) {
+    // Set the first point, starting over after a completed measurement
+    Object.assign(r, {p1: pt, p2: null, distance: null});
+    el.innerHTML = infoRow('Ruler', `P1: (${pt[0].toFixed(1)}, ${pt[1].toFixed(1)})`) + infoRow('Status', 'Click second point');
     setAppStatus('Ruler: click second point', 'info');
-  } else if (!r.p2) {
+  } else {
     r.p2 = pt;
     r.distance = Math.hypot(r.p2[0] - r.p1[0], r.p2[1] - r.p1[1]);
-    el.innerHTML = `<div class="info-row"><span class="info-label">Ruler</span><span class="info-val">P1 → P2</span></div>
-      <div class="info-row"><span class="info-label">Distance</span><span class="info-val">${r.distance.toFixed(2)} m</span></div>`;
+    el.innerHTML = infoRow('Ruler', 'P1 → P2') + infoRow('Distance', `${r.distance.toFixed(2)} m`);
     setAppStatus(`Ruler: ${r.distance.toFixed(2)} m`, 'ok');
-  } else {
-    r.p1 = pt;
-    r.p2 = null;
-    r.distance = null;
-    el.innerHTML = `<div class="info-row"><span class="info-label">Ruler</span><span class="info-val">P1: (${pt[0].toFixed(1)}, ${pt[1].toFixed(1)})</span></div>
-      <div class="info-row"><span class="info-label">Status</span><span class="info-val">Click second point</span></div>`;
-    setAppStatus('Ruler: click second point', 'info');
   }
   render();
 }
 
 function handleCanvasClick({coordinate, layer, object}, event) {
-  if (consumeSuppressedCanvasClick()) return;
-  if (!isPrimaryPointerEvent(event)) return;
-  if (state.ruler.active && coordinate) {
-    handleRulerClick(coordinate);
-    return;
-  }
-  if (!object && !layer) {
-    state.selected = null;
-    document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
-    render();
-  }
+  if (consumeClick(event, coordinate) || object || layer) return;
+  state.selected = null;
+  document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
+  render();
 }
 
 function renderElementInfo(type, data) {
-  const el = document.getElementById('element-detail');
-  const html = renderElementInfoHtml(type, data, {
-    t: state.timestep,
-    scenario: state.scenario,
-    AGENT_TYPE_NAMES: window.TYPES.AGENT_TYPE_NAMES,
-    OBJECT_TYPE_NAMES: window.TYPES.OBJECT_TYPE_NAMES,
-    MAP_LAYER_NAMES: window.TYPES.MAP_LAYER_NAMES,
-    POLYLINE_TYPE_NAMES: window.TYPES.POLYLINE_TYPE_NAMES,
-    TC_TYPE_NAMES: window.TYPES.TC_TYPE_NAMES,
-    TL_STATE_NAMES: window.TYPES.TL_STATE_NAMES,
-    TL_STATE_COLORS: window.TYPES.TL_STATE_COLORS,
-    escapeHtml,
-    safeIdList,
-    getObjectsOfInterest,
+  document.getElementById('element-detail').innerHTML = renderElementInfoHtml(type, data, {
+    t: state.timestep, scenario: state.scenario, ...window.TYPES, escapeHtml, safeIdList, getObjectsOfInterest,
   });
-  el.innerHTML = html;
 }
 
 // Scenario loading
@@ -1781,30 +1304,21 @@ async function loadScenario(filename) {
   document.getElementById('scenario-title').textContent = `Loading ${filename}…`;
   setAppStatus(`Loading ${filename}…`, 'info');
   try {
-    if (isRecording()) {
-      await stopRecording('Finalizing recording before loading scenario…');
-    }
+    if (isRecording()) await stopRecording('Finalizing recording before loading scenario…');
     stopPlay();
     reset3DDrag();
     const resp = await fetch(`/api/scenario/${filename.split('/').map(encodeURIComponent).join('/')}`, {cache: 'no-store'});
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}`);
-    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = parsePufferBinary(await resp.arrayBuffer());
-    state.scenario = data;
-    state.scenarioFilename = filename;
-    state.timestep = 0;
-    state.selected = null;
-    state.pathFinder = { active: false, source: null, dest: null, path: null, distance: null };
-    state.ruler = { active: false, p1: null, p2: null, distance: null };
+    Object.assign(state, {
+      scenario: data, scenarioFilename: filename, timestep: 0, selected: null,
+      pathFinder: newPathFinder(), ruler: newRuler(), staticLayerCacheKey: null,
+    });
     document.getElementById('btn-pathfinder').classList.remove('active');
     document.getElementById('btn-ruler').classList.remove('active');
-    state.staticLayerCacheKey = null;
     setFollowEgo(false);
 
-    document.getElementById('scenario-title').textContent =
-      `${data.metadata.id} [${data.metadata.dataset}]`;
-
+    document.getElementById('scenario-title').textContent = `${data.metadata.id} [${data.metadata.dataset}]`;
     renderScenarioMeta(data);
     document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
     setAppStatus(`Loaded ${filename}`, 'ok');
@@ -1820,15 +1334,12 @@ async function loadScenario(filename) {
     }));
     render();
   } catch (err) {
-    const errMsg = String(err?.message || err);
-    state.scenario = null;
-    state.scenarioFilename = null;
-    state.selected = null;
+    Object.assign(state, {scenario: null, scenarioFilename: null, selected: null});
     stopPlay();
     document.getElementById('scenario-title').textContent = `Failed to load ${filename}`;
     document.getElementById('scenario-meta').innerHTML = '<span class="empty-state">Failed to load scenario. Select another file and retry.</span>';
     document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
-    setAppStatus(`Failed to load ${filename}: ${errMsg}`, 'error');
+    setAppStatus(`Failed to load ${filename}: ${String(err?.message || err)}`, 'error');
     updatePlaybackUi();
     updateRecordingUi();
   }
@@ -1836,24 +1347,22 @@ async function loadScenario(filename) {
 
 function renderScenarioMeta(data) {
   const m = data.metadata;
-  const ooi = getObjectsOfInterest(m);
-  const el = document.getElementById('scenario-meta');
-  el.innerHTML = `
-    <div class="info-row"><span class="info-label">Dataset</span><span class="info-val">${escapeHtml(m.dataset)}</span></div>
-    <div class="info-row"><span class="info-label">Length</span><span class="info-val">${escapeHtml(m.scenario_length)}</span></div>
-    <div class="info-row"><span class="info-label">Agents</span><span class="info-val">${escapeHtml(data.agents.length)}</span></div>
-    <div class="info-row"><span class="info-label">Roads</span><span class="info-val">${escapeHtml(data.road_polylines.length + data.road_surfaces.length)}</span></div>
-    <div class="info-row"><span class="info-label">TCs</span><span class="info-val">${escapeHtml(data.traffic_control_elements.length)}</span></div>
-    <div class="info-row"><span class="info-label">Objects</span><span class="info-val">${escapeHtml((data.objects || []).length)}</span></div>
-    <div class="info-row"><span class="info-label">OOI</span><span class="info-val">${safeIdList(ooi)}</span></div>
-    <div class="info-row"><span class="info-label">TTP</span><span class="info-val">${safeIdList(m.tracks_to_predict)}</span></div>`;
+  document.getElementById('scenario-meta').innerHTML = [
+    infoRow('Dataset', escapeHtml(m.dataset)),
+    infoRow('Length', escapeHtml(m.scenario_length)),
+    infoRow('Agents', escapeHtml(data.agents.length)),
+    infoRow('Roads', escapeHtml(data.road_polylines.length + data.road_surfaces.length)),
+    infoRow('TCs', escapeHtml(data.traffic_control_elements.length)),
+    infoRow('Objects', escapeHtml((data.objects || []).length)),
+    infoRow('OOI', safeIdList(getObjectsOfInterest(m))),
+    infoRow('TTP', safeIdList(m.tracks_to_predict)),
+  ].join('');
 }
 
 function updateZoomDisplay(zoom) {
   const size = Math.min(deckContainer.clientWidth, deckContainer.clientHeight);
   const radius = size / (2 ** (zoom + 1));
-  const rounded = Math.round(radius / 10) * 10;
-  document.getElementById('zoom-display').textContent = `${rounded} m`;
+  document.getElementById('zoom-display').textContent = `${Math.round(radius / 10) * 10} m`;
 }
 
 function setViewState(vs) {
@@ -1865,27 +1374,22 @@ function setViewState(vs) {
 function fitView() {
   if (!state.scenario) return;
   const b = getSceneMetrics(state.scenario);
-  const w = Math.max(b.xmax - b.xmin, 1);
-  const h = Math.max(b.ymax - b.ymin, 1);
-  const z = Math.max(b.zmax - b.zmin, 0);
-  const cw = Math.max(deckContainer.clientWidth, 1);
-  const ch = Math.max(deckContainer.clientHeight, 1);
-  const rotationX = state.viewMode === '3d' ? (state.viewState.rotationX || DEFAULT_3D_ROTATION_X) : 0;
-  const projectedZ = state.viewMode === '3d' ? z * Math.sin(rotationX * Math.PI / 180) : 0;
-  const fitWidth = w;
-  const fitHeight = Math.max(h + projectedZ, 1);
-  const zoom = Math.log2(Math.min(cw / (fitWidth * FIT_VIEW_PADDING), ch / (fitHeight * FIT_VIEW_PADDING)));
-  const rotation = state.viewMode === '3d'
-    ? {rotationX, rotationOrbit: state.viewState.rotationOrbit || 0}
-    : {};
+  const is3d = state.viewMode === '3d';
+  const rotationX = is3d ? (state.viewState.rotationX || DEFAULT_3D_ROTATION_X) : 0;
+  const projectedZ = is3d ? Math.max(b.zmax - b.zmin, 0) * Math.sin(rotationX * Math.PI / 180) : 0;
+  const fitWidth = Math.max(b.xmax - b.xmin, 1);
+  const fitHeight = Math.max(Math.max(b.ymax - b.ymin, 1) + projectedZ, 1);
+  const zoom = Math.log2(Math.min(
+    Math.max(deckContainer.clientWidth, 1) / (fitWidth * FIT_VIEW_PADDING),
+    Math.max(deckContainer.clientHeight, 1) / (fitHeight * FIT_VIEW_PADDING),
+  ));
   setViewState({
-    target: [b.cx, state.viewMode === '2d' ? -b.cy : b.cy, state.viewMode === '3d' ? b.cz : 0], zoom, ...rotation,
+    target: [b.cx, is3d ? b.cy : -b.cy, is3d ? b.cz : 0], zoom,
+    ...(is3d ? {rotationX, rotationOrbit: state.viewState.rotationOrbit || 0} : {}),
   });
   deckgl.setProps({
-    views: state.viewMode === '2d'
-      ? [new OrthographicView({id:'main'})]
-      : [new OrbitView({id:'main', fov:50})],
-    controller: state.viewMode === '3d' ? CONTROLLER_3D : CONTROLLER_2D,
+    views: is3d ? [new OrbitView({id:'main', fov:50})] : [new OrthographicView({id:'main'})],
+    controller: is3d ? CONTROLLER_3D : CONTROLLER_2D,
   });
 }
 
@@ -1905,30 +1409,21 @@ async function loadScenarioList() {
   try {
     await fetchTypes();
     const resp = await fetch('/api/scenarios');
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}`);
-    }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     allScenarios = await resp.json();
     renderScenarioList(allScenarios);
-    if (!allScenarios.length) {
-      setAppStatus('No scenarios found in selected directory', 'info');
-    }
+    if (!allScenarios.length) setAppStatus('No scenarios found in selected directory', 'info');
   } catch (err) {
-    const errMsg = String(err?.message || err);
     allScenarios = [];
     renderScenarioList([]);
-    setAppStatus(`Failed to load scenario list: ${errMsg}`, 'error');
+    setAppStatus(`Failed to load scenario list: ${String(err?.message || err)}`, 'error');
   }
 }
 
 function renderScenarioList(items) {
   const container = document.getElementById('scenario-list');
-  container.innerHTML = '';
-  if (!items.length) {
-    container.innerHTML = '<div class="empty-state">No scenarios.</div>';
-    return;
-  }
-  items.forEach(name => {
+  container.innerHTML = items.length ? '' : '<div class="empty-state">No scenarios.</div>';
+  for (const name of items) {
     const el = document.createElement('div');
     el.className = `scenario-item${name === activeScenario ? ' active' : ''}`;
     el.dataset.name = String(name);
@@ -1939,7 +1434,7 @@ function renderScenarioList(items) {
       loadScenario(activeScenario);
     });
     container.appendChild(el);
-  });
+  }
 }
 
 // Playback controls
@@ -1985,81 +1480,39 @@ function togglePlay() {
   state.playing ? stopPlay() : startPlay();
 }
 
+// Path finder and ruler exclude each other: switching one on or off resets both.
+function toggleTool(tool) {
+  const active = !state[tool].active;
+  state.pathFinder = newPathFinder(tool === 'pathFinder' && active);
+  state.ruler = newRuler(tool === 'ruler' && active);
+  document.getElementById('btn-pathfinder').classList.toggle('active', state.pathFinder.active);
+  document.getElementById('btn-ruler').classList.toggle('active', state.ruler.active);
+  const [status, hint] = tool === 'ruler'
+    ? ['Ruler: click first point', infoRow('Ruler', 'Click anywhere to set first point')]
+    : ['Path Finder: click source lane', infoRow('Path Finder', 'Click a lane to set source')];
+  setAppStatus(active ? status : '', active ? 'info' : 'ok');
+  document.getElementById('element-detail').innerHTML = active ? hint : EMPTY_DETAIL_HTML;
+  render();
+}
+
 // Event handlers
 
 document.getElementById('btn-fit').addEventListener('click', fitView);
 
 document.getElementById('btn-follow').addEventListener('click', () => {
-  const enabling = !state.followEgo;
-  setFollowEgo(enabling);
-  if (enabling && state.viewMode === '3d' && state.scenario) {
-    const ego = getEgoState(state.scenario, state.timestep);
-    if (ego) {
-      const headingDeg = ego.heading * 180 / Math.PI;
-      state.viewState = {
-        ...instantViewState(state.viewState),
-        target: [ego.x, ego.y, ego.z],
-        rotationOrbit: -headingDeg + 90,
-        rotationX: CHASE_CAM_PITCH,
-        zoom: CHASE_CAM_ZOOM,
-      };
-      deckgl.setProps({viewState: state.viewState});
-    }
+  setFollowEgo(!state.followEgo);
+  const ego = state.followEgo && state.viewMode === '3d' && state.scenario
+    ? getEgoState(state.scenario, state.timestep)
+    : null;
+  if (ego) {
+    state.viewState = egoOrbitViewState(ego, {rotationX: CHASE_CAM_PITCH, zoom: CHASE_CAM_ZOOM});
+    deckgl.setProps({viewState: state.viewState});
   }
   render();
 });
 
-document.getElementById('btn-pathfinder').addEventListener('click', () => {
-  const pf = state.pathFinder;
-  pf.active = !pf.active;
-  const btn = document.getElementById('btn-pathfinder');
-  btn.classList.toggle('active', pf.active);
-  if (pf.active) {
-    // Deactivate ruler
-    state.ruler = { active: false, p1: null, p2: null, distance: null };
-    document.getElementById('btn-ruler').classList.remove('active');
-    pf.source = null;
-    pf.dest = null;
-    pf.path = null;
-    pf.distance = null;
-    setAppStatus('Path Finder: click source lane', 'info');
-    document.getElementById('element-detail').innerHTML =
-      '<div class="info-row"><span class="info-label">Path Finder</span><span class="info-val">Click a lane to set source</span></div>';
-  } else {
-    pf.source = null;
-    pf.dest = null;
-    pf.path = null;
-    pf.distance = null;
-    setAppStatus('', 'ok');
-    document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
-  }
-  render();
-});
-
-document.getElementById('btn-ruler').addEventListener('click', () => {
-  const r = state.ruler;
-  r.active = !r.active;
-  const btn = document.getElementById('btn-ruler');
-  btn.classList.toggle('active', r.active);
-  if (r.active) {
-    // Deactivate pathfinder
-    state.pathFinder = { active: false, source: null, dest: null, path: null, distance: null };
-    document.getElementById('btn-pathfinder').classList.remove('active');
-    r.p1 = null;
-    r.p2 = null;
-    r.distance = null;
-    setAppStatus('Ruler: click first point', 'info');
-    document.getElementById('element-detail').innerHTML =
-      '<div class="info-row"><span class="info-label">Ruler</span><span class="info-val">Click anywhere to set first point</span></div>';
-  } else {
-    r.p1 = null;
-    r.p2 = null;
-    r.distance = null;
-    setAppStatus('', 'ok');
-    document.getElementById('element-detail').innerHTML = EMPTY_DETAIL_HTML;
-  }
-  render();
-});
+document.getElementById('btn-pathfinder').addEventListener('click', () => toggleTool('pathFinder'));
+document.getElementById('btn-ruler').addEventListener('click', () => toggleTool('ruler'));
 
 document.getElementById('btn-scatter').addEventListener('click', () => {
   state.layers.scatter_roads = !state.layers.scatter_roads;
@@ -2073,64 +1526,45 @@ document.getElementById('btn-3d').addEventListener('click', () => {
   reset3DDrag();
   const prevMode = state.viewMode;
   state.viewMode = state.viewMode === '2d' ? '3d' : '2d';
-  document.getElementById('btn-3d').textContent = state.viewMode === '3d' ? '3D' : '2D';
+  const is3d = state.viewMode === '3d';
+  document.getElementById('btn-3d').textContent = is3d ? '3D' : '2D';
   state.staticLayerCacheKey = null;
-  if (state.viewMode === '3d') {
-    const ego = state.scenario ? getEgoState(state.scenario, state.timestep) : null;
-    if (ego) {
-      const headingDeg = ego.heading * 180 / Math.PI;
-      state.viewState = {
-        ...instantViewState(state.viewState),
-        target: [ego.x, ego.y, ego.z],
-        rotationOrbit: -headingDeg + 90,
-        rotationX: DEFAULT_3D_PITCH,
-      };
-    } else {
-      const convertedTarget = convertTargetForViewMode(state.viewState.target, prevMode, state.viewMode);
-      const sceneTarget = state.scenario ? getSceneFocusTarget(state.scenario) : convertedTarget;
-      state.viewState = {
-        ...instantViewState(state.viewState),
-        target: [convertedTarget[0], convertedTarget[1], sceneTarget[2] || 0],
-        rotationX: DEFAULT_3D_ROTATION_X,
-        rotationOrbit: 0,
-      };
-    }
-    deckgl.setProps({
-      views: [new OrbitView({id:'main', fov:50})],
-      viewState: state.viewState,
-      controller: CONTROLLER_3D,
-    });
-  } else {
+  const target = convertTargetForViewMode(state.viewState.target, prevMode, state.viewMode);
+  const ego = is3d && state.scenario ? getEgoState(state.scenario, state.timestep) : null;
+  if (ego) {
+    state.viewState = egoOrbitViewState(ego, {rotationX: DEFAULT_3D_PITCH});
+  } else if (is3d) {
+    const z = state.scenario ? getSceneMetrics(state.scenario).cz : target[2];
     state.viewState = {
       ...instantViewState(state.viewState),
-      target: convertTargetForViewMode(state.viewState.target, prevMode, state.viewMode),
-      rotationX: 0,
+      target: [target[0], target[1], z || 0],
+      rotationX: DEFAULT_3D_ROTATION_X,
       rotationOrbit: 0,
     };
-    deckgl.setProps({
-      views: [new OrthographicView({id:'main'})],
-      viewState: state.viewState,
-      controller: CONTROLLER_2D,
-    });
+  } else {
+    state.viewState = {...instantViewState(state.viewState), target, rotationX: 0, rotationOrbit: 0};
   }
+  deckgl.setProps({
+    views: [is3d ? new OrbitView({id:'main', fov:50}) : new OrthographicView({id:'main'})],
+    viewState: state.viewState,
+    controller: is3d ? CONTROLLER_3D : CONTROLLER_2D,
+  });
   syncCanvasCursor();
   render();
 });
 
+const stepTo = t => { stopPlay(); setTimestep(t); };
 document.getElementById('btn-play').addEventListener('click', togglePlay);
-document.getElementById('btn-prev-first').addEventListener('click', () => { stopPlay(); setTimestep(0); });
-document.getElementById('btn-prev').addEventListener('click', () => { stopPlay(); setTimestep(state.timestep - 1); });
-document.getElementById('btn-next').addEventListener('click', () => { stopPlay(); setTimestep(state.timestep + 1); });
+document.getElementById('btn-prev-first').addEventListener('click', () => stepTo(0));
+document.getElementById('btn-prev').addEventListener('click', () => stepTo(state.timestep - 1));
+document.getElementById('btn-next').addEventListener('click', () => stepTo(state.timestep + 1));
 document.getElementById('btn-next-last').addEventListener('click', () => {
   stopPlay();
   if (state.scenario) setTimestep(state.scenario.metadata.scenario_length - 1);
 });
 btnRec.addEventListener('click', () => { void toggleRecording(); });
 
-document.getElementById('timeline').addEventListener('input', e => {
-  stopPlay();
-  setTimestep(parseInt(e.target.value));
-});
+document.getElementById('timeline').addEventListener('input', e => stepTo(parseInt(e.target.value)));
 
 document.getElementById('speed-select').addEventListener('change', e => {
   state.speed = parseFloat(e.target.value);
@@ -2179,22 +1613,12 @@ document.addEventListener('keydown', e => {
   // Skip if typing in an input/select
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
 
-  const ZOOM_STEP = 0.5;
-
-  function zoomBy(delta) {
-    if (!state.viewState) return;
-    setViewState({
-      ...state.viewState,
-      zoom: (state.viewState.zoom || 0) + delta,
-      transitionDuration: 150,
-    });
-  }
-
+  const zoomBy = delta => setViewState({...state.viewState, zoom: (state.viewState.zoom || 0) + delta, transitionDuration: 150});
   switch (e.key) {
-    case 'ArrowLeft':  e.preventDefault(); stopPlay(); setTimestep(state.timestep - 1); break;
-    case 'ArrowRight': e.preventDefault(); stopPlay(); setTimestep(state.timestep + 1); break;
-    case '+': case '=': zoomBy( ZOOM_STEP); break;
-    case '-':           zoomBy(-ZOOM_STEP); break;
+    case 'ArrowLeft':  e.preventDefault(); stepTo(state.timestep - 1); break;
+    case 'ArrowRight': e.preventDefault(); stepTo(state.timestep + 1); break;
+    case '+': case '=': zoomBy(0.5); break;
+    case '-':           zoomBy(-0.5); break;
     case 'f': case 'F': fitView(); break;
     case ' ': e.preventDefault(); togglePlay(); break;
     case 'p': case 'P': document.getElementById('btn-pathfinder').click(); break;

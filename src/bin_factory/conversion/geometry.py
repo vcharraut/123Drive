@@ -4,39 +4,18 @@ from shapely import geometry as shapely_geom
 from bin_factory import schema
 
 
-def arc_length(polyline: np.ndarray) -> np.ndarray:
-    """Return cumulative arc length per point, from 0 to total length, using all coordinate columns."""
-    polyline = np.asarray(polyline)
-    if len(polyline) < 2:
-        return np.zeros(len(polyline), dtype=np.float64)
-    seg = np.linalg.norm(np.diff(polyline, axis=0), axis=1)
-    return np.concatenate([[0.0], np.cumsum(seg)]).astype(np.float64)
-
-
-def polyline_length(polyline: np.ndarray) -> float:
-    """Return total arc length of a polyline across all coordinate columns."""
-    cum = arc_length(polyline)
-    return float(cum[-1]) if len(cum) else 0.0
-
-
 def interpolate_all_polygons(scenario: schema.PufferScenario, spacing: float = 5.0, tolerance: float = 0.0) -> None:
-    for element_data in scenario.surfaces.values():
-        if element_data.polygon is not None:
-            element_data.polygon = _interpolate_polygon(element_data.polygon, spacing, tolerance)
-
-
-def _interpolate_polygon(xyz: np.ndarray | None, spacing: float, tolerance: float = 0.0) -> np.ndarray:
-    if xyz is None or len(xyz) == 0:
-        return np.zeros((0, 3), dtype=np.float64)
-
-    xyz = np.asarray(xyz, dtype=np.float64)
-    if not np.allclose(xyz[0], xyz[-1]):
-        xyz = np.vstack([xyz, xyz[0:1]])
-    if tolerance > 0 and len(xyz) >= 4:
-        xyz = _simplify_polyline(xyz, tolerance)  # topology-preserving, so the ring stays closed
-
-    densified = shapely_geom.LineString(xyz).segmentize(spacing)
-    return np.asarray(densified.coords, dtype=np.float64)
+    """Close each surface outline, simplify it within ``tolerance``, and densify it to ``spacing``."""
+    for surface in scenario.surfaces.values():
+        if len(surface.polygon) == 0:
+            surface.polygon = np.zeros((0, 3), dtype=np.float64)
+            continue
+        xyz = np.asarray(surface.polygon, dtype=np.float64)
+        if not np.allclose(xyz[0], xyz[-1]):
+            xyz = np.vstack([xyz, xyz[0:1]])
+        if tolerance > 0 and len(xyz) >= 4:
+            xyz = _simplify_polyline(xyz, tolerance)  # topology-preserving, so the ring stays closed
+        surface.polygon = np.asarray(shapely_geom.LineString(xyz).segmentize(spacing).coords, dtype=np.float64)
 
 
 def reverse_road_edges(scenario: schema.PufferScenario) -> None:
@@ -54,25 +33,16 @@ def process_polylines(
     edge_max_segment_length: float = 1.0,
 ) -> None:
     for element in scenario.polylines.values():
-        if element.polyline is None:
+        if element.polyline is None or len(element.polyline) < 2:
             continue
-
-        polyline = element.polyline
-
-        if len(polyline) < 2:
-            continue
-
-        polyline = _remove_duplicate_points(polyline)
-
+        polyline = _remove_duplicate_points(element.polyline)
         if area_threshold > 0 and len(polyline) >= 3:
             polyline = _simplify_polyline(polyline, area_threshold)
-
         # PufferDrive culls and grids each segment by its midpoint, so long edge segments drop
         # corners near the observation window border. Give road edges shorter segments.
         segment_length = edge_max_segment_length if element.is_edge else max_segment_length
         if segment_length > 0:
             polyline = resample_polyline(polyline, segment_length)
-
         element.polyline = polyline
 
 

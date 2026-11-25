@@ -97,59 +97,45 @@ def add_shoulder_edges(
     sides = {lane_id: _lane_sides(lane_id, element, surroundings, continuing) for lane_id, element in lanes.items()}
     lanes_with_runs = {lane_id for lane_id, s_list in sides.items() if any(s.has_unsnapped_run for s in s_list)}
     ramps = {lane_id for lane_id, element in lanes.items() if _is_ramp(element, sides[lane_id])}
-    next_id = max([*scenario.polylines, *scenario.surfaces], default=-1) + 1
-    added = 0
+    first_id = next_id = max([*scenario.polylines, *scenario.surfaces], default=-1) + 1
     caps: set = set()  # two lanes ending on one band close it with the same cap
-    for lane_id, element in lanes.items():
-        widening_m = ramp_widening_m if lane_id in ramps else 0.0
-        for side in sides[lane_id]:
-            for start, end in side.runs:
-                run_ends = [
-                    _run_end(lanes, ramps, surroundings, side, idx, sign, next_lanes, lanes_with_runs)
-                    for idx, sign, next_lanes in (
-                        (start, -1.0, element.entry_lanes),
-                        (end - 1, 1.0, element.exit_lanes),
-                    )
-                ]
-                points, point_normals, point_widths = _run_points(surroundings, lane_id, side, start, end)
-                offsets = _widening_targets(point_widths, widening_m, run_ends[0].hold, run_ends[1].hold)
-                offsets = _tapered(points, _clear_of_other_lanes(surroundings, lane_id, points, point_normals, offsets))
-                polyline = _distinct_points(_offset_points(points, point_normals, offsets))
-                if len(polyline) < 2:
-                    continue  # the run collapsed onto one point at the band limits
-                scenario.polylines[next_id] = _edge(polyline if side.lane_on_right else polyline[::-1])
-                next_id += 1
-                next_id, cap_count = _append_run_caps(
-                    scenario.polylines, next_id, caps, side, start, end, run_ends, offsets
-                )
-                added += 1 + cap_count
-    return added
-
-
-def _append_run_caps(
-    map_elements: dict[int, schema.RoadPolyline],
-    next_id: int,
-    caps: set,
-    side: _Side,
-    start: int,
-    end: int,
-    run_ends: list[_RunEnd],
-    offsets: np.ndarray,
-) -> tuple[int, int]:
-    added = 0
-    run_end_sides = ((end - 1, 1.0, run_ends[1], offsets[-1]), (start, -1.0, run_ends[0], offsets[0]))
-    for idx, sign, run_end, offset_m in run_end_sides:
-        if run_end.cap_width_m is None or run_end.cap_width_m - offset_m < MIN_POINT_SPACING_M:
-            continue
-        cap = _cap(side.samples[idx], side.normals[idx], offset_m, run_end.cap_width_m, sign * side.tangents[idx])
-        cap_key = frozenset(tuple(np.round(point[:2] / MIN_POINT_SPACING_M)) for point in cap)
-        if cap_key in caps:
-            continue
-        caps.add(cap_key)
-        map_elements[next_id] = _edge(cap)
+    runs = [
+        (lane_id, element, side, run)
+        for lane_id, element in lanes.items()
+        for side in sides[lane_id]
+        for run in side.runs
+    ]
+    for lane_id, element, side, (start, end) in runs:
+        run_ends = [
+            _run_end(lanes, ramps, surroundings, side, idx, sign, next_lanes, lanes_with_runs)
+            for idx, sign, next_lanes in ((start, -1.0, element.entry_lanes), (end - 1, 1.0, element.exit_lanes))
+        ]
+        points, point_normals, point_widths = _run_points(surroundings, lane_id, side, start, end)
+        offsets = _widening_targets(
+            point_widths, ramp_widening_m if lane_id in ramps else 0.0, run_ends[0].hold, run_ends[1].hold
+        )
+        offsets = _tapered(points, _clear_of_other_lanes(surroundings, lane_id, points, point_normals, offsets))
+        shifted = points.copy()
+        shifted[:, :2] += offsets[:, None] * point_normals
+        polyline = _distinct_points(shifted)
+        if len(polyline) < 2:
+            continue  # the run collapsed onto one point at the band limits
+        scenario.polylines[next_id] = _edge(polyline if side.lane_on_right else polyline[::-1])
         next_id += 1
-        added += 1
-    return next_id, added
+        # Cap the run's end, then its start
+        for idx, sign, run_end, offset_m in (
+            (end - 1, 1.0, run_ends[1], offsets[-1]),
+            (start, -1.0, run_ends[0], offsets[0]),
+        ):
+            if run_end.cap_width_m is None or run_end.cap_width_m - offset_m < MIN_POINT_SPACING_M:
+                continue
+            cap = _cap(side.samples[idx], side.normals[idx], offset_m, run_end.cap_width_m, sign * side.tangents[idx])
+            cap_key = frozenset(tuple(np.round(point[:2] / MIN_POINT_SPACING_M)) for point in cap)
+            if cap_key not in caps:
+                caps.add(cap_key)
+                scenario.polylines[next_id] = _edge(cap)
+                next_id += 1
+    return next_id - first_id
 
 
 def _lane_sides(
@@ -198,7 +184,7 @@ def _run_end(
     idx: int,
     sign: float,
     next_lanes: list,
-    lanes_with_runs: set[int] | None = None,
+    lanes_with_runs: set[int],
 ) -> _RunEnd:
     """Determine whether to cap the band and keep its widening at sample `idx`.
 
@@ -219,11 +205,7 @@ def _run_end(
         probe = samples[outside].copy()
         probe[:2] += PROBE_OFFSET_M * normals[outside]
         return _RunEnd(None, surroundings.junctions.containing(probe))
-    next_ids = _through_stubs(lanes, next_lanes, sign > 0)
-    if lanes_with_runs is not None:
-        carrying = [i for i in next_ids if i in lanes_with_runs]
-    else:
-        carrying = [i for i in next_ids if _lane_has_run(i, lanes.get(i), surroundings)]
+    carrying = [i for i in _through_stubs(lanes, next_lanes, sign > 0) if i in lanes_with_runs]
     if carrying:  # the next lane carries the band on with its own run
         return _RunEnd(None, all(i in ramps for i in carrying))
     return _RunEnd(float(width), True)
@@ -266,12 +248,10 @@ def _lane_length(lane: schema.RoadPolyline) -> float:
 def _lane_surfaces(lanes: dict) -> "_Surfaces":
     keys, outlines = [], []
     for lane_id, lane in lanes.items():
-        if lane.left_boundary is None or lane.right_boundary is None:
+        left, right = lane.left_boundary, lane.right_boundary
+        if left is None or right is None or len(left) < 2 or len(right) < 2:
             continue
-        if len(lane.left_boundary) < 2 or len(lane.right_boundary) < 2:
-            continue
-        left = np.asarray(lane.left_boundary, dtype=np.float64)
-        right = np.asarray(lane.right_boundary, dtype=np.float64)
+        left, right = np.asarray(left, dtype=np.float64), np.asarray(right, dtype=np.float64)
         columns = min(left.shape[1], right.shape[1])
         keys.append(lane_id)
         outlines.append(np.vstack([left[:, :columns], right[::-1, :columns]]))
@@ -326,20 +306,6 @@ def _band_width(surroundings: _Surroundings, lane_id: int, point_xyz: np.ndarray
     return _band(surroundings.shoulders, point_xyz, normal)[0]
 
 
-def _lane_has_run(lane_id: int, lane: schema.RoadPolyline | None, surroundings: _Surroundings) -> bool:
-    """Whether a boundary of `lane` would get a run (same mask rules as add_shoulder_edges)."""
-    if lane is None or not lane.is_lane or lane.polyline is None:
-        return False
-    for boundary in (lane.left_boundary, lane.right_boundary):
-        if boundary is None or len(boundary) < 2:
-            continue
-        widths = _boundary_bands(boundary, lane_id, lane, surroundings)[3]
-        in_band = _band_mask(widths)
-        if _runs(in_band, 2 if in_band.all() else MIN_RUN_SAMPLES):
-            return True
-    return False
-
-
 def _run_points(
     surroundings: _Surroundings, lane_id: int, side: _Side, start: int, end: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -348,9 +314,7 @@ def _run_points(
     Extend runs that stop inside a lane to the band's limits. Assign NaN widths to those limit points.
     """
     samples, normals, widths = side.samples, side.normals, side.widths
-    points = [samples[i] for i in range(start, end)]
-    point_normals = [normals[i] for i in range(start, end)]
-    point_widths = [float(widths[i]) for i in range(start, end)]
+    points, point_normals, point_widths = list(samples[start:end]), list(normals[start:end]), widths[start:end].tolist()
     if start > 0:
         points.insert(0, _band_limit(surroundings, lane_id, samples, normals, start - 1, start))
         point_normals.insert(0, normals[start])
@@ -413,12 +377,6 @@ def _tapered(points: np.ndarray, offsets: np.ndarray) -> np.ndarray:
     return tapered
 
 
-def _offset_points(points: np.ndarray, point_normals: np.ndarray, offsets: np.ndarray) -> np.ndarray:
-    shifted = points.copy()
-    shifted[:, :2] += offsets[:, None] * point_normals
-    return shifted
-
-
 def _distinct_points(polyline: np.ndarray) -> np.ndarray:
     """Polyline without consecutive points closer than MIN_POINT_SPACING_M."""
     kept = [polyline[0]]
@@ -471,14 +429,11 @@ class _Surfaces:
 
     def __init__(self, outlines: list[np.ndarray], keys: list | None = None) -> None:
         keys = list(keys) if keys is not None else [None] * len(outlines)
-        triples = [
-            (shapely.Polygon(o[:, :2]).buffer(0), np.asarray(o, dtype=np.float64), k)
-            for o, k in zip(outlines, keys, strict=True)
-        ]
-        triples = [(polygon, outline, key) for polygon, outline, key in triples if not polygon.is_empty]
-        self.polygons = [polygon for polygon, _, _ in triples]
-        self.outlines = [outline for _, outline, _ in triples]
-        self.keys = [key for _, _, key in triples]
+        polygons = [shapely.Polygon(o[:, :2]).buffer(0) for o in outlines]
+        kept = [i for i, polygon in enumerate(polygons) if not polygon.is_empty]
+        self.polygons = [polygons[i] for i in kept]
+        self.outlines = [np.asarray(outlines[i], dtype=np.float64) for i in kept]
+        self.keys = [keys[i] for i in kept]
         self.z_bounds = [
             (float(o[:, 2].min()), float(o[:, 2].max())) if o.shape[1] >= 3 else None for o in self.outlines
         ]

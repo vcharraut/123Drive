@@ -30,8 +30,7 @@ def test_viewer_is_self_contained_and_handles_lane_zero():
     assert (STATIC / "deck.gl-9.0.0.LICENSE.txt").is_file()
 
 
-def test_csp_and_export_media_limit(monkeypatch):
-    monkeypatch.setattr(server.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+def _export_request(*headers, receive=None):
     scope = {
         "type": "http",
         "method": "POST",
@@ -39,25 +38,24 @@ def test_csp_and_export_media_limit(monkeypatch):
         "server": ("testserver", 80),
         "path": "/api/export/mp4",
         "query_string": b"",
-        "headers": [(b"host", b"testserver"), (b"content-type", b"application/octet-stream")],
+        "headers": [(b"host", b"testserver"), *headers],
     }
-    request = server.Request(scope)
-    with pytest.raises(server.HTTPException) as media_error:
-        asyncio.run(server.export_mp4(request))
+    return server.Request(scope, receive) if receive else server.Request(scope)
 
-    scope["headers"] = [
-        (b"host", b"testserver"),
-        (b"content-type", b"video/webm"),
-        (b"content-length", str(server.EXPORT_MAX_BYTES + 1).encode()),
-    ]
+
+def test_csp_and_export_media_limit(monkeypatch):
+    monkeypatch.setattr(server.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+    with pytest.raises(server.HTTPException) as media_error:
+        asyncio.run(server.export_mp4(_export_request((b"content-type", b"application/octet-stream"))))
+
+    headers = [(b"content-type", b"video/webm"), (b"content-length", str(server.EXPORT_MAX_BYTES + 1).encode())]
     with pytest.raises(server.HTTPException) as size_error:
-        asyncio.run(server.export_mp4(server.Request(scope)))
+        asyncio.run(server.export_mp4(_export_request(*headers)))
 
     async def response_with_csp():
         middleware = server.NoCacheStaticMiddleware(server.app)
         return await middleware.dispatch(
-            server.Request(scope),
-            lambda request: asyncio.sleep(0, result=server.Response()),
+            _export_request(*headers), lambda request: asyncio.sleep(0, result=server.Response())
         )
 
     response = asyncio.run(response_with_csp())
@@ -78,18 +76,9 @@ def test_export_cleans_up_disconnected_upload(tmp_path, monkeypatch):
         return {"type": "http.disconnect"}
 
     monkeypatch.setattr(server.tempfile, "mkdtemp", make_tempdir)
-    scope = {
-        "type": "http",
-        "method": "POST",
-        "scheme": "http",
-        "server": ("testserver", 80),
-        "path": "/api/export/mp4",
-        "query_string": b"",
-        "headers": [(b"host", b"testserver"), (b"content-type", b"video/webm")],
-    }
 
     with pytest.raises(ClientDisconnect):
-        asyncio.run(server.export_mp4(server.Request(scope, disconnect)))
+        asyncio.run(server.export_mp4(_export_request((b"content-type", b"video/webm"), receive=disconnect)))
 
     assert not tempdir.exists()
 

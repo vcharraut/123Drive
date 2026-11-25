@@ -26,7 +26,10 @@ def discover_scenes(
 ) -> list:
     data_root = pathlib.Path(py123d_data_root)
     if map_only:
-        return _discover_maps(data_root / "maps", datasets, num_scenes)
+        maps_root = data_root / "maps"
+        paths = sorted(p for p in maps_root.rglob("*.arrow") if p.is_file()) if maps_root.exists() else []
+        paths = [p for p in paths if not datasets or any(d in p.parts for d in datasets)]
+        return [arrow_map_api.ArrowMapAPI(p) for p in paths[:num_scenes]]
 
     scene_filter = py123d_api.SceneFilter(
         datasets=datasets,
@@ -61,14 +64,3 @@ def _skip_first_frame(scene: py123d_api.SceneAPI) -> py123d_api.SceneAPI:
         future_duration_s=metadata.future_duration_s - metadata.iteration_duration_s,
     )
     return arrow_scene_api.ArrowSceneAPI(log_dir, metadata, maps_root)
-
-
-def _discover_maps(maps_root: pathlib.Path, datasets: list[str] | None, num_scenes: int | None) -> list:
-    if not maps_root.exists():
-        return []
-    paths = sorted(p for p in maps_root.rglob("*.arrow") if p.is_file())
-    if datasets:
-        paths = [p for p in paths if any(d in p.parts for d in datasets)]
-    if num_scenes is not None:
-        paths = paths[:num_scenes]
-    return [arrow_map_api.ArrowMapAPI(p) for p in paths]

@@ -4,8 +4,8 @@
 
 ## Map
 
-- `src/bin_factory/loader/` extracts and validates source data; `preparation.py` owns transform order and configuration gates.
-- `src/bin_factory/schema.py` defines the scenario model. `serialize.py` owns the binary: the writer, `read_sections` for any `.bin`, and `static_binary_to_scenario` for map-only bins. Read bins through these.
+- `src/bin_factory/loader/` extracts and validates source data; `preparation.py` owns transform order and the configuration gates in `ConversionSettings`.
+- `src/bin_factory/schema.py` defines the scenario model; lane `length` and `cum_length` derive from the polyline. `serialize.py` owns the binary: `scenario_to_binary` writes it and derives the lane graph, and `binary_to_scenario` reads any `.bin` back. Read bins through these.
 - `src/bin_factory/conversion/` owns geometry, sanitization, and traffic controls; `src/bin_factory/generators/` owns routes, lane distances, shoulder edges, and traffic-light inference. Use the map-element predicates (`is_lane`, `is_line`, `is_edge`) instead of repeating type-range checks.
 - `src/mapforge/` builds static maps: `affine.py` augments them, `town.py` generates procedural towns. `src/viz/` serves the scenario viewer. `docker_tools/` builds extractor and converter images.
 - `external/py123d/` is the py123d submodule, described below.
@@ -19,13 +19,13 @@
 
 - Commit py123d changes inside the submodule on `vcha` (a fresh clone starts detached: `git -C external/py123d checkout vcha`), then stage the new pointer here with `git add external/py123d`.
 - Push py123d before 123Drive, so the recorded commit exists on the fork.
-- A workaround kept in 123Drive for dataset-specific source behavior is marked `# PY123D-REPORT[dataset]: description`.
+- A workaround kept in 123Drive for dataset-specific source behavior is marked `# PY123D-REPORT[dataset]: description`. A map correction goes in `clean_map` (`conversion/sanitize.py`), tested on hand-built lanes.
 
 ## Binary contract
 
 - A nonempty `route` means eligible for control; an empty route means background. The binary has no `control_state` or `route_gt_len`.
 - Macadam chooses controllers and background behavior. Conversion preserves recorded trajectories and validity masks.
-- A binary layout change touches the writer (`serialize.py`), the viewer parser (`src/viz/web/static/binary_parser.js`), and the test readers together. Macadam's reader and existing bins need the matching update.
+- A binary layout change touches `serialize.py` (writer and reader) and the viewer parser (`src/viz/web/static/binary_parser.js`) together; the Node test in `tests/bin_factory/test_serialize.py` compares the two readers. Macadam's reader and existing bins need the matching update.
 
 ## Working rules
 

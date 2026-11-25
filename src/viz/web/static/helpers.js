@@ -24,9 +24,7 @@
     if (!el) return;
     el.textContent = message;
     el.classList.remove('status-info', 'status-ok', 'status-error');
-    if (!message) return;
-    const cls = level === 'error' ? 'status-error' : (level === 'ok' ? 'status-ok' : 'status-info');
-    el.classList.add(cls);
+    if (message) el.classList.add(level === 'error' ? 'status-error' : (level === 'ok' ? 'status-ok' : 'status-info'));
   }
 
   function getRoadChevrons(xyz, spacingM = 3, sizeM = 0.4) {
@@ -34,6 +32,7 @@
     let dist = 0;
     let nextArrow = spacingM * 0.4;
     const hw = sizeM * 0.35;
+    const hx = sizeM * 0.5;
     const useZ = xyz.some(pt => pt != null && pt.length > 2 && Number.isFinite(pt[2]));
     for (let i = 0; i < xyz.length - 1; i++) {
       const [x1, y1, z1 = 0] = xyz[i];
@@ -50,19 +49,12 @@
         const t = (nextArrow - dist) / len;
         const cx = x1 + t * dx;
         const cy = y1 + t * dy;
-        const cz = z1 + t * (z2 - z1);
-        const hx = sizeM * 0.5;
-        const left = [cx - ux * hx + nx * hw, cy - uy * hx + ny * hw];
-        const tip = [cx + ux * hx, cy + uy * hx];
-        const right = [cx - ux * hx - nx * hw, cy - uy * hx - ny * hw];
-        if (useZ) {
-          left.push(cz);
-          tip.push(cz);
-          right.push(cz);
-        }
-        arrows.push({
-          path: [left, tip, right],
-        });
+        const z = useZ ? [z1 + t * (z2 - z1)] : [];
+        arrows.push({path: [
+          [cx - ux * hx + nx * hw, cy - uy * hx + ny * hw, ...z],
+          [cx + ux * hx, cy + uy * hx, ...z],
+          [cx - ux * hx - nx * hw, cy - uy * hx - ny * hw, ...z],
+        ]});
         nextArrow += spacingM;
       }
       dist += len;
@@ -95,12 +87,8 @@
   }
 
   function sceneBounds(scenario) {
-    let xmin = Infinity;
-    let xmax = -Infinity;
-    let ymin = Infinity;
-    let ymax = -Infinity;
-    let zmin = Infinity;
-    let zmax = -Infinity;
+    let [xmin, ymin, zmin] = [Infinity, Infinity, Infinity];
+    let [xmax, ymax, zmax] = [-Infinity, -Infinity, -Infinity];
     let hasPoint = false;
     const addPoint = (pt) => {
       if (pt == null || pt.length < 2) return;
@@ -127,31 +115,12 @@
     if (!hasPoint) {
       return {xmin: 0, xmax: 0, ymin: 0, ymax: 0, zmin: 0, zmax: 0, cx: 0, cy: 0, cz: 0};
     }
-    if (!Number.isFinite(zmin) || !Number.isFinite(zmax)) {
-      zmin = 0;
-      zmax = 0;
-    }
-    return {
-      xmin,
-      xmax,
-      ymin,
-      ymax,
-      zmin,
-      zmax,
-      cx: (xmin + xmax) / 2,
-      cy: (ymin + ymax) / 2,
-      cz: (zmin + zmax) / 2,
-    };
+    if (!Number.isFinite(zmin) || !Number.isFinite(zmax)) [zmin, zmax] = [0, 0];
+    return {xmin, xmax, ymin, ymax, zmin, zmax, cx: (xmin + xmax) / 2, cy: (ymin + ymax) / 2, cz: (zmin + zmax) / 2};
   }
 
   globalScope.VizHelpers = {
-    escapeHtml,
-    safeIdList,
-    getObjectsOfInterest,
-    setAppStatus,
-    getRoadChevrons,
-    getVehicleCorners,
-    getHeadingArrow,
+    escapeHtml, safeIdList, getObjectsOfInterest, setAppStatus, getRoadChevrons, getVehicleCorners, getHeadingArrow,
     sceneBounds,
   };
 })(window);

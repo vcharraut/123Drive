@@ -12,7 +12,7 @@ values. Boolean flags enabled by a preset cannot currently be disabled from the 
 | `nuplan` | `nuplan` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
 | `nuplan-map` | `nuplan` | `location` | Map-only city maps; reverse road edges |
 | `nuplan-mini` | `nuplan-mini` | `scene_uuid` | 20 s duration; reverse road edges; infer traffic lights |
-| `nurec` | `nurec-2604` | `log_name` | Infer traffic lights |
+| `nurec` | `nurec-2604` | `log_name` | Start at frame 1 |
 | `nuscenes` | `nuscenes` | `scene_uuid` | Reverse road edges |
 | `opendrive` | `opendrive` | `location` | Map-only; reverse road edges; speed limits from signs |
 | `shifts` | `shifts` | `log_name` | 0.2 s timestep; reverse road edges; infer traffic lights |

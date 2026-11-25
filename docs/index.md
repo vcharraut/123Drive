@@ -131,8 +131,10 @@ A route is an ordered list of lane IDs. The converter matches the recorded vehic
 trajectory to lanes using position, heading, and elevation. Consecutive lanes follow a
 successor link, or a lane change where the recorded vehicle moved to a neighbouring lane
 matched at the same point; there are no lane changes on lanes inside intersections, after a
-split, or before a merge. It extends the route toward a dead end, choosing the straightest
-continuation at branches.
+split, or before a merge. It extends the route toward a dead end, taking at each branch the
+exit whose end direction turns least. When the log stops where the lanes leaving a split still
+overlap and the vehicle still heads along the lane it came from, the route takes the
+straightest of those lanes that fits its last positions.
 
 `route_entry_s` and `route_exit_s` give, per route lane, the `cum_length` span driven on it:
 the whole lane across successor links, the switch points across a lane change. They carry
@@ -143,11 +145,13 @@ A non-ego vehicle keeps its route only if it:
 * passes the parked-vehicle filter;
 * never moves faster than 50 m/s between consecutive valid frames in the log;
 * is valid, on-road, and has at least 15 metres of route ahead at some timestep in `0..10`;
+* ends its log within 5 metres of a route lane;
 * has no logged overlap at its first eligible frame or later overlap with an agent without a route.
 
 The overlap check repeats when another vehicle loses its route. Non-vehicles have
 empty routes. Ego bypasses the parked filter; conversion rejects scenes where ego
-has no usable route, starts off-road, or overlaps another agent at frame 0.
+has no usable route, starts off-road, ends its log more than 5 metres from its route,
+or overlaps another agent at frame 0.
 
 A nonempty route means eligible for control. An empty route means background.
 Macadam chooses the controller and whether to replay, freeze, or omit background
@@ -156,15 +160,18 @@ There is no separate control-state or route-prefix-length field. See [route code
 
 ## Traffic-light inference
 
-By default, missing light observations remain unknown. `--infer_traffic_lights` combines
-observed signals, lane topology, vehicle crossings, and stopped vehicles to infer
-missing or inconsistent states. Observed signals are evidence, so vehicle behaviour can
-correct noisy labels. It groups intersection movements and uses conflicts between them to
-constrain inference. Each movement follows one continuous path of red and green with
-yellow transitions: a state holds at least 3 s and a red under 10 s between two greens is
-filled. States stay unknown only before the first and after the last confident frame.
-Turns that are free on red never show red; their red frames are unknown.
-Yellow-only detections stay unchanged. See [inference code].
+By default, light states stay as logged, and frames without an observation are unknown.
+`--infer_traffic_lights` imputes and corrects them from vehicle trajectories, after
+[Yan et al., 2025](https://arxiv.org/abs/2506.07150). It finds the signalized intersections
+from py123d intersections, or from lanes that share ends or cross, and groups their
+connectors into movements per approach. Vehicles near each stop line give the movement a
+state from their acceleration and speed; a logged state they contradict is corrected. Each
+frame then takes the closest ring-and-barrier configuration, so crossing movements are
+never green together. States shorter than 3 s are smoothed out, and each green ends with
+2 s of yellow. Every movement of an intersection with any evidence gets a light, also
+approaches without a logged one. Free turns (right, left in Singapore) never show red:
+they stay green between two greens and are unknown before the first and after the last.
+See [inference code].
 
 - [Dataset differences](presets.md)
 - [Command options](cli-reference.md)

@@ -68,7 +68,8 @@ def test_singleton_ego_corridor_is_valid():
         query=lambda corridor, layers, predicate: {},
     )
 
-    polylines, surfaces, stop_zones, lane_ids = extractor._extract_map(map_api, np.zeros(3), [state], False)  # ty: ignore[invalid-argument-type]
+    corridor = extractor._ego_corridor([state])
+    polylines, surfaces, stop_zones, lane_ids = extractor._extract_map(map_api, np.zeros(3), corridor)  # ty: ignore[invalid-argument-type]
 
     assert polylines == {}
     assert surfaces == {}
@@ -90,7 +91,8 @@ def test_stop_zones_drop_lanes_outside_corridor():
         query=lambda corridor, layers, predicate: {map_objects.MapLayer.STOP_ZONE: [zone]},
     )
 
-    _polylines, _surfaces, stop_zones, _lane_ids = extractor._extract_map(map_api, np.zeros(3), [state], False)  # ty: ignore[invalid-argument-type]
+    corridor = extractor._ego_corridor([state])
+    _polylines, _surfaces, stop_zones, _lane_ids = extractor._extract_map(map_api, np.zeros(3), corridor)  # ty: ignore[invalid-argument-type]
 
     assert stop_zones == []
 
@@ -113,20 +115,6 @@ def test_validation_rejects_non_xyz_geometry_and_nonfinite_dt():
 
     assert "metadata.dt must be finite" in errors
     assert any("invalid shape" in error for error in errors)
-
-
-def test_validation_reports_malformed_lane_graph():
-    scenario = schema.PufferScenario(
-        agents={},
-        objects={},
-        polylines={},
-        lane_graph=[],  # ty: ignore[invalid-argument-type]
-        metadata=schema.ScenarioMetadata(id="x", dataset="d", scenario_length=0, dt=0.0),
-    )
-
-    errors = validate_scenario(scenario, level=1)
-
-    assert "lane_graph must be a dict" in errors
 
 
 def test_teleport_threshold_scales_with_dt():

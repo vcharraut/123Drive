@@ -3,21 +3,10 @@ from py123d.datatypes import detections, map_objects
 from bin_factory import puffer_types
 
 
+# Layers with a polyline or surface type in the schema, and stop zones, which become traffic controls
 SUPPORTED_MAP_LAYERS = frozenset(
-    {
-        map_objects.MapLayer.LANE,
-        map_objects.MapLayer.ROAD_LINE,
-        map_objects.MapLayer.ROAD_EDGE,
-        map_objects.MapLayer.LANE_GROUP,
-        map_objects.MapLayer.INTERSECTION,
-        map_objects.MapLayer.CROSSWALK,
-        map_objects.MapLayer.WALKWAY,
-        map_objects.MapLayer.CARPARK,
-        map_objects.MapLayer.GENERIC_DRIVABLE,
-        map_objects.MapLayer.STOP_ZONE,
-        map_objects.MapLayer.SPEED_BUMP,
-        map_objects.MapLayer.SHOULDER,
-    }
+    map_objects.MapLayer(int(layer))
+    for layer in puffer_types.POLYLINE_LAYERS | puffer_types.SURFACE_LAYERS | {puffer_types.MapLayer.STOP_ZONE}
 )
 
 
@@ -43,10 +32,4 @@ STOP_ZONE_TYPE_MAP = {
     map_objects.StopZoneType.TURN_STOP: int(puffer_types.TCType.STOP_SIGN),  # No specific turn stop type in puffer
 }
 
-TL_STATE_MAP = {
-    detections.TrafficLightStatus.GREEN: puffer_types.TLState.GREEN,
-    detections.TrafficLightStatus.YELLOW: puffer_types.TLState.YELLOW,
-    detections.TrafficLightStatus.RED: puffer_types.TLState.RED,
-    detections.TrafficLightStatus.OFF: puffer_types.TLState.OFF,
-    detections.TrafficLightStatus.UNKNOWN: puffer_types.TLState.UNKNOWN,
-}
+TL_STATE_MAP = {status: puffer_types.TLState[status.name] for status in detections.TrafficLightStatus}

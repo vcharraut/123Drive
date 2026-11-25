@@ -39,6 +39,10 @@ EXPORT_MAX_BYTES = 250 * 1024 * 1024
 EXPORT_TIMEOUT_S = 120
 EXPORT_MEDIA_TYPES = {"video/mp4": ".mp4", "video/webm": ".webm"}
 EXPORT_SEMAPHORE = asyncio.Semaphore(1)
+# H.264 at even dimensions, as most players require
+FFMPEG_ENCODE = (
+    "-vf scale=trunc(iw/2)*2:trunc(ih/2)*2 -c:v libx264 -preset slow -crf 18 -pix_fmt yuv420p -movflags +faststart"
+)
 
 
 class NoCacheStaticMiddleware(BaseHTTPMiddleware):
@@ -102,8 +106,7 @@ def get_types() -> dict:
 @app.get("/api/scenarios")
 def list_scenarios() -> list[str]:
     scenario_dir = _require_scenario_dir()
-    files = sorted(scenario_dir.rglob("*.bin"))
-    return [str(p.relative_to(scenario_dir)) for p in files]
+    return [str(p.relative_to(scenario_dir)) for p in sorted(scenario_dir.rglob("*.bin"))]
 
 
 @app.get("/api/scenario/{filename:path}")
@@ -111,11 +114,7 @@ def get_scenario(filename: str) -> FileResponse:
     path = _resolve_scenario_path(filename)
     if not path.exists():
         raise HTTPException(status_code=404, detail="Scenario not found")
-    return FileResponse(
-        path,
-        media_type="application/octet-stream",
-        headers={"Cache-Control": "no-store, max-age=0"},
-    )
+    return FileResponse(path, media_type="application/octet-stream", headers={"Cache-Control": "no-store, max-age=0"})
 
 
 @app.post("/api/export/mp4")
@@ -152,32 +151,10 @@ async def export_mp4(request: Request, name: str = "scenario") -> FileResponse:
             if received == 0:
                 raise HTTPException(status_code=400, detail="Missing recording payload")
 
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-hide_banner",
-                "-loglevel",
-                "error",
-                "-i",
-                str(input_path),
-                "-vf",
-                "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "slow",
-                "-crf",
-                "18",
-                "-pix_fmt",
-                "yuv420p",
-                "-movflags",
-                "+faststart",
-                str(output_path),
-            ]
+            cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(input_path)]
+            cmd += [*FFMPEG_ENCODE.split(), str(output_path)]
             proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
             try:
                 _, stderr = await asyncio.wait_for(proc.communicate(), timeout=EXPORT_TIMEOUT_S)

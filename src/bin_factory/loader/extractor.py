@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import collections
 import dataclasses
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import shapely
@@ -12,6 +12,7 @@ from py123d.geometry import EulerAnglesIndex, PoseSE3Index
 from py123d.geometry.utils.rotation_utils import get_euler_array_from_quaternion_array
 
 from bin_factory import puffer_types, schema
+from bin_factory.conversion.sanitize import fill_missing_speed_limits
 from bin_factory.loader import mapping
 from bin_factory.log_context import log
 
@@ -22,49 +23,50 @@ if TYPE_CHECKING:
 
 SCENE_MAP_MARGIN = 250.0  # Lateral buffer in metres around the ego path for scene scenarios
 MIN_LINE_LENGTH = 0.1  # Minimum road line length in metres
-LINE_DUPLICATE_DISTANCE = 0.1  # Hausdorff distance in metres that marks a road line as a duplicate
-HOOK_MAX_LENGTH = 0.5  # Maximum end-segment length in metres that counts as a sharp hook
-HOOK_MIN_TURN = np.radians(30.0)
-NEIGHBOR_MIN_OVERLAP = 10.0  # Metres a neighbour must run alongside a lane, capped at half the shorter lane
-NEIGHBOR_GAP = (1.5, 6.0)  # Lateral distance range in metres of a neighbour centerline
-NEIGHBOR_MAX_ANGLE = np.radians(25.0)
 JUNCTION_SHOULDER_MIN_OVERLAP = 0.5  # Area fraction inside intersections that makes a shoulder a junction shoulder
 STATIC_OBJECT_LEVEL_TOL = 2.0  # Maximum height difference in metres between a road surface and an object on it
-MAX_LANE_GAP = 3.0  # Maximum endpoint gap in metres for connected entry and exit lanes
+
+
+def scenario_id(py123d_data: Any, field: str) -> str:
+    """Return the scene's ``field`` as its identity. Map-only objects have no other identity than their location."""
+    if not hasattr(py123d_data, field):  # map-only objects only expose `location`
+        field = "location"
+    value = str(getattr(py123d_data, field) or "")
+    if not value:
+        dataset = getattr(py123d_data, "dataset", "")
+        raise ValueError(f"Cannot derive scenario id from py123d_data: missing {field} for dataset {dataset}")
+    return value
 
 
 def extract_scenario(
     py123_arrow: py123d_api.SceneAPI | py123d_api.MapAPI,
-    scenario_id_field: str = "scene_uuid",
-    speed_limit_source: str = "road",
-    static_objects: str = "all",
+    scenario_id_field: str,
+    speed_limit_source: str,
+    static_objects: str,
 ) -> tuple[schema.PufferScenario, schema.ExtractionExtras]:
     """Convert a 123D scene or map into a scenario and extraction extras.
 
     ``scenario_id_field`` selects scene_uuid, log_name, or location for metadata.id.
     ``speed_limit_source`` selects the road limit or the last speed sign's limit.
     ``static_objects`` keeps all static map objects or only those on the road surface.
-    Transforms use the extras for traffic controls and shoulder edges.
+    Transforms use the extras for traffic controls and shoulder edges. The map comes out as py123d reports it,
+    apart from the whole-map speed fill; ``conversion.sanitize.clean_map`` corrects its quirks.
     """
     if isinstance(py123_arrow, py123d_api.MapAPI):
         scene_api = None
         map_api = py123_arrow
-        scenario_id = py123_arrow.location  # map-only objects only expose `location`
     else:
         scene_api = py123_arrow
         map_api = scene_api.get_map_api()
-        scenario_id = getattr(scene_api, scenario_id_field)
 
     if map_api is None:
         raise ValueError("Map API is required to convert scenario")
-    if scenario_id is None:
-        raise ValueError("Scenario ID is required to convert scenario")
 
     agents: dict[int, schema.Track] = {}
     traffic_lights: dict[int, schema.TrafficLightTrack] = {}
     objects: dict[int, schema.Track] = {}
     metadata = schema.ScenarioMetadata(
-        id=scenario_id,
+        id=scenario_id(py123_arrow, scenario_id_field),
         dataset=py123_arrow.dataset,
         scenario_length=0,
         dt=0.0,
@@ -75,21 +77,19 @@ def extract_scenario(
         split=map_api.map_metadata.split or "",
     )
 
-    map_only = scene_api is None
-    ego_states = (
-        [scene_api.get_ego_state_se3_at_iteration(i) for i in range(scene_api.number_of_iterations)]
-        if scene_api is not None
-        else None
-    )
+    ego_states: list[Any] | None = None
+    if scene_api is not None:
+        ego_states = [scene_api.get_ego_state_se3_at_iteration(i) for i in range(scene_api.number_of_iterations)]
+        if any(state is None for state in ego_states):
+            raise ValueError("Ego states are required at every frame to convert scenario with SceneAPI")
 
-    if not map_only and (ego_states is None or any(state is None for state in ego_states)):
-        raise ValueError("Ego states are required at every frame to convert scenario with SceneAPI")
-
-    centroid = _compute_centroid(ego_states)
+    centroid = np.zeros(3, dtype=np.float64)
+    if ego_states:
+        centroid = np.array([s.bounding_box_se3.array[:3] for s in ego_states], dtype=np.float64).mean(axis=0)
     metadata.origin_xyz = tuple(float(value) for value in centroid)
-    polylines, surfaces, stop_zones, map_lane_ids = _extract_map(
-        map_api, centroid, ego_states, map_only, speed_limit_source
-    )
+    # Scenes keep the map near the ego path, unless the map belongs to the log
+    corridor = None if ego_states is None or map_api.map_is_per_log else _ego_corridor(ego_states)
+    polylines, surfaces, stop_zones, map_lane_ids = _extract_map(map_api, centroid, corridor, speed_limit_source)
 
     if scene_api is not None and ego_states is not None:
         dt = float(scene_api.scene_metadata.iteration_duration_s)
@@ -97,9 +97,8 @@ def extract_scenario(
             raise ValueError(f"Invalid time step dt={dt} computed from scene metadata")
 
         all_objects, labels, tokens_to_object_id = _extract_objects(scene_api, centroid, ego_states)
-        for obj in all_objects.values():
-            _fill_missing_velocities(obj, dt)
         for oid, obj in all_objects.items():
+            _fill_missing_velocities(obj, dt)
             label = labels[oid]
             if label in mapping.AGENT_TYPE_MAP:
                 obj.type = mapping.AGENT_TYPE_MAP[label]
@@ -122,7 +121,7 @@ def extract_scenario(
     first_id = max([*agents, *objects], default=-1) + 1
     objects.update(
         _extract_static_objects(
-            map_api, centroid, ego_states, map_only, metadata.scenario_length, first_id, static_objects == "onroad"
+            map_api, centroid, corridor, metadata.scenario_length, first_id, static_objects == "onroad"
         )
     )
 
@@ -130,24 +129,16 @@ def extract_scenario(
         _zero_all_z(agents, objects, traffic_lights, [*polylines.values(), *surfaces.values(), *stop_zones])
 
     scenario = schema.PufferScenario(
-        agents=agents,
-        polylines=polylines,
-        surfaces=surfaces,
-        objects=objects,
-        metadata=metadata,
+        agents=agents, objects=objects, polylines=polylines, metadata=metadata, surfaces=surfaces
     )
     non_junction_shoulders, junction_drivables = _extract_shoulder_context(map_api, centroid)
-    extras = schema.ExtractionExtras(
-        traffic_lights=traffic_lights,
-        stop_zones=stop_zones,
-        non_junction_shoulders=non_junction_shoulders,
-        junction_drivables=junction_drivables,
-    )
-    return scenario, extras
+    return scenario, schema.ExtractionExtras(traffic_lights, stop_zones, non_junction_shoulders, junction_drivables)
 
 
-def _mark_junction_lanes(map_api: py123d_api.MapAPI, lanes: dict[int, schema.RoadPolyline]) -> None:
-    """Flag lanes whose lane group belongs to an intersection."""
+def _mark_junction_lanes(
+    map_api: py123d_api.MapAPI, lanes: dict[int, schema.RoadPolyline], intersection_element_ids: dict[int, int]
+) -> None:
+    """Flag lanes whose lane group belongs to an intersection, with that intersection's element id."""
     if map_objects.MapLayer.LANE_GROUP not in map_api.available_map_layers:
         return
     groups: list[Any] = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE_GROUP))
@@ -158,6 +149,7 @@ def _mark_junction_lanes(map_api: py123d_api.MapAPI, lanes: dict[int, schema.Roa
             lane = lanes.get(int(lane_id))
             if lane is not None:
                 lane.in_junction = True
+                lane.intersection_id = intersection_element_ids.get(group.intersection_id, -1)
 
 
 def _extract_shoulder_context(
@@ -205,30 +197,23 @@ def _extract_objects(
     ``extract_scenario`` maps the labels to PufferDrive types.
     """
     episode_length = scene_api.number_of_iterations
-    objects: dict[int, schema.Track] = {0: _make_empty_track(episode_length)}
+    # Ego agent is always object ID 0, built from cached ego states
+    ego = _make_empty_track(episode_length, ego_states[0].box_detection_se3.attributes.track_token)
+    objects: dict[int, schema.Track] = {0: ego}
     labels: dict[int, detections.DefaultBoxDetectionLabel] = {0: detections.DefaultBoxDetectionLabel.EGO}
     tokens_to_object_id: dict[str, int] = {}
-
-    # Ego agent is always object ID 0, built from cached ego states
-    ego = objects[0]
-    ego.source_id = ego_states[0].box_detection_se3.attributes.track_token
     is_nuplan = scene_api.dataset.startswith("nuplan")
 
     for frame_idx, ego_state in enumerate(ego_states):
-        if ego_state is None:
-            raise ValueError(f"Missing ego state at frame {frame_idx}")
-
         bbox = ego_state.bounding_box_se3
         _write_detection_frame(ego, frame_idx, bbox, centroid, bbox.center_se3.yaw)
         # PY123D-REPORT[nuplan]: raw ego_pose velocity has a lateral bias of -2% of vx and reads 1.4%
         # fast against the logged poses. Leave it NaN so _fill_missing_velocities derives it from positions.
-        if is_nuplan:
-            continue
-        velocity = ego_state.box_detection_se3.velocity_3d
-        ego.velocity[frame_idx] = [float(velocity.x), float(velocity.y)]
+        if not is_nuplan:
+            velocity = ego_state.box_detection_se3.velocity_3d
+            ego.velocity[frame_idx] = [float(velocity.x), float(velocity.y)]
 
     # Detections for all other agents
-    next_object_id = 0
     for frame_idx in range(episode_length):
         detections_list = scene_api.get_box_detections_se3_at_iteration(frame_idx)
         if not detections_list:
@@ -238,27 +223,15 @@ def _extract_objects(
         for detection, heading in zip(detections_list, headings, strict=False):
             track_token = detection.attributes.track_token
             object_id = tokens_to_object_id.get(track_token)
-            if object_id is None:
-                next_object_id += 1
-                object_id = next_object_id
-                tokens_to_object_id[track_token] = object_id
-                objects[object_id] = _make_empty_track(episode_length)
-                objects[object_id].source_id = track_token
+            if object_id is None:  # number tracks from 1 in order of appearance
+                object_id = tokens_to_object_id[track_token] = len(tokens_to_object_id) + 1
+                objects[object_id] = _make_empty_track(episode_length, track_token)
                 labels[object_id] = detection.attributes.default_label
-
             obj = objects[object_id]
-            _write_detection_frame(
-                obj,
-                frame_idx,
-                detection.bounding_box_se3,
-                centroid,
-                float(heading),
-            )
-
+            _write_detection_frame(obj, frame_idx, detection.bounding_box_se3, centroid, float(heading))
             if detection.velocity_3d is not None:
                 vel = detection.velocity_3d.array
-                obj.velocity[frame_idx, 0] = vel[0]
-                obj.velocity[frame_idx, 1] = vel[1]
+                obj.velocity[frame_idx, 0], obj.velocity[frame_idx, 1] = vel[0], vel[1]
 
     # PY123D-REPORT[griffin]: Griffin label files include the ego vehicle at (0, 0) in ego coordinates with its actual
     # CARLA box (1.60 x 0.82 m), while EgoStateSE3Metadata hardcodes 4.79 x 1.85 m and leaves the duplicate in
@@ -317,13 +290,8 @@ def _extract_traffic_lights(
 ) -> dict[int, schema.TrafficLightTrack]:
     """Extract dynamic traffic light states from 123D logs."""
     elements: dict[int, schema.TrafficLightTrack] = {}
-
     for frame_idx in range(scene_api.number_of_iterations):
-        traffic_lights = scene_api.get_traffic_light_detections_at_iteration(frame_idx)
-        if not traffic_lights:
-            continue
-
-        for detection in traffic_lights:
+        for detection in scene_api.get_traffic_light_detections_at_iteration(frame_idx) or []:
             lane_id = int(detection.lane_id)
             if lane_id not in lane_ids:
                 log.debug("TL detection references unknown lane %d, skipping", lane_id)
@@ -333,69 +301,54 @@ def _extract_traffic_lights(
                 if lane is None or not isinstance(lane, map_objects.Lane) or len(lane.centerline.array) == 0:
                     log.debug("TL lane %d has no centerline, skipping", lane_id)
                     continue
-
                 elements[lane_id] = schema.TrafficLightTrack(
                     position=_centered_array(lane.centerline_3d.array[0], centroid).flatten(),
                     states=[puffer_types.TLState.UNKNOWN] * scene_api.number_of_iterations,
                     controlled_lane=lane_id,
                 )
-
             elements[lane_id].states[frame_idx] = mapping.TL_STATE_MAP.get(
-                detection.status,
-                puffer_types.TLState.UNKNOWN,
+                detection.status, puffer_types.TLState.UNKNOWN
             )
-
     return elements
+
+
+def _map_objects(map_api: py123d_api.MapAPI, layers: list[Any], corridor: shapely.Geometry | None) -> list[Any]:
+    """Return the map objects of ``layers``, layer by layer: all of them, or those intersecting ``corridor``."""
+    if corridor is None:
+        return list(map_api.get_all_map_objects_in_layers(layers))
+    found = map_api.query(corridor, layers, predicate="intersects")
+    return [obj for layer in layers for obj in found.get(layer, [])]
 
 
 def _extract_map(
     map_api: py123d_api.MapAPI,
     centroid: np.ndarray,
-    ego_states: list[Any] | None = None,
-    map_only: bool = False,
+    corridor: shapely.Geometry | None = None,
     speed_limit_source: str = "road",
 ) -> tuple[dict[int, schema.RoadPolyline], dict[int, schema.RoadSurface], list[schema.StopZone], set[int]]:
-    """Extract static map elements from a 123D MapAPI."""
+    """Extract static map elements from a 123D MapAPI, within ``corridor`` when given."""
     result: dict[int, schema.RoadPolyline] = {}
     surfaces: dict[int, schema.RoadSurface] = {}
     stop_zones: list[schema.StopZone] = []
     non_lane_objects: list[Any] = []
-    undefined_lane: list[int] = []
-    layers: list[str | map_objects.MapLayer] = [
-        layer for layer in map_api.available_map_layers if layer in mapping.SUPPORTED_MAP_LAYERS
-    ]
-
-    map_objs: list[Any]
-    cropped = not (map_only or map_api.map_is_per_log or ego_states is None)
-    if not cropped:
-        map_objs = list(map_api.get_all_map_objects_in_layers(layers))
-    else:
-        assert ego_states is not None
-        map_objects_by_layer = map_api.query(_ego_corridor(ego_states), layers, predicate="intersects")
-        map_objs = [obj for layer in layers for obj in map_objects_by_layer.get(layer, [])]
+    layers = [layer for layer in map_api.available_map_layers if layer in mapping.SUPPORTED_MAP_LAYERS]
 
     # Other elements reference lane IDs, so extract lanes first.
-    for obj in map_objs:
+    for obj in _map_objects(map_api, layers, corridor):
         if obj.layer == map_objects.MapLayer.LANE:
             element = _write_map_object(obj, centroid, speed_limit_source)
-            if not isinstance(element, schema.RoadPolyline):
-                continue
-            result[obj.object_id] = element
-            if obj.lane_type == map_objects.LaneType.UNDEFINED:
-                undefined_lane.append(obj.object_id)
+            if isinstance(element, schema.RoadPolyline):
+                result[obj.object_id] = element
         else:
             non_lane_objects.append(obj)
 
     lane_ids = set(result.keys())
-    _fix_lane_topology(result, undefined_lane, lane_ids)
-    _drop_partial_neighbors(result)
-    if cropped and any(lane.speed_limit_mps <= 0 for lane in result.values()):
+    if corridor is not None and any(lane.speed_limit_mps <= 0 for lane in result.values()):
         # Fill over the whole map because the crop often cuts a lane off from every lane with a speed limit.
         map_limits = _map_speed_limits(map_api, speed_limit_source)
         for lane_id, lane in result.items():
             if lane.speed_limit_mps <= 0:
                 lane.speed_limit_mps = map_limits.get(lane_id, -1.0)
-    _fill_missing_speed_limits(result)
 
     # Non-lane elements get sequential IDs after max lane ID to avoid collisions
     next_id = max(result.keys(), default=-1) + 1
@@ -416,9 +369,8 @@ def _extract_map(
         else:
             result[next_id] = element
             next_id += 1
-    drop_duplicate_lines(result)
 
-    _mark_junction_lanes(map_api, result)
+    _mark_junction_lanes(map_api, result, intersection_element_ids)
     # Stop zones reference intersections by their 123D id, map elements use sequential ids
     stop_zones = [
         dataclasses.replace(stop_zone, intersection_id=intersection_element_ids.get(stop_zone.intersection_id, -1))
@@ -444,24 +396,18 @@ def _is_short_road_line(element: schema.RoadPolyline | schema.RoadSurface | sche
     )
 
 
-# Writer functions
-
-
 def _write_map_object(
     map_object: Any, centroid: np.ndarray, speed_limit_source: str = "road"
 ) -> schema.RoadPolyline | schema.RoadSurface | schema.StopZone | None:
-    """Convert a 123D map object into a RoadPolyline, RoadSurface, or StopZone."""
+    """Convert a 123D map object of a supported layer into a RoadPolyline, RoadSurface, or StopZone."""
     layer = map_object.layer
-    if layer not in mapping.SUPPORTED_MAP_LAYERS:
-        return None
-
     if layer == map_objects.MapLayer.LANE:
         if map_object.lane_type == map_objects.LaneType.SHOULDER:
             return None
         return schema.RoadPolyline(
             layer=int(layer),
             type=int(map_object.lane_type),
-            polyline=_trim_end_hooks(_centered_array(map_object.centerline_3d.array, centroid)),
+            polyline=_centered_array(map_object.centerline_3d.array, centroid),
             speed_limit_mps=_lane_speed_limit(map_object, speed_limit_source),
             entry_lanes=map_object.predecessor_ids,
             exit_lanes=map_object.successor_ids,
@@ -474,9 +420,7 @@ def _write_map_object(
     if layer in (map_objects.MapLayer.ROAD_LINE, map_objects.MapLayer.ROAD_EDGE):
         subtype = map_object.road_line_type if layer == map_objects.MapLayer.ROAD_LINE else map_object.road_edge_type
         return schema.RoadPolyline(
-            layer=int(layer),
-            type=int(subtype),
-            polyline=_centered_array(map_object.polyline_3d.array, centroid),
+            layer=int(layer), type=int(subtype), polyline=_centered_array(map_object.polyline_3d.array, centroid)
         )
 
     if int(layer) in puffer_types.SURFACE_LAYERS:
@@ -502,8 +446,7 @@ def _write_map_object(
 def _extract_static_objects(
     map_api: py123d_api.MapAPI,
     centroid: np.ndarray,
-    ego_states: list[Any] | None,
-    map_only: bool,
+    corridor: shapely.Geometry | None,
     episode_length: int,
     first_id: int,
     onroad_only: bool = False,
@@ -514,26 +457,18 @@ def _extract_static_objects(
     """
     if map_objects.MapLayer.STATIC_OBJECT not in map_api.available_map_layers:
         return {}
-    static_objects: list[Any]
-    if map_only or map_api.map_is_per_log or ego_states is None:
-        static_objects = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.STATIC_OBJECT))
-    else:
-        layer = map_objects.MapLayer.STATIC_OBJECT
-        found = map_api.query(_ego_corridor(ego_states), [layer], predicate="intersects")
-        static_objects = cast("list[Any]", found.get(layer, []))
+    static_objects = _map_objects(map_api, [map_objects.MapLayer.STATIC_OBJECT], corridor)
     if not static_objects:
         return {}
     boxes = [obj.outline.array[:4] for obj in static_objects]
     if onroad_only and map_objects.MapLayer.GENERIC_DRIVABLE in map_api.available_map_layers:
         static_objects, boxes = _filter_onroad_static_objects(map_api, static_objects, boxes)
     tracks: dict[int, schema.Track] = {}
-    num_frames = max(episode_length, 1)
     for n, (obj, corners) in enumerate(zip(static_objects, boxes, strict=False)):
         sides = np.diff(corners[:3, :2], axis=0)
         side_norms = np.linalg.norm(sides, axis=1)
         long_side = sides[int(np.argmax(side_norms))]
-        track = _make_empty_track(num_frames)  # map-only scenarios allocate one frame
-        track.source_id = str(obj.object_id)
+        track = _make_empty_track(max(episode_length, 1), str(obj.object_id))  # map-only scenarios get one frame
         track.type = int(
             puffer_types.ObjectType.BARRIER
             if obj.static_object_type == map_objects.StaticObjectType.BARRIER
@@ -581,25 +516,17 @@ def _filter_onroad_static_objects(
     return kept_objs, kept_boxes
 
 
-def _write_detection_frame(
-    obj: schema.Track,
-    frame_idx: int,
-    bbox: Any,
-    centroid: np.ndarray,
-    heading: float,
-) -> None:
-    arr = bbox.array
+def _write_detection_frame(obj: schema.Track, frame_idx: int, bbox: Any, centroid: np.ndarray, heading: float) -> None:
+    arr = bbox.array  # scalar writes: this runs per detection, and small array operations cost twice as much
     obj.position[frame_idx, 0] = arr[0] - centroid[0]
     obj.position[frame_idx, 1] = arr[1] - centroid[1]
-    obj.position[frame_idx, 2] = arr[2] - centroid[2] - arr[9] / 2.0
+    obj.position[frame_idx, 2] = arr[2] - centroid[2] - arr[9] / 2.0  # the box center sits half its height up
     obj.heading[frame_idx] = heading
     obj.valid[frame_idx] = 1
-    obj.length[frame_idx] = arr[7]
-    obj.width[frame_idx] = arr[8]
-    obj.height[frame_idx] = arr[9]
+    obj.length[frame_idx], obj.width[frame_idx], obj.height[frame_idx] = arr[7], arr[8], arr[9]
 
 
-def _make_empty_track(episode_length: int) -> schema.Track:
+def _make_empty_track(episode_length: int, source_id: str = "") -> schema.Track:
     return schema.Track(
         type=-1,  # placeholder until the 123D label is mapped to a puffer type
         position=np.zeros((episode_length, 3), dtype=np.float64),
@@ -609,6 +536,7 @@ def _make_empty_track(episode_length: int) -> schema.Track:
         length=np.zeros((episode_length,), dtype=np.float64),
         width=np.zeros((episode_length,), dtype=np.float64),
         height=np.zeros((episode_length,), dtype=np.float64),
+        source_id=source_id,
     )
 
 
@@ -630,20 +558,6 @@ def _fill_missing_velocities(track: schema.Track, dt: float) -> None:
     )
 
 
-def _compute_centroid(ego_states: list[Any] | None) -> np.ndarray:
-    if ego_states is not None:
-        positions = np.array(
-            [s.bounding_box_se3.array[:3] for s in ego_states if s is not None],
-            dtype=np.float64,
-        )
-        if len(positions) > 0:
-            return positions.mean(axis=0)
-    return np.zeros(3, dtype=np.float64)
-
-
-# Source data corrections
-
-
 def _zero_all_z(
     agents: dict[int, schema.Track],
     objects: dict[int, schema.Track],
@@ -662,171 +576,6 @@ def _zero_all_z(
                 arr[:, 2] = 0.0
 
 
-def _fix_lane_topology(
-    lanes: dict[int, schema.RoadPolyline],
-    undefined_lane_ids: list[int],
-    valid_lane_ids: set[int],
-) -> None:
-    """Infer undefined lane types from connected lanes and drop missing or disconnected references.
-
-    Keep entry and exit directions from py123d, which already orients nuPlan connections.
-    The previous endpoint-distance reversal created cycles on broken WOMD links.
-    """
-    # PY123D-REPORT[nuplan]: most nuPlan lane connectors come out of py123d as LaneType.UNDEFINED.
-    # PY123D-REPORT[wod-motion]: some WOMD entry/exit refs point at lanes up to ~100 m away.
-    gap_sq = MAX_LANE_GAP**2
-    exits_by_lane = {lane_id: set(lane.exit_lanes) for lane_id, lane in lanes.items()}
-
-    def _gap_sq(src_id: int, dst_id: int) -> float:
-        src_end = cast("np.ndarray", lanes[src_id].polyline)[-1, :2]
-        return float(((src_end - cast("np.ndarray", lanes[dst_id].polyline)[0, :2]) ** 2).sum())
-
-    def _connected(src_id: int, dst_id: int) -> bool:
-        # A dropped lane joins its successor sideways; a neighbour reaching that successor end to start marks the merge
-        neighbor_ids = [*lanes[src_id].left_neighbor, *lanes[src_id].right_neighbor]
-        return _gap_sq(src_id, dst_id) <= gap_sq or (
-            _gap_sq(src_id, dst_id) <= NEIGHBOR_GAP[1] ** 2
-            and any(
-                nid in valid_lane_ids and dst_id in exits_by_lane[nid] and _gap_sq(nid, dst_id) <= gap_sq
-                for nid in neighbor_ids
-            )
-        )
-
-    for lane_id, element in lanes.items():
-        element.entry_lanes = [lid for lid in element.entry_lanes if lid in valid_lane_ids and _connected(lid, lane_id)]
-        element.exit_lanes = [lid for lid in element.exit_lanes if lid in valid_lane_ids and _connected(lane_id, lid)]
-        element.left_neighbor = [lid for lid in element.left_neighbor if lid in valid_lane_ids]
-        element.right_neighbor = [lid for lid in element.right_neighbor if lid in valid_lane_ids]
-
-    for lane_id in undefined_lane_ids:
-        lane = lanes[lane_id]
-        connected_types = {lanes[nid].type for nid in [*lane.entry_lanes, *lane.exit_lanes]}
-        if len(connected_types) == 1:
-            lane.type = connected_types.pop()
-
-
-def _drop_partial_neighbors(lanes: dict[int, schema.RoadPolyline]) -> None:
-    """Keep a left or right neighbour only if it runs alongside the lane over a lane change's length."""
-    # PY123D-REPORT[wod-motion]: WOMD neighbours carry the index range where two lanes are adjacent. py123d keeps one
-    # neighbour per side and drops the range, so lanes side by side for a few metres come out as whole-lane neighbours.
-    for lane in lanes.values():
-        line = cast("np.ndarray", lane.polyline)  # lanes always carry a centerline
-        lane.left_neighbor = [
-            ref for ref in lane.left_neighbor if _alongside(line, cast("np.ndarray", lanes[ref].polyline), 1.0)
-        ]
-        lane.right_neighbor = [
-            ref for ref in lane.right_neighbor if _alongside(line, cast("np.ndarray", lanes[ref].polyline), -1.0)
-        ]
-
-
-def _alongside(line: np.ndarray, other: np.ndarray, side: float) -> bool:
-    """Return True when ``other`` runs parallel to ``line`` on ``side`` (+1 left, -1 right) long enough."""
-    line, other = line[:, :2], other[:, :2]
-    steps = np.diff(line, axis=0)
-    step_norms = np.linalg.norm(steps, axis=1)
-    cum = np.r_[0.0, np.cumsum(step_norms)]
-    other_steps = np.diff(other, axis=0)
-    other_norms = np.linalg.norm(other_steps, axis=1)
-    other_length = float(other_norms.sum())
-    if cum[-1] <= 0 or other_length <= 0:
-        return False
-    samples = np.arange(0.0, cum[-1], 1.0)
-    points = np.column_stack([np.interp(samples, cum, line[:, 0]), np.interp(samples, cum, line[:, 1])])
-    seg_idx = np.clip(np.searchsorted(cum, samples, side="right") - 1, 0, len(steps) - 1)
-    direction = steps[seg_idx] / np.maximum(step_norms[seg_idx, None], 1e-9)
-
-    sq = np.maximum((other_steps**2).sum(1), 1e-9)
-    dx = points[:, None, 0] - other[:-1, 0]
-    dy = points[:, None, 1] - other[:-1, 1]
-    t = np.clip((dx * other_steps[:, 0] + dy * other_steps[:, 1]) / sq, 0.0, 1.0)
-    rx = t * other_steps[:, 0] - dx
-    ry = t * other_steps[:, 1] - dy
-    nearest = (rx * rx + ry * ry).argmin(1)
-    p_idx = np.arange(len(points))
-    rel_x = rx[p_idx, nearest]
-    rel_y = ry[p_idx, nearest]
-    lateral = side * (direction[:, 0] * rel_y - direction[:, 1] * rel_x)
-    other_dir = other_steps[nearest] / np.sqrt(sq[nearest])[:, None]
-    parallel = (direction * other_dir).sum(1) > np.cos(NEIGHBOR_MAX_ANGLE)
-    adjacent = (lateral > NEIGHBOR_GAP[0]) & (lateral < NEIGHBOR_GAP[1]) & parallel
-    return adjacent.sum() >= min(NEIGHBOR_MIN_OVERLAP, 0.5 * min(cum[-1], other_length))
-
-
-def _fill_missing_speed_limits(lanes: dict[int, schema.RoadPolyline]) -> None:
-    """Give each lane with an unknown speed limit the limit of its nearest connected lane via BFS."""
-    # PY123D-REPORT[opendrive]: py123d only copies road-type speeds one hop into junction lanes and matches the
-    # unit "mps" where OpenDRIVE spells "m/s", leaving ~50% of CARLA Town01-10 lanes without a limit.
-    # PY123D-REPORT[wod-motion]: WOMD lanes with speed_limit_mph == 0 come through as unknown.
-    queue = collections.deque(lane_id for lane_id, lane in lanes.items() if lane.speed_limit_mps > 0)
-    while queue:
-        lane = lanes[queue.popleft()]
-        for ref in [*lane.entry_lanes, *lane.exit_lanes]:
-            if lanes[ref].speed_limit_mps <= 0:
-                lanes[ref].speed_limit_mps = lane.speed_limit_mps
-                queue.append(ref)
-
-
-def _trim_end_hooks(line: np.ndarray) -> np.ndarray:
-    """Remove points near a centerline's ends when a segment turns more than ``HOOK_MIN_TURN``.
-
-    Check the first and last ``HOOK_MAX_LENGTH`` against the chord to the first point at least 1 m away.
-    Keep both endpoints.
-    """
-    # PY123D-REPORT[opendrive]: ~2% of Town12/13 junction lane centerlines start or end with a 0.25 m zig-zag
-    # that turns the lane's end heading and spikes its curvature.
-    if len(line) < 3:
-        return line
-    hook_sq = HOOK_MAX_LENGTH**2
-    cos_min = np.cos(HOOK_MIN_TURN)
-    for _ in range(2):
-        if len(line) >= 3 and ((line[1, :2] - line[0, :2]) ** 2).sum() < hook_sq:
-            dist_sq = ((line[:, :2] - line[0, :2]) ** 2).sum(axis=1)
-            if (dist_sq >= 1.0).any() and (dist_sq >= hook_sq).any():
-                chord = line[np.argmax(dist_sq >= 1.0), :2] - line[0, :2]
-                end = int(np.argmax(dist_sq >= hook_sq))  # first point past the end stretch
-                steps = np.diff(line[: end + 1, :2], axis=0)
-                cos_turn = steps @ chord / np.maximum(np.linalg.norm(steps, axis=1) * np.linalg.norm(chord), 1e-12)
-                if (cos_turn < cos_min).any():
-                    line = np.delete(line, np.arange(1, end), axis=0)
-        line = line[::-1]
-    return line
-
-
-def drop_duplicate_lines(elements: dict[int, schema.RoadPolyline]) -> None:
-    """Remove road lines that repeat an earlier line of the same type, in either direction or resampled."""
-    # PY123D-REPORT[nuplan,opendrive]: ~40% of road lines come twice, once per adjacent lane, often reversed and
-    # sometimes sampled differently. CARLA types the reversed copy of a DASH_SOLID line as SOLID_DASH, so reversed
-    # lines also match across that pair.
-    ids = [eid for eid, element in elements.items() if element.is_line]
-    if len(ids) < 2:
-        return
-    polylines = [cast("np.ndarray", elements[eid].polyline) for eid in ids]  # road lines always carry one
-    types = np.array([elements[eid].type for eid in ids], dtype=int)
-    mirrored = types.copy()
-    for dash_solid, solid_dash in (
-        (puffer_types.RoadLineType.DASH_SOLID_YELLOW, puffer_types.RoadLineType.SOLID_DASH_YELLOW),
-        (puffer_types.RoadLineType.DASH_SOLID_WHITE, puffer_types.RoadLineType.SOLID_DASH_WHITE),
-    ):
-        mirrored[types == dash_solid], mirrored[types == solid_dash] = solid_dash, dash_solid
-    ends = np.array([polyline[[0, -1], :2] for polyline in polylines]).reshape(-1, 2, 2)
-    pts = shapely.points(ends.min(axis=1))
-    i, j = shapely.STRtree(pts).query(pts, predicate="dwithin", distance=LINE_DUPLICATE_DISTANCE * np.sqrt(2.0))
-    same_type = types[i] == types[j]
-    mask = (i < j) & (same_type | (types[i] == mirrored[j]))
-    i, j, same_type = i[mask], j[mask], same_type[mask]
-    same = same_type & (np.linalg.norm(ends[i] - ends[j], axis=-1).max(-1) < LINE_DUPLICATE_DISTANCE)
-    flipped = np.linalg.norm(ends[i] - ends[j, ::-1], axis=-1).max(-1) < LINE_DUPLICATE_DISTANCE
-    cand = same | flipped
-    i, j = i[cand], j[cand]
-    if len(i) == 0:
-        return
-    geoms_i = [shapely.LineString(polylines[idx][:, :2]) for idx in i]
-    geoms_j = [shapely.LineString(polylines[idx][:, :2]) for idx in j]
-    dup = shapely.hausdorff_distance(geoms_i, geoms_j) < LINE_DUPLICATE_DISTANCE
-    for k in np.unique(j[dup]):
-        del elements[ids[k]]
-
-
 def _lane_speed_limit(lane: Any, source: str) -> float:
     """Return a lane's speed limit in m/s, or -1 if unknown.
 
@@ -838,7 +587,7 @@ def _lane_speed_limit(lane: Any, source: str) -> float:
 
 
 def _map_speed_limits(map_api: py123d_api.MapAPI, speed_limit_source: str = "road") -> dict[int, float]:
-    """Return speed limits for all map lanes, filling unknown limits with ``_fill_missing_speed_limits``."""
+    """Return speed limits for all map lanes, filling unknown limits with ``fill_missing_speed_limits``."""
     objs: list[Any] = list(map_api.get_all_map_objects_in_layer(map_objects.MapLayer.LANE))
     ids = {obj.object_id for obj in objs}
     lanes = {
@@ -851,7 +600,7 @@ def _map_speed_limits(map_api: py123d_api.MapAPI, speed_limit_source: str = "roa
         )
         for obj in objs
     }
-    _fill_missing_speed_limits(lanes)
+    fill_missing_speed_limits(lanes)
     return {lane_id: lane.speed_limit_mps for lane_id, lane in lanes.items()}
 
 

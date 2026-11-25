@@ -5,7 +5,7 @@ Level 2 adds finite-value, reference, and physics checks.
 """
 
 import numpy as np
-from shapely.geometry import LineString, MultiPoint, Point
+from shapely.geometry import LineString, Point
 from shapely.geometry.base import BaseGeometry
 from shapely.strtree import STRtree
 
@@ -66,7 +66,6 @@ def validate_scenario(
     _validate_stop_zones(stop_zones, errors)
     _validate_traffic_lights(traffic_lights, length, scenario.polylines, errors)
     _validate_traffic_controls(scenario.traffic_controls, length, errors)
-    _validate_lane_graph(scenario.lane_graph, errors)
 
     if errors or level < 2:
         return errors
@@ -79,9 +78,8 @@ def validate_scenario(
     _validate_lane_refs(scenario, stop_zones, lane_ids, errors)
     if scenario.agents:
         _validate_ego(scenario.agents, length, meta.dt, errors)
-        _validate_agent_sizes(scenario.agents, "Agent", errors)
-    if scenario.objects:
-        _validate_agent_sizes(scenario.objects, "Object", errors)
+    for prefix, items in (("Agent", scenario.agents), ("Object", scenario.objects)):
+        _validate_agent_sizes(items, prefix, errors)
     _validate_road_edge_z_overlap(scenario.polylines, errors)
 
     return errors
@@ -122,7 +120,6 @@ def _validate_map_elements(
         if surface.layer not in puffer_types.SURFACE_LAYERS:
             errors.append(f"Map {eid} surface layer {surface.layer} is not a surface layer")
         _validate_geometry(surface, "polygon", f"Map {eid}", 3, errors)
-    has_lane_lengths = any(elem.is_lane and elem.cum_length is not None for elem in polylines.values())
     for eid, elem in polylines.items():
         types = puffer_types.POLYLINE_TYPES.get(elem.layer)
         if types is None or elem.type not in types:
@@ -132,12 +129,6 @@ def _validate_map_elements(
             for key in ("entry_lanes", "exit_lanes"):
                 if not isinstance(getattr(elem, key, None), list):
                     errors.append(f"Map {eid} missing or invalid {key}")
-            if has_lane_lengths:
-                expected = len(elem.polyline) if isinstance(elem.polyline, np.ndarray) else 0
-                if not isinstance(elem.cum_length, np.ndarray) or elem.cum_length.shape != (expected,):
-                    errors.append(f"Map {eid} cum_length must be shape ({expected},)")
-
-        if elem.is_lane:
             for key in ("left_boundary", "right_boundary"):
                 if getattr(elem, key) is not None:
                     _validate_geometry(elem, key, f"Map {eid}", 0, errors)
@@ -185,24 +176,6 @@ def _validate_traffic_controls(traffic_controls: list[schema.TrafficControl], le
         errors.append("TrafficControl ids must be unique")
 
 
-def _validate_lane_graph(lane_graph: dict | None, errors: list[str]) -> None:
-    if lane_graph is None:
-        return
-    if not isinstance(lane_graph, dict):
-        errors.append("lane_graph must be a dict")
-        return
-    lane_ids = lane_graph.get("lane_ids")
-    distances = lane_graph.get("distances")
-    if not isinstance(lane_ids, list):
-        errors.append("lane_graph.lane_ids must be a list")
-        return
-    if not isinstance(distances, np.ndarray) or distances.shape != (len(lane_ids), len(lane_ids)):
-        errors.append(
-            f"lane_graph.distances must be shape ({len(lane_ids)}, {len(lane_ids)}), "
-            f"got {getattr(distances, 'shape', None)}"
-        )
-
-
 # Semantic checks
 
 
@@ -215,12 +188,8 @@ def _validate_no_nan_inf(scenario: schema.PufferScenario, errors: list[str]) -> 
                     errors.append(f"{prefix} {eid} {field} contains NaN or Inf")
 
     for eid, elem in [*scenario.polylines.items(), *scenario.surfaces.items()]:
-        for key in ("polyline", "polygon", "left_boundary", "right_boundary", "cum_length"):
-            if (
-                (arr := getattr(elem, key, None)) is not None
-                and isinstance(arr, np.ndarray)
-                and not np.all(np.isfinite(arr))
-            ):
+        for key in ("polyline", "polygon", "left_boundary", "right_boundary"):
+            if isinstance(arr := getattr(elem, key, None), np.ndarray) and not np.all(np.isfinite(arr)):
                 errors.append(f"Map {eid} {key} contains NaN or Inf")
 
     for index, control in enumerate(scenario.traffic_controls):
@@ -228,9 +197,6 @@ def _validate_no_nan_inf(scenario: schema.PufferScenario, errors: list[str]) -> 
             errors.append(f"TrafficControl {index} stop_line contains NaN or Inf")
         if not np.isfinite(control.heading):
             errors.append(f"TrafficControl {index} heading must be finite")
-
-    if scenario.lane_graph is not None and np.any(np.isnan(scenario.lane_graph["distances"])):
-        errors.append("lane_graph.distances contains NaN")
 
 
 def _validate_ego(agents: dict[int, schema.Track], length: int, dt: float, errors: list[str]) -> None:
@@ -262,7 +228,7 @@ def _validate_lane_topology(map_data: dict[int, schema.RoadPolyline], lane_ids: 
     for eid, elem in map_data.items():
         if not elem.is_lane:
             continue
-        for key in ("entry_lanes", "exit_lanes", "left_neighbor", "right_neighbor"):
+        for key in schema.MAP_REF_KEYS:
             for ref in getattr(elem, key):
                 if ref not in lane_ids:
                     errors.append(f"Lane {eid} {key} references non-existent lane {ref}")
@@ -303,15 +269,6 @@ def _validate_lane_refs(
                 if lane_id not in lane_ids:
                     errors.append(f"Track {track_id} route references non-lane element {lane_id}")
 
-    if scenario.lane_graph is None:
-        return
-    graph_lane_ids = scenario.lane_graph["lane_ids"]
-    if len(graph_lane_ids) != len(set(graph_lane_ids)):
-        errors.append("lane_graph.lane_ids contains duplicates")
-    for lane_id in graph_lane_ids:
-        if lane_id not in lane_ids:
-            errors.append(f"lane_graph.lane_ids references non-lane element {lane_id}")
-
 
 def _validate_agent_sizes(items: dict[int, schema.Track], prefix: str, errors: list[str]) -> None:
     for eid, ds in items.items():
@@ -338,26 +295,16 @@ def _intersection_points(geom: BaseGeometry) -> list[Point]:
         return []
     if isinstance(geom, Point):
         return [geom]
-    if isinstance(geom, MultiPoint):
-        return list(geom.geoms)
     if hasattr(geom, "geoms"):
         return [p for g in geom.geoms for p in _intersection_points(g)]
     if isinstance(geom, LineString):
-        coords = list(geom.coords)
-        return [Point(coords[0]), Point(coords[-1])] if coords else []
+        return [Point(geom.coords[0]), Point(geom.coords[-1])]
     return []
 
 
 def _validate_road_edge_z_overlap(map_data: dict[int, schema.RoadPolyline], errors: list[str]) -> None:
-    edges = [
-        (eid, np.asarray(elem.polyline))
-        for eid, elem in map_data.items()
-        if elem.is_edge
-        and isinstance(elem.polyline, np.ndarray)
-        and elem.polyline.ndim == 2
-        and elem.polyline.shape[0] >= 2
-        and elem.polyline.shape[1] >= 3
-    ]
+    # Schema checks passed, so every polyline is an (N >= 2, 3) array
+    edges = [(eid, elem.polyline) for eid, elem in map_data.items() if elem.is_edge and elem.polyline is not None]
     if len(edges) < 2:
         return
 
